@@ -1,0 +1,654 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from './useAuth';
+import { toast } from '@/hooks/use-toast';
+import { sanitizeError } from '@/lib/errorHandling';
+
+export type StatusPedido = 'rascunho' | 'em_producao' | 'pronto' | 'entregue' | 'cancelado';
+export type StatusPagamento = 'aguardando' | 'parcial' | 'quitado';
+export type FormaPagamento = 'pix' | 'cartao' | 'boleto' | 'dinheiro';
+
+export interface PedidoItemGrade {
+  codigo: string;
+  nome: string;
+  quantidade: number;
+}
+
+export interface DetalheItem {
+  tipo_detalhe: string;
+  valor: string;
+}
+
+export interface PedidoItem {
+  id?: string;
+  produto_id: string;
+  quantidade: number;
+  valor_unitario: number;
+  valor_total?: number;
+  observacoes?: string;
+  foto_modelo_url?: string;
+  tipo_estampa_id?: string;
+  grades?: PedidoItemGrade[];
+  detalhes?: DetalheItem[];
+}
+
+export interface PedidoFormData {
+  data_pedido?: string;
+  cliente_id: string;
+  data_entrega?: string;
+  observacao?: string;
+  caminho_arquivos?: string;
+  status: StatusPedido;
+  itens: PedidoItem[];
+}
+
+// Buscar lista de pedidos com filtros
+export const usePedidos = (filters?: {
+  status?: StatusPedido | StatusPedido[];
+  statusPagamento?: StatusPagamento | string[];
+  clienteId?: string;
+  vendedorId?: string;
+  busca?: string; // Busca por número do pedido ou nome do cliente
+  dataInicio?: string;
+  dataFim?: string;
+}) => {
+  return useQuery({
+    queryKey: ['pedidos', filters],
+    queryFn: async () => {
+      let query = supabase
+        .from('pedidos')
+        .select(`
+          *,
+          imagem_aprovacao_url,
+          imagem_aprovada,
+          cliente:clientes(id, nome_razao_social, telefone, whatsapp),
+          vendedor:profiles(id, nome),
+          etapa_producao:etapa_producao(id, nome_etapa, cor_hex),
+          itens:pedido_itens(id, foto_modelo_url, produto:produtos(id, nome))
+        `)
+        .order('numero_pedido', { ascending: false })
+        .order('data_pedido', { ascending: false });
+
+      if (filters?.status) {
+        if (Array.isArray(filters.status)) {
+          query = query.in('status', filters.status as StatusPedido[]);
+        } else {
+          query = query.eq('status', filters.status);
+        }
+      }
+      if (filters?.statusPagamento) {
+        if (Array.isArray(filters.statusPagamento)) {
+          query = query.in('status_pagamento', filters.statusPagamento as StatusPagamento[]);
+        } else {
+          query = query.eq('status_pagamento', filters.statusPagamento);
+        }
+        // Excluir pedidos com valor zero ao filtrar por status de pagamento
+        query = query.gt('valor_total', 0);
+      }
+      if (filters?.clienteId) {
+        query = query.eq('cliente_id', filters.clienteId);
+      }
+      if (filters?.vendedorId) {
+        query = query.eq('vendedor_id', filters.vendedorId);
+      }
+      if (filters?.dataInicio) {
+        query = query.gte('data_pedido', `${filters.dataInicio}T00:00:00`);
+      }
+      if (filters?.dataFim) {
+        const dataFimDate = new Date(filters.dataFim);
+        dataFimDate.setDate(dataFimDate.getDate() + 1);
+        const dataFimFormatada = dataFimDate.toISOString().split('T')[0];
+        query = query.lt('data_pedido', `${dataFimFormatada}T00:00:00`);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      
+      // Filtrar por busca (número do pedido, nome do cliente ou telefone) no lado do cliente
+      if (filters?.busca) {
+        const buscaLower = filters.busca.toLowerCase();
+        const buscaNumero = parseInt(filters.busca);
+        // Remover caracteres não numéricos para comparar telefone
+        const buscaTelefone = filters.busca.replace(/\D/g, '');
+        
+        return data?.filter((pedido: any) => {
+          // Buscar por número do pedido
+          if (!isNaN(buscaNumero) && pedido.numero_pedido === buscaNumero) {
+            return true;
+          }
+          // Buscar por nome do cliente
+          if (pedido.cliente?.nome_razao_social?.toLowerCase().includes(buscaLower)) {
+            return true;
+          }
+          // Buscar por telefone do cliente
+          if (buscaTelefone && pedido.cliente?.telefone?.replace(/\D/g, '').includes(buscaTelefone)) {
+            return true;
+          }
+          // Buscar por whatsapp do cliente
+          if (buscaTelefone && pedido.cliente?.whatsapp?.replace(/\D/g, '').includes(buscaTelefone)) {
+            return true;
+          }
+          return false;
+        }) || [];
+      }
+
+      return data;
+    },
+  });
+};
+
+// Buscar pedido específico
+export const usePedido = (id?: string) => {
+  return useQuery({
+    queryKey: ['pedido', id],
+    queryFn: async () => {
+      if (!id) return null;
+
+      const { data, error } = await supabase
+        .from('pedidos')
+        .select(`
+          *,
+          cliente:clientes(*),
+          vendedor:profiles(*),
+          itens:pedido_itens(
+            *,
+            produto:produtos(*),
+            tipo_estampa:tipo_estampa(id, nome_tipo_estampa),
+            detalhes:pedido_item_detalhes(*),
+            grades:pedido_item_grades(*)
+          )
+        `)
+        .eq('id', id)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!id,
+  });
+};
+
+// Criar novo pedido
+export const useCreatePedido = () => {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (formData: PedidoFormData) => {
+      if (!user) throw new Error('Usuário não autenticado');
+
+      const { itens, ...pedidoData } = formData;
+
+      // Corrigir datas: enviar com T12:00:00 para evitar shift de timezone
+      const pedidoPayload = {
+        ...pedidoData,
+        data_pedido: pedidoData.data_pedido ? `${pedidoData.data_pedido}T12:00:00` : undefined,
+        data_entrega: pedidoData.data_entrega ? `${pedidoData.data_entrega}T12:00:00` : undefined,
+        vendedor_id: user.id,
+      };
+
+      // Inserir o pedido
+      const { data: pedido, error: pedidoError } = await supabase
+        .from('pedidos')
+        .insert(pedidoPayload)
+        .select()
+        .single();
+
+      if (pedidoError) throw pedidoError;
+
+      // Inserir os itens
+      const itensComPedidoId = itens.map(item => ({
+        pedido_id: pedido.id,
+        produto_id: item.produto_id,
+        quantidade: item.quantidade,
+        valor_unitario: item.valor_unitario,
+        observacoes: item.observacoes || null,
+        foto_modelo_url: item.foto_modelo_url || null,
+        tipo_estampa_id: item.tipo_estampa_id || null, // Converter string vazia para null
+      }));
+
+      const { data: itensData, error: itensError } = await supabase
+        .from('pedido_itens')
+        .insert(itensComPedidoId)
+        .select();
+
+      if (itensError) throw itensError;
+
+      // Inserir grades de tamanhos e detalhes se houver
+      for (let i = 0; i < itens.length; i++) {
+        const item = itens[i];
+        const itemData = itensData?.[i];
+        
+        if (itemData) {
+          // Grades
+          if (item.grades && item.grades.length > 0) {
+            const { error: gradesError } = await supabase
+              .from('pedido_item_grades')
+              .insert(
+                item.grades.map((grade) => ({
+                  pedido_item_id: itemData.id,
+                  tamanho_codigo: grade.codigo,
+                  tamanho_nome: grade.nome,
+                  quantidade: grade.quantidade,
+                }))
+              );
+
+            if (gradesError) throw gradesError;
+          }
+
+          // Detalhes
+          if (item.detalhes && item.detalhes.length > 0) {
+            const { error: detalhesError } = await supabase
+              .from('pedido_item_detalhes')
+              .insert(
+                item.detalhes.map((detalhe) => ({
+                  pedido_item_id: itemData.id,
+                  tipo_detalhe: detalhe.tipo_detalhe,
+                  valor: detalhe.valor,
+                }))
+              );
+
+            if (detalhesError) throw detalhesError;
+          }
+        }
+      }
+
+      // Calcular valor total dos itens
+      const valorTotal = itens.reduce((sum, item) => 
+        sum + (item.quantidade * item.valor_unitario), 0
+      );
+
+      // Pagamento não é mais criado automaticamente
+      // Vendedor deve lançar manualmente os pagamentos
+
+      return pedido;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pedidos'] });
+      toast({
+        title: 'Sucesso',
+        description: 'Pedido criado com sucesso!',
+      });
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: 'Erro ao criar pedido',
+        description: sanitizeError(error),
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+// Atualizar pedido
+export const useUpdatePedido = (id: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (formData: PedidoFormData) => {
+      // Validar permissão de edição
+      const { data: userResponse } = await supabase.auth.getUser();
+      if (!userResponse.user) throw new Error('Usuário não autenticado');
+
+      // Tenta usar a RPC principal; se não existir, aplica fallback robusto
+      let podeEditar = false;
+      const permRes = await supabase.rpc('pode_editar_pedido' as any, {
+        p_pedido_id: id,
+        p_usuario_id: userResponse.user.id,
+      });
+
+      if (permRes.error) {
+        // Fallback robusto para QUALQUER erro na RPC
+        console.warn('RPC pode_editar_pedido falhou, aplicando fallback:', permRes.error);
+        
+        // 1) Admin pode sempre editar
+        try {
+          const { data: isAdmin, error: adminError } = await supabase.rpc('is_admin' as any, {
+            _user_id: userResponse.user.id,
+          });
+          
+          if (!adminError && isAdmin) {
+            podeEditar = true;
+          } else {
+            // 2) Não-admin: verificar se tem pagamento aprovado
+            const { data: pagamentosAprovados, error: pagError } = await supabase
+              .from('pagamentos')
+              .select('id')
+              .eq('pedido_id', id)
+              .eq('status', 'aprovado')
+              .eq('estornado', false)
+              .limit(1);
+            
+            if (pagError) {
+              console.error('Erro ao verificar pagamentos:', pagError);
+              podeEditar = false;
+            } else {
+              // Pode editar se NÃO tiver pagamento aprovado
+              podeEditar = !pagamentosAprovados || pagamentosAprovados.length === 0;
+            }
+          }
+        } catch (e) {
+          console.error('Erro no fallback:', e);
+          podeEditar = false;
+        }
+      } else {
+        podeEditar = permRes.data || false;
+      }
+
+      if (!podeEditar) {
+        throw new Error('Este pedido possui pagamentos aprovados e não pode ser editado. Apenas administradores podem editar pedidos com pagamentos.');
+      }
+
+      const { itens, ...pedidoData } = formData;
+
+      // Corrigir datas: enviar com T12:00:00 para evitar shift de timezone
+      const pedidoPayload = {
+        ...pedidoData,
+        data_pedido: pedidoData.data_pedido ? `${pedidoData.data_pedido}T12:00:00` : undefined,
+        data_entrega: pedidoData.data_entrega ? `${pedidoData.data_entrega}T12:00:00` : undefined,
+      };
+
+      // Atualizar o pedido (triggers SQL registrarão mudanças automaticamente)
+      const { error: pedidoError } = await supabase
+        .from('pedidos')
+        .update(pedidoPayload)
+        .eq('id', id);
+
+      if (pedidoError) throw pedidoError;
+
+      // Sincronizar itens usando ID do item (não produto_id) para suportar múltiplos itens do mesmo produto
+      const { data: itensAntigos, error: itensAntigosError } = await supabase
+        .from('pedido_itens')
+        .select('id, produto_id, quantidade, valor_unitario, observacoes, tipo_estampa_id, foto_modelo_url')
+        .eq('pedido_id', id);
+
+      if (itensAntigosError) throw itensAntigosError;
+
+      // Mapear itens antigos por ID
+      const antigoPorId = new Map<string, any>(
+        (itensAntigos || []).map((i: any) => [i.id, i])
+      );
+
+      // Separar itens existentes (têm id) e novos (não têm id)
+      const itensExistentes = (itens || []).filter(i => i.id && antigoPorId.has(i.id));
+      const itensNovos = (itens || []).filter(i => !i.id);
+      
+      // IDs dos itens que continuam no formulário
+      const idsNoFormulario = new Set(itensExistentes.map(i => i.id!));
+      
+      // Itens a remover: estão no banco mas não no formulário
+      const idsParaRemover = (itensAntigos || [])
+        .filter((i: any) => !idsNoFormulario.has(i.id))
+        .map((i: any) => i.id);
+
+      // Atualizar itens existentes
+      for (const item of itensExistentes) {
+        const oldItem = antigoPorId.get(item.id!);
+        if (!oldItem) continue;
+
+        // Atualizar o item
+        await supabase
+          .from('pedido_itens')
+          .update({
+            produto_id: item.produto_id,
+            quantidade: item.quantidade,
+            valor_unitario: item.valor_unitario,
+            observacoes: item.observacoes || null,
+            foto_modelo_url: item.foto_modelo_url || null,
+            tipo_estampa_id: item.tipo_estampa_id || null,
+          })
+          .eq('id', item.id);
+
+        // Recriar grades
+        await supabase
+          .from('pedido_item_grades')
+          .delete()
+          .eq('pedido_item_id', item.id);
+
+        if (item.grades && item.grades.length > 0) {
+          await supabase
+            .from('pedido_item_grades')
+            .insert(
+              item.grades.map((grade) => ({
+                pedido_item_id: item.id,
+                tamanho_codigo: grade.codigo,
+                tamanho_nome: grade.nome,
+                quantidade: grade.quantidade,
+              }))
+            );
+        }
+
+        // Recriar detalhes
+        await supabase
+          .from('pedido_item_detalhes')
+          .delete()
+          .eq('pedido_item_id', item.id);
+
+        if (item.detalhes && item.detalhes.length > 0) {
+          await supabase
+            .from('pedido_item_detalhes')
+            .insert(
+              item.detalhes.map((detalhe) => ({
+                pedido_item_id: item.id,
+                tipo_detalhe: detalhe.tipo_detalhe,
+                valor: detalhe.valor,
+              }))
+            );
+        }
+      }
+
+      // Remover itens que não estão mais no formulário
+      if (idsParaRemover.length > 0) {
+        await supabase
+          .from('pedido_item_grades')
+          .delete()
+          .in('pedido_item_id', idsParaRemover);
+
+        await supabase
+          .from('pedido_item_detalhes')
+          .delete()
+          .in('pedido_item_id', idsParaRemover);
+
+        const { error: deleteError } = await supabase
+          .from('pedido_itens')
+          .delete()
+          .in('id', idsParaRemover);
+        if (deleteError) throw deleteError;
+      }
+
+      // Inserir novos itens
+      if (itensNovos.length > 0) {
+        const itensParaInserir = itensNovos.map((item) => ({
+          pedido_id: id,
+          produto_id: item.produto_id,
+          quantidade: item.quantidade,
+          valor_unitario: item.valor_unitario,
+          observacoes: item.observacoes || null,
+          foto_modelo_url: item.foto_modelo_url || null,
+          tipo_estampa_id: item.tipo_estampa_id || null,
+        }));
+
+        const { data: novosItensData, error: insertError } = await supabase
+          .from('pedido_itens')
+          .insert(itensParaInserir)
+          .select();
+        if (insertError) throw insertError;
+
+        // Inserir grades e detalhes dos novos itens
+        for (let i = 0; i < itensNovos.length; i++) {
+          const item = itensNovos[i];
+          const itemData = novosItensData?.[i];
+          
+          if (itemData) {
+            if (item.grades && item.grades.length > 0) {
+              await supabase
+                .from('pedido_item_grades')
+                .insert(
+                  item.grades.map((grade) => ({
+                    pedido_item_id: itemData.id,
+                    tamanho_codigo: grade.codigo,
+                    tamanho_nome: grade.nome,
+                    quantidade: grade.quantidade,
+                  }))
+                );
+            }
+
+            if (item.detalhes && item.detalhes.length > 0) {
+              await supabase
+                .from('pedido_item_detalhes')
+                .insert(
+                  item.detalhes.map((detalhe) => ({
+                    pedido_item_id: itemData.id,
+                    tipo_detalhe: detalhe.tipo_detalhe,
+                    valor: detalhe.valor,
+                  }))
+                );
+            }
+          }
+        }
+      }
+
+      // ===== VERIFICAÇÃO AUTOMÁTICA DE PREÇOS APÓS EDIÇÃO =====
+      // Buscar se o pedido tinha flag de aprovação
+      const { data: pedidoAtual } = await supabase
+        .from('pedidos')
+        .select('requer_aprovacao_preco')
+        .eq('id', id)
+        .single();
+
+      if (pedidoAtual?.requer_aprovacao_preco) {
+        // Verificar se todos os preços estão dentro da faixa agora
+        let todosOk = true;
+        
+        for (const item of itens || []) {
+          const { data: faixaData } = await supabase.rpc('buscar_faixa_preco', {
+            p_produto_id: item.produto_id,
+            p_quantidade: item.quantidade,
+          });
+
+          if (faixaData && faixaData.length > 0) {
+            const faixa = faixaData[0];
+            const precoMin = Number(faixa.preco_minimo);
+            const valor = Number(item.valor_unitario);
+
+            if (valor < precoMin) {
+              todosOk = false;
+              break;
+            }
+          }
+        }
+
+        // Se todos os preços estão OK, remover flag e aprovar automaticamente
+        if (todosOk) {
+          await supabase
+            .from('pedidos')
+            .update({ requer_aprovacao_preco: false })
+            .eq('id', id);
+
+          // Buscar solicitação pendente e aprovar automaticamente
+          const { data: solicitacaoPendente } = await supabase
+            .from('pedidos_aprovacao')
+            .select('id')
+            .eq('pedido_id', id)
+            .eq('status', 'pendente')
+            .maybeSingle();
+
+          if (solicitacaoPendente) {
+            await supabase
+              .from('pedidos_aprovacao')
+              .update({
+                status: 'aprovado',
+                observacao_admin: 'Aprovado automaticamente após correção dos preços pelo vendedor.',
+                analisado_por: userResponse.user.id,
+                data_analise: new Date().toISOString(),
+              })
+              .eq('id', solicitacaoPendente.id);
+
+            // Adicionar observação no pedido
+            const { data: pedidoObs } = await supabase
+              .from('pedidos')
+              .select('observacao')
+              .eq('id', id)
+              .single();
+
+            const obsAtual = pedidoObs?.observacao || '';
+            const novaObs = obsAtual 
+              ? `${obsAtual}\n\nPreços corrigidos pelo vendedor. Aprovação automática concedida.`
+              : 'Preços corrigidos pelo vendedor. Aprovação automática concedida.';
+
+            await supabase
+              .from('pedidos')
+              .update({ observacao: novaObs })
+              .eq('id', id);
+          }
+
+          toast({
+            title: 'Preços corrigidos! ✅',
+            description: 'Todos os preços estão dentro da faixa permitida. A solicitação de aprovação foi removida automaticamente.',
+          });
+        }
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pedidos'] });
+      queryClient.invalidateQueries({ queryKey: ['pedido', id] });
+      queryClient.invalidateQueries({ queryKey: ['pedido-historico', id] });
+      queryClient.invalidateQueries({ queryKey: ['pedidos-aprovacao-pendentes'] });
+      queryClient.invalidateQueries({ queryKey: ['pedido-aprovacao'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-geral'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-vendedor'] });
+      toast({
+        title: 'Sucesso',
+        description: 'Pedido atualizado com sucesso!',
+      });
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: 'Erro ao atualizar pedido',
+        description: sanitizeError(error),
+        variant: 'destructive',
+      });
+    },
+  });
+};
+
+// Deletar pedido
+export const useDeletePedido = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      // Validar permissão de exclusão (apenas admin)
+      const { data: userResponse } = await supabase.auth.getUser();
+      if (!userResponse.user) throw new Error('Usuário não autenticado');
+
+      const { data: isAdmin, error: adminError } = await supabase.rpc('is_admin' as any, {
+        _user_id: userResponse.user.id
+      });
+
+      if (adminError) throw adminError;
+      if (!isAdmin) {
+        throw new Error('Apenas administradores podem excluir pedidos.');
+      }
+
+      const { error } = await supabase.from('pedidos').delete().eq('id', id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pedidos'] });
+      toast({
+        title: 'Sucesso',
+        description: 'Pedido deletado com sucesso!',
+      });
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: 'Erro ao excluir pedido',
+        description: sanitizeError(error),
+        variant: 'destructive',
+      });
+    },
+  });
+};

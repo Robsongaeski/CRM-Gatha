@@ -1,0 +1,11 @@
+export { default as DashboardRH } from './DashboardRH';
+export { default as ColaboradoresLista } from './ColaboradoresLista';
+export { default as ColaboradorForm } from './ColaboradorForm';
+export { default as ColaboradorDetalhes } from './ColaboradorDetalhes';
+export { default as HistoricoSalarial } from './HistoricoSalarial';
+export { default as ControleFerias } from './ControleFerias';
+export { default as FechamentoMensal } from './FechamentoMensal';
+export { default as BonificacoesLista } from './BonificacoesLista';
+export { default as MimosControle } from './MimosControle';
+export { default as CalendarioCorporativo } from './CalendarioCorporativo';
+export { default as RelatoriosRH } from './RelatoriosRH';

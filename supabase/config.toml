@@ -1,0 +1,52 @@
+project_id = "lyjzutjrmvgoeibaoizz"
+
+[functions.admin-reset-password]
+verify_jwt = false
+
+[functions.admin-update-email]
+verify_jwt = false
+
+[functions.verificar-retornos-leads]
+verify_jwt = false
+
+[functions.wbuy-webhook]
+verify_jwt = false
+
+[functions.send-whatsapp]
+verify_jwt = false
+
+[functions.receive-whatsapp-webhook]
+verify_jwt = false
+
+[functions.whatsapp-instance-manage]
+verify_jwt = false
+
+[functions.process-whatsapp-queue]
+verify_jwt = false
+
+[functions.gerar-tarefas-recorrentes]
+verify_jwt = false
+
+[functions.export-whatsapp-conversations]
+verify_jwt = false
+
+[functions.verificar-propostas-pendentes]
+verify_jwt = false
+
+[functions.cleanup-whatsapp-media]
+verify_jwt = false
+
+[functions.wbuy-api-proxy]
+verify_jwt = false
+
+[functions.wbuy-sync-orders]
+verify_jwt = false
+
+[functions.wbuy-daily-sync]
+verify_jwt = false
+
+[functions.receive-whatsapp-cloud-webhook]
+verify_jwt = false
+
+[functions.meta-embedded-signup]
+verify_jwt = false
