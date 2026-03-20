@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { WhatsappConversation, useCreateSystemMessage } from '@/hooks/whatsapp/useWhatsappConversations';
 import { useWhatsappMessages, useSendWhatsappMessage, useMarkMessagesAsRead } from '@/hooks/whatsapp/useWhatsappMessages';
 import { useAssignConversation, useFinishConversation, useUpdateConversation } from '@/hooks/whatsapp/useWhatsappConversations';
@@ -710,19 +712,63 @@ export default function ChatArea({
             <div className="text-center text-[#667781]">Carregando mensagens...</div>
           ) : (
             <>
-              {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={{
-                  id: msg.id,
-                  direction: msg.from_me ? 'outgoing' : 'incoming',
-                  type: msg.message_type,
-                  content: msg.content,
-                  media_url: msg.media_url,
-                  media_mimetype: msg.media_mime_type,
-                  status: msg.status,
-                  created_at: msg.created_at,
-                  quoted_message: msg.quoted_content ? { content: msg.quoted_content } : null,
-                }} />
-              ))}
+              {messages.map((msg, index) => {
+                const currentDate = new Date(msg.created_at);
+                const prevMsg = index > 0 ? messages[index - 1] : null;
+                const prevDate = prevMsg ? new Date(prevMsg.created_at) : null;
+                
+                let showDateDivider = false;
+                if (!prevDate) {
+                  showDateDivider = true;
+                } else if (
+                  currentDate.getDate() !== prevDate.getDate() ||
+                  currentDate.getMonth() !== prevDate.getMonth() ||
+                  currentDate.getFullYear() !== prevDate.getFullYear()
+                ) {
+                  showDateDivider = true;
+                }
+
+                const formatDateText = (date: Date) => {
+                  const today = new Date();
+                  const yesterday = new Date(today);
+                  yesterday.setDate(yesterday.getDate() - 1);
+                  
+                  if (date.toDateString() === today.toDateString()) {
+                    return 'Hoje';
+                  } else if (date.toDateString() === yesterday.toDateString()) {
+                    return 'Ontem';
+                  } else {
+                    return format(date, "dd/MM/yyyy");
+                  }
+                };
+
+                return (
+                  <div key={msg.id} className="flex flex-col">
+                    {showDateDivider && (
+                      <div className="flex justify-center my-3">
+                        <span className="bg-[#e7f3ff] text-[#3b5998] text-xs px-3 py-1 rounded-lg shadow-sm border border-[#d0e3f7]">
+                          {formatDateText(currentDate)}
+                        </span>
+                      </div>
+                    )}
+                    <MessageBubble 
+                      message={{
+                        id: msg.id,
+                        direction: msg.from_me ? 'outgoing' : 'incoming',
+                        type: msg.message_type,
+                        content: msg.content,
+                        media_url: msg.media_url,
+                        media_mimetype: msg.media_mime_type,
+                        status: msg.status,
+                        created_at: msg.created_at,
+                        quoted_message: msg.quoted_content ? { content: msg.quoted_content } : null,
+                      }} 
+                      senderName={msg.sender_name}
+                      instanceName={conversation.instance?.nome}
+                    />
+                  </div>
+                );
+              })}
               
               {/* Mensagem interna de atendimento finalizado */}
               {conversation.status === 'finished' && conversation.finished_user && (

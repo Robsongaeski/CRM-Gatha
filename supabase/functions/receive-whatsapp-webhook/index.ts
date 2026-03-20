@@ -404,81 +404,81 @@ serve(async (req) => {
     }
 
     // Download de mídia via Evolution API (NUNCA direto!) - Stickers e Videos NÃO são salvos no storage para economizar espaço
-    if (['image', 'audio', 'document'].includes(messageType) && evolutionApiUrl && evolutionApiKey) {
+    if (['image', 'audio', 'document'].includes(messageType)) {
       try {
-        console.log('Tentando baixar mídia:', messageType, 'da URL:', evolutionApiUrl);
+        // Buscar configurações da Evolution API no banco para garantir sincronia com a UI
+        const { data: configs } = await supabase
+          .from('system_config')
+          .select('key, value')
+          .in('key', ['evolution_api_url', 'evolution_api_key']);
         
-        const mediaResponse = await fetch(`${evolutionApiUrl}/chat/getBase64FromMediaMessage/${instanceName}`, {
-          method: 'POST',
-          headers: {
-            'apikey': evolutionApiKey,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            message: { key },
-            convertToMp4: false
-          }),
-          signal: AbortSignal.timeout(60000) // 60s timeout
-        });
+        const configMap: Record<string, string> = {};
+        for (const c of configs || []) configMap[c.key] = c.value;
+        
+        const finalApiUrl = (configMap['evolution_api_url'] || evolutionApiUrl || '').replace(/\/+$/, '').replace(/\/manager$/, '');
+        const finalApiKey = configMap['evolution_api_key'] || evolutionApiKey || '';
 
-        console.log('Media response status:', mediaResponse.status);
-
-        if (!mediaResponse.ok) {
-          const errorText = await mediaResponse.text();
-          console.error('Erro ao buscar mídia - status:', mediaResponse.status, 'resposta:', errorText);
-        } else {
-          const mediaData = await mediaResponse.json();
-          console.log('Media data recebido, tem base64:', !!mediaData.base64, 'mimetype:', mediaData.mimetype);
+        if (finalApiUrl && finalApiKey) {
+          console.log('Tentando baixar mídia:', messageType, 'da URL:', finalApiUrl, 'Instância:', instanceName);
           
-          if (mediaData.base64) {
-            // Remover prefixo data:mime;base64, se existir
-            const base64Clean = mediaData.base64.includes(',') 
-              ? mediaData.base64.split(',')[1] 
-              : mediaData.base64;
-            
-            const buffer = base64Decode(base64Clean);
-            console.log('Buffer size:', buffer.length);
-            
-            // Validar imagem pelos magic bytes
-            if (messageType === 'image' && !isValidImage(buffer)) {
-              console.log('Imagem inválida (magic bytes não conferem)');
-            } else if (buffer.length > 0) {
-              // Sanitizar e inferir mime type
-              let finalMimeType = sanitizeMimeType(mediaData.mimetype || mediaMimeType);
-              
-              // Se ainda for genérico, inferir pelos magic bytes
-              if (finalMimeType === 'application/octet-stream') {
-                finalMimeType = inferMimeTypeFromBuffer(buffer, messageType, finalMimeType);
-              }
-              
-              console.log('Mime type final:', finalMimeType);
-              
-              // Determinar extensão
-              const extMap: Record<string, string> = {
-                'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
-                'video/mp4': 'mp4', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3',
-                'application/pdf': 'pdf'
-              };
-              const ext = extMap[finalMimeType] || finalMimeType.split('/')[1] || 'bin';
-              const fileName = `${instance.id}/${Date.now()}_${mediaFilename || `media.${ext}`}`;
-              
-              const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('whatsapp-media')
-                .upload(fileName, buffer, {
-                  contentType: finalMimeType, // CRÍTICO: passar contentType correto
-                  upsert: false
-                });
+          const mediaResponse = await fetch(`${finalApiUrl}/chat/getBase64FromMediaMessage/${instanceName}`, {
+            method: 'POST',
+            headers: {
+              'apikey': finalApiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              message: { key },
+              convertToMp4: false
+            }),
+            signal: AbortSignal.timeout(60000) // 60s timeout
+          });
 
-              if (uploadError) {
-                console.error('Erro upload storage:', uploadError);
-              } else if (uploadData) {
-                const { data: publicUrl } = supabase.storage
+          console.log('Media response status:', mediaResponse.status);
+
+          if (!mediaResponse.ok) {
+            const errorText = await mediaResponse.text();
+            console.error('Erro ao buscar mídia - status:', mediaResponse.status, 'resposta:', errorText);
+          } else {
+            const mediaData = await mediaResponse.json();
+            console.log('Media data recebido, tem base64:', !!mediaData.base64, 'mimetype:', mediaData.mimetype);
+            
+            if (mediaData.base64) {
+              const base64Clean = mediaData.base64.includes(',') 
+                ? mediaData.base64.split(',')[1] 
+                : mediaData.base64;
+              
+              const buffer = base64Decode(base64Clean);
+              console.log('Buffer size:', buffer.length);
+              
+              if (messageType === 'image' && !isValidImage(buffer)) {
+                console.log('Imagem inválida (magic bytes não conferem)');
+              } else if (buffer.length > 0) {
+                let finalMimeType = sanitizeMimeType(mediaData.mimetype || mediaMimeType);
+                if (finalMimeType === 'application/octet-stream') {
+                  finalMimeType = inferMimeTypeFromBuffer(buffer, messageType, finalMimeType);
+                }
+                
+                const extMap: Record<string, string> = {
+                  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+                  'video/mp4': 'mp4', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3',
+                  'application/pdf': 'pdf'
+                };
+                const ext = extMap[finalMimeType] || finalMimeType.split('/')[1] || 'bin';
+                const fileName = `${instance.id}/${Date.now()}_${mediaFilename || `media.${ext}`}`;
+                
+                const { data: uploadData, error: uploadError } = await supabase.storage
                   .from('whatsapp-media')
-                  .getPublicUrl(fileName);
-                mediaUrl = publicUrl.publicUrl;
-                // Atualizar mediaMimeType para salvar no banco
-                mediaMimeType = finalMimeType;
-                console.log('Mídia salva com sucesso:', mediaUrl);
+                  .upload(fileName, buffer, { contentType: finalMimeType, upsert: false });
+
+                if (uploadError) {
+                  console.error('Erro upload storage:', uploadError);
+                } else if (uploadData) {
+                  const { data: publicUrl } = supabase.storage.from('whatsapp-media').getPublicUrl(fileName);
+                  mediaUrl = publicUrl.publicUrl;
+                  mediaMimeType = finalMimeType;
+                  console.log('Mídia salva com sucesso:', mediaUrl);
+                }
               }
             }
           }

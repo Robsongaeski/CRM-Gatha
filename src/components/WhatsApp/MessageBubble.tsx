@@ -49,9 +49,11 @@ const renderTextWithLinks = (text: string) => {
 
 interface MessageBubbleProps {
   message: Message;
+  instanceName?: string;
+  senderName?: string;
 }
 
-export default function MessageBubble({ message }: MessageBubbleProps) {
+export default function MessageBubble({ message, instanceName, senderName }: MessageBubbleProps) {
   const isOutgoing = message.direction === 'outgoing';
   const isSystemMessage = message.type === 'system';
   const [imageModalOpen, setImageModalOpen] = useState(false);
@@ -286,6 +288,16 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             </svg>
           </div>
           
+          {isOutgoing && senderName && (
+            <div className="text-[10px] font-medium text-[#5e6c76] mb-1 leading-tight flex items-center gap-1">
+              👤 {senderName}
+            </div>
+          )}
+          {!isOutgoing && instanceName && (
+            <div className="text-[10px] font-medium text-[#5e6c76] mb-1 leading-tight flex items-center gap-1">
+              📱 {instanceName}
+            </div>
+          )}
           {message.quoted_message && (
             <div className="text-xs mb-1 p-2 rounded bg-[#d1f4cc] border-l-4 border-[#06cf9c]">
               <p className="text-[#667781] line-clamp-2">{message.quoted_message.content}</p>

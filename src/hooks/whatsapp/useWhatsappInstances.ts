@@ -14,7 +14,7 @@ export interface WhatsappInstance {
   webhook_configured: boolean;
   created_at: string;
   updated_at: string;
-  api_type?: 'evolution' | 'cloud_api';
+  api_type?: 'evolution' | 'cloud_api' | 'uazapi';
   meta_phone_number_id?: string | null;
   meta_waba_id?: string | null;
   meta_display_phone_number?: string | null;
@@ -71,6 +71,46 @@ export function useCreateWhatsappInstance() {
     },
     onError: (error: Error) => {
       toast.error(`Erro ao criar instância: ${error.message}`);
+    }
+  });
+}
+
+// Hook para criar instância UAZAPI
+export function useCreateUazapiInstance() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { nome: string; instance_name: string }) => {
+      // Criar na UAZAPI via Edge Function
+      const { data: uazapiResult, error: uazapiError } = await supabase.functions
+        .invoke('whatsapp-instance-manage', {
+          body: { action: 'create', instanceName: data.instance_name, apiType: 'uazapi' }
+        });
+
+      if (uazapiError) throw uazapiError;
+      if (!uazapiResult.success) throw new Error(uazapiResult.error);
+
+      // Salvar no banco com api_type = 'uazapi'
+      const { data: instance, error } = await supabase
+        .from('whatsapp_instances')
+        .insert({
+          nome: data.nome,
+          instance_name: data.instance_name,
+          status: 'disconnected',
+          api_type: 'uazapi'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { instance, qrcode: uazapiResult.qrcode };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-instances'] });
+      toast.success('Instância UAZAPI criada com sucesso');
+    },
+    onError: (error: Error) => {
+      toast.error(`Erro ao criar instância UAZAPI: ${error.message}`);
     }
   });
 }

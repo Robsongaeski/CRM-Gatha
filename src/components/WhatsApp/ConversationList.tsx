@@ -4,7 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Search, Users, ArrowUp, ArrowDown, Layers, WifiOff } from 'lucide-react';
+import { Search, Users, ArrowUp, ArrowDown, Layers, WifiOff, User, LayoutGrid, ListFilter } from 'lucide-react';
 import { ConversationFilters, WhatsappConversation } from '@/hooks/whatsapp/useWhatsappConversations';
 import { useGroupedConversations, GroupedConversation } from '@/hooks/whatsapp/useGroupedConversations';
 import { formatDistanceToNow } from 'date-fns';
@@ -68,8 +68,8 @@ export default function ConversationList({
         </div>
 
         {/* Search */}
-        <div className="p-2 bg-white flex-shrink-0 border-b border-[#f0f2f5]">
-          <div className="relative">
+        <div className="p-2 bg-white flex-shrink-0 border-b border-[#f0f2f5] flex items-center gap-2">
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-2 h-4 w-4 text-[#54656f]" />
             <Input
               placeholder="Pesquisar conversa"
@@ -78,6 +78,21 @@ export default function ConversationList({
               className="pl-10 h-8 bg-[#f0f2f5] border-none rounded-lg text-sm text-[#111b21] placeholder:text-[#667781] focus-visible:ring-0"
             />
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "h-8 w-8 text-[#54656f] hover:bg-[#f0f2f5] shrink-0",
+              filters.status === 'unread' && "bg-[#20c978]/10 text-[#20c978] hover:bg-[#20c978]/20"
+            )}
+            onClick={() => onFiltersChange({ 
+              ...filters, 
+              status: filters.status === 'unread' ? 'active' : 'unread' 
+            })}
+            title={filters.status === 'unread' ? "Mostrar todas" : "Filtrar conversas não lidas"}
+          >
+            <ListFilter className="h-5 w-5" />
+          </Button>
         </div>
 
         {/* Filters */}
@@ -227,6 +242,22 @@ export default function ConversationList({
                               {unreadCount}
                             </span>
                           )}
+                        </div>
+                      </div>
+
+                      {/* Linha 3: Atendente e Instância (Mockup Style) */}
+                      <div className="flex items-center gap-3 mt-1 text-[11px] text-[#667781]">
+                        <div className="flex items-center gap-1 truncate max-w-[50%]">
+                          <User className="h-3 w-3 text-[#6a67f1]" />
+                          <span className="truncate">
+                            {group.assignedUser?.nome || 'Sem atendente'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 truncate max-w-[50%]">
+                          <LayoutGrid className="h-3 w-3 text-[#6a67f1]" />
+                          <span className="truncate">
+                            {group.instances.map(i => i.nome).join(', ')}
+                          </span>
                         </div>
                       </div>
                     </div>

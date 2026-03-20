@@ -62,12 +62,12 @@ export function useSystemConfig() {
       
       const { data, error } = await supabase
         .from('system_config')
-        .update({ 
+        .upsert({ 
+          key,
           value, 
           updated_by: user?.id,
           updated_at: new Date().toISOString()
         })
-        .eq('key', key)
         .select()
         .single();
       

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useWhatsappInstances, useCreateWhatsappInstance, useDeleteWhatsappInstance, useDisconnectInstance, useCheckInstanceStatus, useRestartInstance, WhatsappInstance } from '@/hooks/whatsapp/useWhatsappInstances';
+import { useWhatsappInstances, useCreateWhatsappInstance, useCreateUazapiInstance, useDeleteWhatsappInstance, useDisconnectInstance, useCheckInstanceStatus, useRestartInstance, WhatsappInstance } from '@/hooks/whatsapp/useWhatsappInstances';
 import { useUserInstances, useInstanceUsers } from '@/hooks/whatsapp/useWhatsappInstanceUsers';
 import { usePermissions } from '@/hooks/usePermissions';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Plus, Smartphone, Wifi, WifiOff, Trash2, QrCode, Settings2, Users, RefreshCw, Pencil, Phone, Info, RotateCcw, Cloud } from 'lucide-react';
+import { Plus, Smartphone, Wifi, WifiOff, Trash2, QrCode, Settings2, Users, RefreshCw, Pencil, Phone, Info, RotateCcw, Cloud, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { sanitizeError } from '@/lib/errorHandling';
@@ -32,6 +32,7 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
   // Usar instâncias do usuário (já filtradas por permissão)
   const { data: instances = [], isLoading, refetch } = useUserInstances();
   const createInstance = useCreateWhatsappInstance();
+  const createUazapiInstance = useCreateUazapiInstance();
   const deleteInstance = useDeleteWhatsappInstance();
   const disconnectInstance = useDisconnectInstance();
   const checkStatus = useCheckInstanceStatus();
@@ -41,6 +42,8 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
   const [showQRDialog, setShowQRDialog] = useState(false);
   const [selectedInstance, setSelectedInstance] = useState<WhatsappInstance | null>(null);
   const [newInstanceName, setNewInstanceName] = useState('');
+  const [showAddUazapiDialog, setShowAddUazapiDialog] = useState(false);
+  const [newUazapiInstanceName, setNewUazapiInstanceName] = useState('');
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [showUsersDialog, setShowUsersDialog] = useState(false);
   const [usersInstance, setUsersInstance] = useState<WhatsappInstance | null>(null);
@@ -59,6 +62,21 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
       toast.success('Instância criada com sucesso!');
       setShowAddDialog(false);
       setNewInstanceName('');
+    } catch (error: any) {
+      toast.error(sanitizeError(error));
+    }
+  };
+
+  const handleCreateUazapi = async () => {
+    if (!newUazapiInstanceName.trim()) {
+      toast.error('Digite um nome para a instância UAZAPI');
+      return;
+    }
+    const instanceName = newUazapiInstanceName.trim().toLowerCase().replace(/\s+/g, '-');
+    try {
+      await createUazapiInstance.mutateAsync({ nome: newUazapiInstanceName.trim(), instance_name: instanceName });
+      setShowAddUazapiDialog(false);
+      setNewUazapiInstanceName('');
     } catch (error: any) {
       toast.error(sanitizeError(error));
     }
@@ -152,6 +170,40 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
                 <Cloud className="h-4 w-4 mr-2" />
                 Cloud API (Oficial)
               </Button>
+              {/* UAZAPI */}
+              <Dialog open={showAddUazapiDialog} onOpenChange={setShowAddUazapiDialog}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-400 dark:hover:bg-emerald-950">
+                    <Zap className="h-4 w-4 mr-2" />
+                    UAZAPI
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <Zap className="h-4 w-4 text-emerald-600" /> Nova Instância UAZAPI
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label>Nome da Instância</Label>
+                      <Input
+                        placeholder="Ex: Suporte UAZAPI"
+                        value={newUazapiInstanceName}
+                        onChange={(e) => setNewUazapiInstanceName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleCreateUazapi()}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setShowAddUazapiDialog(false)}>Cancelar</Button>
+                    <Button onClick={handleCreateUazapi} disabled={createUazapiInstance.isPending} className="bg-emerald-600 hover:bg-emerald-700">
+                      {createUazapiInstance.isPending ? 'Criando...' : 'Criar'}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              {/* Evolution API */}
               <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
                 <DialogTrigger asChild>
                   <Button>
@@ -302,9 +354,10 @@ interface InstanceCardProps {
 function InstanceCard({ instance, onConnect, onDisconnect, onDelete, onCheckStatus, onRestart, onManageUsers, onEditAlias, disconnecting, checkingStatus, restarting }: InstanceCardProps) {
   const { data: users = [] } = useInstanceUsers(instance.id);
   const isCloudApi = instance.api_type === 'cloud_api';
+  const isUazapi = instance.api_type === 'uazapi';
   
   return (
-    <Card className={cn(isCloudApi && 'border-green-200 dark:border-green-800')}>
+    <Card className={cn(isCloudApi && 'border-green-200 dark:border-green-800', isUazapi && 'border-emerald-200 dark:border-emerald-800')}>
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
@@ -331,6 +384,11 @@ function InstanceCard({ instance, onConnect, onDisconnect, onDelete, onCheckStat
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-green-300 text-green-700 dark:border-green-700 dark:text-green-400">
                   <Cloud className="h-2.5 w-2.5 mr-0.5" />
                   Cloud API
+                </Badge>
+              ) : isUazapi ? (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400">
+                  <Zap className="h-2.5 w-2.5 mr-0.5" />
+                  UAZAPI
                 </Badge>
               ) : (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0">

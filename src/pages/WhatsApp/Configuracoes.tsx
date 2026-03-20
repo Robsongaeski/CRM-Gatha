@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Save, Server, MessageSquare, Settings, Eye, EyeOff, Shield, AlertTriangle, Cloud } from 'lucide-react';
+import { Save, Server, MessageSquare, Settings, Eye, EyeOff, Shield, AlertTriangle, Cloud, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import Instancias from './Instancias';
 import QuickRepliesTab from '@/components/WhatsApp/QuickRepliesTab';
@@ -17,19 +17,31 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 export default function Configuracoes() {
   const { configs, isLoading, getConfig, getMaskedValue, isSecret, updateConfig, isUpdating } = useSystemConfig();
   
+  // Evolution API
   const [apiUrl, setApiUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
+  // UAZAPI
+  const [uazapiUrl, setUazapiUrl] = useState('');
+  const [uazapiToken, setUazapiToken] = useState('');
+  const [showUazapiToken, setShowUazapiToken] = useState(false);
+  const [uazapiHasChanges, setUazapiHasChanges] = useState(false);
+  const [uazapiIsEditing, setUazapiIsEditing] = useState(false);
+
   // Load config from database
   useEffect(() => {
     if (!isLoading && configs.length > 0) {
+      // Evolution API
       const url = getConfig('evolution_api_url') || '';
       setApiUrl(url);
-      // API Key é carregada como masked por padrão
       setApiKey('');
+      // UAZAPI
+      const uUrl = getConfig('uazapi_api_url') || '';
+      setUazapiUrl(uUrl);
+      setUazapiToken('');
     }
   }, [isLoading, configs]);
 
@@ -51,26 +63,43 @@ export default function Configuracoes() {
     }
 
     try {
-      // Atualizar URL
       updateConfig({ key: 'evolution_api_url', value: apiUrl.trim() });
-      
-      // Atualizar API Key apenas se foi modificada (não está vazia e está em modo edição)
       if (apiKey.trim() && isEditing) {
         updateConfig({ key: 'evolution_api_key', value: apiKey.trim() });
       }
-      
       setHasChanges(false);
       setIsEditing(false);
       setApiKey('');
-      
-      toast.info('Nota: As Edge Functions usarão as configurações armazenadas no banco de dados.');
+      toast.success('Configurações da Evolution API salvas!');
     } catch (error: any) {
       toast.error('Erro ao salvar configurações');
     }
   };
 
+  const handleSaveUazapiConfig = async () => {
+    if (!uazapiUrl.trim()) {
+      toast.error('URL da UAZAPI é obrigatória');
+      return;
+    }
+    try {
+      updateConfig({ key: 'uazapi_api_url', value: uazapiUrl.trim() });
+      if (uazapiToken.trim() && uazapiIsEditing) {
+        updateConfig({ key: 'uazapi_admin_token', value: uazapiToken.trim() });
+      }
+      setUazapiHasChanges(false);
+      setUazapiIsEditing(false);
+      setUazapiToken('');
+      toast.success('Configurações da UAZAPI salvas!');
+    } catch (error: any) {
+      toast.error('Erro ao salvar configurações UAZAPI');
+    }
+  };
+
   const maskedApiKey = getMaskedValue('evolution_api_key');
   const hasApiKeyConfigured = Boolean(getConfig('evolution_api_key'));
+  const maskedUazapiToken = getMaskedValue('uazapi_admin_token');
+  const hasUazapiTokenConfigured = Boolean(getConfig('uazapi_admin_token'));
+  const hasUazapiUrlConfigured = Boolean(getConfig('uazapi_api_url'));
 
   return (
     <div className="p-6 space-y-6">
@@ -214,6 +243,104 @@ export default function Configuracoes() {
                       <span className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1">
                         <AlertTriangle className="h-4 w-4" />
                         Alterações não salvas
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Separator />
+
+          {/* UAZAPI Config */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Zap className="h-5 w-5 text-green-600" />
+                Configuração da UAZAPI
+              </CardTitle>
+              <CardDescription>
+                Configure a URL e Admin Token da sua conta <a href="https://uazapi.dev" target="_blank" rel="noopener noreferrer" className="underline">UAZAPI</a> para usar como provedor alternativo de WhatsApp
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              ) : (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="uazapi-url">URL da API</Label>
+                      <Input
+                        id="uazapi-url"
+                        placeholder="https://api.uazapi.dev"
+                        value={uazapiUrl}
+                        onChange={(e) => { setUazapiUrl(e.target.value); setUazapiHasChanges(true); }}
+                      />
+                      <p className="text-xs text-muted-foreground">URL base da sua instância UAZAPI</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="uazapi-token">Admin Token</Label>
+                      <div className="relative">
+                        {uazapiIsEditing ? (
+                          <Input
+                            id="uazapi-token"
+                            type={showUazapiToken ? 'text' : 'password'}
+                            placeholder="Digite o novo Admin Token"
+                            value={uazapiToken}
+                            onChange={(e) => { setUazapiToken(e.target.value); setUazapiHasChanges(true); setUazapiIsEditing(true); }}
+                            className="pr-10"
+                          />
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="uazapi-token-display"
+                              type="text"
+                              value={hasUazapiTokenConfigured ? maskedUazapiToken : '(não configurado)'}
+                              disabled
+                              className="font-mono bg-muted"
+                            />
+                            <Button type="button" variant="outline" size="sm" onClick={() => { setUazapiIsEditing(true); setUazapiToken(''); }}>
+                              Alterar
+                            </Button>
+                          </div>
+                        )}
+                        {uazapiIsEditing && (
+                          <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-full px-3" onClick={() => setShowUazapiToken(!showUazapiToken)}>
+                            {showUazapiToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                        )}
+                      </div>
+                      {uazapiIsEditing && (
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs text-muted-foreground">Digite o novo token para atualizar</p>
+                          <Button type="button" variant="ghost" size="sm" className="text-xs h-6" onClick={() => { setUazapiIsEditing(false); setUazapiToken(''); setUazapiHasChanges(false); }}>
+                            Cancelar
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <Button onClick={handleSaveUazapiConfig} disabled={isUpdating || !uazapiHasChanges}>
+                      <Save className="h-4 w-4 mr-2" />
+                      {isUpdating ? 'Salvando...' : 'Salvar Configurações UAZAPI'}
+                    </Button>
+                    {uazapiHasChanges && (
+                      <span className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                        <AlertTriangle className="h-4 w-4" />
+                        Alterações não salvas
+                      </span>
+                    )}
+                    {hasUazapiUrlConfigured && hasUazapiTokenConfigured && (
+                      <span className="text-sm text-green-600 flex items-center gap-1">
+                        <Zap className="h-4 w-4" />
+                        UAZAPI configurada
                       </span>
                     )}
                   </div>

@@ -112,6 +112,7 @@ export function useSendWhatsappMessage() {
       mediaFilename?: string;
       mediaMimeType?: string;
       quotedMessageId?: string;
+      senderName?: string;
     }) => {
       const { data, error } = await supabase.functions
         .invoke('send-whatsapp', {
@@ -125,7 +126,8 @@ export function useSendWhatsappMessage() {
             mediaFilename: params.mediaFilename,
             mediaMimeType: params.mediaMimeType,
             quotedMessageId: params.quotedMessageId,
-            conversationId: params.conversationId
+            conversationId: params.conversationId,
+            senderName: params.senderName
           }
         });
 
