@@ -248,9 +248,13 @@ export default function ConversationList({
                       {/* Linha 3: Atendente e Instância (Mockup Style) */}
                       <div className="flex items-center gap-3 mt-1 text-[11px] text-[#667781]">
                         <div className="flex items-center gap-1 truncate max-w-[50%]">
-                          <User className="h-3 w-3 text-[#6a67f1]" />
+                          {group.isGroup ? (
+                            <Users className="h-3 w-3 text-green-500" />
+                          ) : (
+                            <User className="h-3 w-3 text-[#6a67f1]" />
+                          )}
                           <span className="truncate">
-                            {group.assignedUser?.nome || 'Sem atendente'}
+                            {group.isGroup ? 'Grupo' : (group.assignedUser?.nome || 'Sem atendente')}
                           </span>
                         </div>
                         <div className="flex items-center gap-1 truncate max-w-[50%]">

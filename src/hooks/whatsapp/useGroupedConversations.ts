@@ -161,7 +161,7 @@ export function useGroupedConversations(conversations: WhatsappConversation[]): 
         lastMessageAt: primary.last_message_at,
         lastMessagePreview: primary.last_message_preview,
         cliente: primary.cliente,
-        assignedUser: convs.find(c => c.assigned_user)?.assigned_user || null,
+        assignedUser: primary.is_group ? null : (convs.find(c => c.assigned_user)?.assigned_user || null),
         instances: Array.from(uniqueInstancesMap.values()),
       });
     });

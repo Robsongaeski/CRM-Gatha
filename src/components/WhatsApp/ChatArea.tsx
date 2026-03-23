@@ -280,8 +280,8 @@ export default function ChatArea({
         console.error('[ChatArea] ❌ Erro na transferência:', transferError);
       }
     }
-    // Se não tem atendente ou está finalizada, atribuir ao usuário atual AUTOMATICAMENTE
-    else if (!conversation.assigned_to || conversation.status === 'finished') {
+    // Se não tem atendente ou está finalizada, atribuir ao usuário atual AUTOMATICAMENTE (apenas para conversas privadas)
+    else if ((!conversation.assigned_to || conversation.status === 'finished') && !conversation.is_group) {
       try {
         let userName = currentUserProfile?.nome;
         if (!userName) {

@@ -72,11 +72,11 @@ export function useWhatsappConversations(filters: ConversationFilters, allowedIn
 
       // Filtro de atribuição
       if (filters.assignment === 'mine' && user) {
-        // "mine" mostra APENAS minhas conversas
-        query = query.eq('assigned_to', user.id);
+        // "mine" mostra APENAS minhas conversas + grupos
+        query = query.or(`assigned_to.eq.${user.id},is_group.eq.true`);
       } else if (filters.assignment === 'mine_and_new' && user) {
-        // "mine_and_new" mostra minhas + sem atribuição (novas)
-        query = query.or(`assigned_to.eq.${user.id},assigned_to.is.null`);
+        // "mine_and_new" mostra minhas + sem atribuição (novas) + grupos
+        query = query.or(`assigned_to.eq.${user.id},assigned_to.is.null,is_group.eq.true`);
       }
 
       // Filtro de status
@@ -98,7 +98,7 @@ export function useWhatsappConversations(filters: ConversationFilters, allowedIn
         query = query.in('instance_id', allowedInstanceIds);
       }
 
-      const { data, error } = await query;
+      const { data, error } = await query.limit(100);
       if (error) throw error;
 
       // Busca client-side para nome/telefone/preview
@@ -118,19 +118,42 @@ export function useWhatsappConversations(filters: ConversationFilters, allowedIn
     }
   });
 
-  // Realtime subscription
+  // Realtime subscription - granular para evitar cascata de re-renders
   useEffect(() => {
     const channel = supabase
       .channel('whatsapp-conversations-changes')
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'whatsapp_conversations'
         },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'] });
+          // Para INSERT, fazemos refetch pois a nova conversa pode precisar do join
+          queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'], refetchType: 'active' });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'whatsapp_conversations'
+        },
+        (payload) => {
+          // Para UPDATE, atualiza diretamente no cache sem recarregar tudo
+          queryClient.setQueriesData(
+            { queryKey: ['whatsapp-conversations'], exact: false },
+            (old: WhatsappConversation[] | undefined) => {
+              if (!old) return old;
+              return old.map(conv =>
+                conv.id === payload.new.id
+                  ? { ...conv, ...(payload.new as Partial<WhatsappConversation>) }
+                  : conv
+              );
+            }
+          );
         }
       )
       .subscribe();
