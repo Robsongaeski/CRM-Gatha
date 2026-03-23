@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Send, MoreVertical, Users, UserPlus, CheckCircle2, RefreshCw, ArrowRightLeft, Smile, Paperclip, Image, FileText, X, Zap, ChevronRight, Search, WifiOff } from 'lucide-react';
+import { Send, MoreVertical, Users, UserPlus, CheckCircle2, RefreshCw, ArrowRightLeft, Smile, Paperclip, Image, FileText, X, Zap, ChevronRight, Search, WifiOff, Mic, Square, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { sanitizeError } from '@/lib/errorHandling';
@@ -20,6 +20,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import MessageBubble from './MessageBubble';
 import TransferirAtendimentoDialog from './TransferirAtendimentoDialog';
+import ForwardMessageDialog from './ForwardMessageDialog';
 
 interface ChatAreaProps {
   conversation: WhatsappConversation;
@@ -45,9 +46,17 @@ export default function ChatArea({
   const [isSending] = useState(false); // Mantido para compatibilidade visual
   const [showQuickRepliesPopover, setShowQuickRepliesPopover] = useState(false);
   const [quickReplySearch, setQuickReplySearch] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [replyingTo, setReplyingTo] = useState<any>(null);
+  const [showForwardDialog, setShowForwardDialog] = useState(false);
+  const [messageToForward, setMessageToForward] = useState<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingIntervalRef = useRef<number | null>(null);
 
   const { data: messages = [], isLoading } = useWhatsappMessages(conversation.id);
   const { data: quickReplies = [] } = useWhatsappQuickReplies();
@@ -301,6 +310,10 @@ export default function ChatArea({
       }
     }
 
+    // Capturar mensagem sendo respondida
+    const quotedMessageId = replyingTo?.id || replyingTo?.message_id_external;
+    setReplyingTo(null); // Limpar IMEDIATAMENTE a UI de resposta
+
     // Enviar em background (não bloqueia a UI)
     (async () => {
       try {
@@ -352,6 +365,8 @@ export default function ChatArea({
           mediaBase64,
           mediaMimeType,
           mediaFilename,
+          quotedMessageId,
+          senderName: currentUserProfile?.nome || 'Atendente',
         });
       } catch (error: unknown) {
         toast.error('Erro ao enviar mensagem', { description: sanitizeError(error) });
@@ -541,6 +556,73 @@ export default function ChatArea({
     }
     // Reset input para permitir selecionar o mesmo arquivo novamente
     e.target.value = '';
+  };
+  
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/ogg; codecs=opus' });
+        if (audioBlob.size > 0) {
+          const file = new File([audioBlob], `audio-${Date.now()}.ogg`, { type: 'audio/ogg' });
+          setSelectedFile(file);
+          setPreviewUrl(URL.createObjectURL(audioBlob));
+        }
+        
+        // Limpar stream
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      recordingIntervalRef.current = window.setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+
+    } catch (error) {
+      console.error('Erro ao acessar microfone:', error);
+      toast.error('Erro ao acessar microfone. Verifique as permissões.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      audioChunksRef.current = []; // Limpar chunks para não processar no onstop
+      setIsRecording(false);
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+      toast.info('Gravação cancelada');
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const handleClearFile = () => {
@@ -765,6 +847,14 @@ export default function ChatArea({
                       }} 
                       senderName={msg.sender_name}
                       instanceName={conversation.instance?.nome}
+                      onReply={(msg) => {
+                        setReplyingTo(msg);
+                        inputRef.current?.focus();
+                      }}
+                      onForward={(msg) => {
+                        setMessageToForward(msg);
+                        setShowForwardDialog(true);
+                      }}
                     />
                   </div>
                 );
@@ -808,11 +898,37 @@ export default function ChatArea({
           </div>
         )}
 
+        {/* Quoted message preview */}
+        {replyingTo && (
+          <div className="px-4 py-2 bg-[#f0f2f5] border-b border-[#00a884]/20 flex items-center justify-between animate-in slide-in-from-bottom-2 duration-200">
+            <div className="flex-1 min-w-0 border-l-4 border-[#00a884] pl-3 py-1 bg-white/50 rounded-r-md">
+              <p className="text-xs font-semibold text-[#00a884] mb-0.5">
+                {replyingTo.direction === 'outgoing' ? 'Você' : (replyingTo.sender_name || 'Contato')}
+              </p>
+              <p className="text-sm text-[#54656f] truncate">
+                {replyingTo.content || (replyingTo.type === 'image' ? '📷 Foto' : replyingTo.type === 'video' ? '🎥 Vídeo' : replyingTo.type === 'audio' ? '🎵 Áudio' : '📄 Arquivo')}
+              </p>
+            </div>
+            <button 
+              onClick={() => setReplyingTo(null)}
+              className="p-1.5 text-[#54656f] hover:bg-black/5 rounded-full transition-colors ml-2"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
         {/* File preview */}
         {selectedFile && (
           <div className="px-4 py-2 bg-white border-b border-[#d1d7db] flex items-center gap-3">
             {previewUrl ? (
-              <img src={previewUrl} alt="Preview" className="w-12 h-12 object-cover rounded" />
+              selectedFile.type.startsWith('image/') || selectedFile.type.startsWith('video/') ? (
+                <img src={previewUrl} alt="Preview" className="w-12 h-12 object-cover rounded" />
+              ) : (
+                <div className="w-12 h-12 bg-[#00a884]/10 rounded flex items-center justify-center">
+                  <Mic className="h-6 w-6 text-[#00a884]" />
+                </div>
+              )
             ) : (
               <div className="w-12 h-12 bg-[#f0f2f5] rounded flex items-center justify-center">
                 <FileText className="h-6 w-6 text-[#54656f]" />
@@ -828,107 +944,142 @@ export default function ChatArea({
           </div>
         )}
 
-        <div className="px-4 py-3">
+        <div className={cn("px-4 py-3", isRecording && "bg-[#f0f2f5]")}>
           <div className="flex items-center gap-2">
-            {/* Emoji picker */}
-            <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
-              <PopoverTrigger asChild>
-                <button className="p-2 text-[#54656f] hover:text-[#3b4a54] transition-colors">
-                  <Smile className="h-6 w-6" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-2" side="top" align="start">
-                <div className="grid grid-cols-8 gap-1">
-                  {EMOJI_LIST.map((emoji) => (
-                    <button
-                      key={emoji}
-                      onClick={() => handleEmojiSelect(emoji)}
-                      className="w-8 h-8 flex items-center justify-center hover:bg-[#f0f2f5] rounded text-xl"
-                    >
-                      {emoji}
+            {isRecording ? (
+              <div className="flex-1 flex items-center justify-between bg-white border border-[#d1d7db] rounded-[24px] px-4 py-2 h-[44px] shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+                    <span className="text-sm font-medium text-[#111b21] tabular-nums">{formatTime(recordingTime)}</span>
+                  </div>
+                  <span className="text-sm text-[#667781] hidden sm:inline">Gravando áudio...</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button 
+                    onClick={cancelRecording}
+                    className="p-2 text-[#ea4335] hover:bg-red-50 rounded-full transition-colors"
+                    title="Cancelar"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </button>
+                  <button 
+                    onClick={stopRecording}
+                    className="p-2 text-[#00a884] hover:bg-green-50 rounded-full transition-colors"
+                    title="Enviar áudio"
+                  >
+                    <CheckCircle2 className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Emoji picker */}
+                <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+                  <PopoverTrigger asChild>
+                    <button className="p-2 text-[#54656f] hover:text-[#3b4a54] transition-colors">
+                      <Smile className="h-6 w-6" />
                     </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-2" side="top" align="start">
+                    <div className="grid grid-cols-8 gap-1">
+                      {EMOJI_LIST.map((emoji) => (
+                        <button
+                          key={emoji}
+                          onClick={() => handleEmojiSelect(emoji)}
+                          className="w-8 h-8 flex items-center justify-center hover:bg-[#f0f2f5] rounded text-xl"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
 
-            {/* File attachment */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"
-              onChange={handleFileSelect}
-            />
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="p-2 text-[#54656f] hover:text-[#3b4a54] transition-colors">
-                  <Paperclip className="h-6 w-6" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-2" side="top" align="start">
-                <div className="flex flex-col gap-1">
-                  <button
-                    onClick={() => {
-                      if (fileInputRef.current) {
-                        fileInputRef.current.accept = 'image/*,video/*';
-                        fileInputRef.current.click();
+                {/* File attachment */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"
+                  onChange={handleFileSelect}
+                />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button className="p-2 text-[#54656f] hover:text-[#3b4a54] transition-colors">
+                      <Paperclip className="h-6 w-6" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-2" side="top" align="start">
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => {
+                          if (fileInputRef.current) {
+                            fileInputRef.current.accept = 'image/*,video/*';
+                            fileInputRef.current.click();
+                          }
+                        }}
+                        className="flex items-center gap-2 px-3 py-2 hover:bg-[#f0f2f5] rounded text-sm text-[#111b21]"
+                      >
+                        <Image className="h-4 w-4 text-[#00a884]" />
+                        Fotos e vídeos
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (fileInputRef.current) {
+                            fileInputRef.current.accept = '.pdf,.doc,.docx,.xls,.xlsx,audio/*';
+                            fileInputRef.current.click();
+                          }
+                        }}
+                        className="flex items-center gap-2 px-3 py-2 hover:bg-[#f0f2f5] rounded text-sm text-[#111b21]"
+                      >
+                        <FileText className="h-4 w-4 text-[#5f66cd]" />
+                        Documento
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                <div className="flex-1">
+                  <textarea
+                    ref={inputRef}
+                    value={message}
+                    onChange={(e) => {
+                      setMessage(e.target.value);
+                      e.target.style.height = 'auto';
+                      e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSend();
                       }
                     }}
-                    className="flex items-center gap-2 px-3 py-2 hover:bg-[#f0f2f5] rounded text-sm text-[#111b21]"
-                  >
-                    <Image className="h-4 w-4 text-[#00a884]" />
-                    Fotos e vídeos
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (fileInputRef.current) {
-                        fileInputRef.current.accept = '.pdf,.doc,.docx,.xls,.xlsx,audio/*';
-                        fileInputRef.current.click();
-                      }
-                    }}
-                    className="flex items-center gap-2 px-3 py-2 hover:bg-[#f0f2f5] rounded text-sm text-[#111b21]"
-                  >
-                    <FileText className="h-4 w-4 text-[#5f66cd]" />
-                    Documento
-                  </button>
+                    placeholder="Mensagem"
+                    className="w-full bg-white rounded-lg px-4 py-2 text-[#111b21] placeholder:text-[#667781] focus:outline-none resize-none min-h-[44px] max-h-32 shadow-sm"
+                    rows={message.split('\n').length > 1 ? Math.min(message.split('\n').length, 5) : 1}
+                  />
                 </div>
-              </PopoverContent>
-            </Popover>
 
-            <div className="flex-1">
-              <textarea
-                ref={inputRef}
-                value={message}
-                onChange={(e) => {
-                  setMessage(e.target.value);
-                  e.target.style.height = 'auto';
-                  e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend();
-                  }
-                }}
-                placeholder="Mensagem"
-                className="w-full bg-white rounded-lg px-4 py-2 text-[#111b21] placeholder:text-[#667781] focus:outline-none resize-none min-h-[44px] max-h-32 shadow-sm"
-                rows={message.split('\n').length > 1 ? Math.min(message.split('\n').length, 5) : 1}
-              />
-            </div>
-
-            <button
-              onClick={handleSend}
-              disabled={(!message.trim() && !selectedFile) || isSending}
-              className={cn(
-                "p-2 rounded-full transition-colors",
-                message.trim() || selectedFile 
-                  ? "text-[#111b21] hover:bg-[#e9edef]" 
-                  : "text-[#54656f] cursor-not-allowed opacity-70"
-              )}
-            >
-              <Send className="h-6 w-6 ml-0.5" />
-            </button>
+                {message.trim() || selectedFile ? (
+                  <button
+                    onClick={handleSend}
+                    disabled={isSending}
+                    className="p-2 rounded-full text-[#111b21] hover:bg-[#e9edef] transition-colors"
+                  >
+                    <Send className="h-6 w-6 ml-0.5" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={startRecording}
+                    className="p-2 text-[#54656f] hover:text-[#3b4a54] transition-colors"
+                    title="Gravar áudio"
+                  >
+                    <Mic className="h-6 w-6" />
+                  </button>
+                )}
+              </>
+            )}
           </div>
         {/* Quick replies bar - ABAIXO do input */}
         {quickReplies.length > 0 && (
@@ -1018,6 +1169,18 @@ export default function ChatArea({
         onOpenChange={setShowTransferDialog}
         conversationId={conversation.id}
         instanceId={conversation.instance_id}
+      />
+
+      {/* Forward dialog */}
+      <ForwardMessageDialog
+        open={showForwardDialog}
+        onOpenChange={setShowForwardDialog}
+        message={messageToForward ? {
+          content: messageToForward.content,
+          type: messageToForward.type,
+          media_url: messageToForward.media_url,
+          media_mimetype: messageToForward.media_mimetype || messageToForward.media_mime_type
+        } : null}
       />
     </div>
     </div>

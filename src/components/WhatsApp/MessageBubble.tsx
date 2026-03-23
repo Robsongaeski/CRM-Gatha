@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Check, CheckCheck, X, Clock, AlertTriangle, Download, FileIcon } from 'lucide-react';
+import { Check, CheckCheck, X, Clock, AlertTriangle, Download, FileIcon, Reply, Forward, Mic } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -51,9 +51,11 @@ interface MessageBubbleProps {
   message: Message;
   instanceName?: string;
   senderName?: string;
+  onReply?: (message: Message) => void;
+  onForward?: (message: Message) => void;
 }
 
-export default function MessageBubble({ message, instanceName, senderName }: MessageBubbleProps) {
+export default function MessageBubble({ message, instanceName, senderName, onReply, onForward }: MessageBubbleProps) {
   const isOutgoing = message.direction === 'outgoing';
   const isSystemMessage = message.type === 'system';
   const [imageModalOpen, setImageModalOpen] = useState(false);
@@ -269,7 +271,7 @@ export default function MessageBubble({ message, instanceName, senderName }: Mes
 
   return (
     <>
-      <div className={cn('flex mb-0.5', isOutgoing ? 'justify-end' : 'justify-start')}>
+      <div className={cn('flex mb-0.5 group', isOutgoing ? 'justify-end' : 'justify-start')}>
         <div
           className={cn(
             'max-w-[65%] rounded-[7.5px] px-2 py-1 shadow-sm relative',
@@ -293,11 +295,7 @@ export default function MessageBubble({ message, instanceName, senderName }: Mes
               👤 {senderName}
             </div>
           )}
-          {!isOutgoing && instanceName && (
-            <div className="text-[10px] font-medium text-[#5e6c76] mb-1 leading-tight flex items-center gap-1">
-              📱 {instanceName}
-            </div>
-          )}
+          {/* Removido o nome da instância para mensagens recebidas conforme solicitado */}
           {message.quoted_message && (
             <div className="text-xs mb-1 p-2 rounded bg-[#d1f4cc] border-l-4 border-[#06cf9c]">
               <p className="text-[#667781] line-clamp-2">{message.quoted_message.content}</p>
@@ -317,6 +315,28 @@ export default function MessageBubble({ message, instanceName, senderName }: Mes
             {renderStatus()}
           </div>
           <div className="clear-both" />
+
+          {/* Botões de ação (Responder/Encaminhar) - Aparecem no hover do container pai */}
+          <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-inherit rounded-bl-lg pl-1 pb-1 z-10">
+            {onReply && (
+              <button
+                onClick={() => onReply(message)}
+                className="p-1.5 hover:bg-black/5 rounded-full text-[#667781] transition-colors"
+                title="Responder"
+              >
+                <Reply className="h-4 w-4" />
+              </button>
+            )}
+            {onForward && (
+              <button
+                onClick={() => onForward(message)}
+                className="p-1.5 hover:bg-black/5 rounded-full text-[#667781] transition-colors"
+                title="Encaminhar"
+              >
+                <Forward className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
