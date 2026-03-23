@@ -6,6 +6,7 @@ import {
   useDeleteQuickReply,
   MESSAGE_VARIABLES
 } from '@/hooks/whatsapp/useWhatsappQuickReplies';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -125,27 +126,34 @@ function SortableReplyItem({ reply, onEdit, onDelete }: SortableReplyItemProps) 
         </div>
       </div>
       <div className="flex gap-1 ml-2 flex-shrink-0">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onEdit(reply)}
-        >
-          <Pencil className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-destructive hover:text-destructive"
-          onClick={() => onDelete(reply.id)}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        {onEdit && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onEdit(reply)}
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+        )}
+        {onDelete && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-destructive hover:text-destructive"
+            onClick={() => onDelete(reply.id)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        )}
       </div>
     </div>
   );
 }
 
 export default function QuickRepliesTab() {
+  const { can, isAdmin } = usePermissions();
+  const canManage = isAdmin || can('whatsapp.respostas_rapidas.gerenciar');
+  
   const { data: replies = [], isLoading } = useAllWhatsappQuickReplies();
   const createReply = useCreateQuickReply();
   const updateReply = useUpdateQuickReply();
@@ -431,7 +439,7 @@ export default function QuickRepliesTab() {
                 Suas mensagens pré-definidas pessoais (cada usuário gerencia as suas)
               </CardDescription>
             </div>
-            {!showForm && (
+            {!showForm && canManage && (
               <Button onClick={handleNew}>
                 <Plus className="h-4 w-4 mr-2" />
                 Nova Resposta
@@ -463,8 +471,8 @@ export default function QuickRepliesTab() {
                     <SortableReplyItem
                       key={reply.id}
                       reply={reply}
-                      onEdit={handleEdit}
-                      onDelete={setDeleteId}
+                      onEdit={canManage ? handleEdit : undefined}
+                      onDelete={canManage ? setDeleteId : undefined}
                     />
                   ))}
                 </div>
