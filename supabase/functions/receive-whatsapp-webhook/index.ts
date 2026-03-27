@@ -97,6 +97,60 @@ function inferMimeTypeFromBuffer(buffer: Uint8Array, mediaType: string, fallback
   return fallback;
 }
 
+function extractHumanText(value: unknown, depth = 0): string {
+  if (depth > 3 || value === null || value === undefined) return '';
+
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return '';
+
+    if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+      try {
+        const parsed = JSON.parse(text);
+        const parsedText = extractHumanText(parsed, depth + 1);
+        if (parsedText) return parsedText;
+      } catch {
+        // segue para regex pseudo-objeto
+      }
+    }
+
+    const pseudoMatch = text.match(/(?:^|[,{]\s*)text\s*:\s*(['"])([\s\S]*?)\1/i);
+    if (pseudoMatch?.[2]) {
+      return pseudoMatch[2]
+        .replace(/\\n/g, '\n')
+        .replace(/\\'/g, "'")
+        .replace(/\\"/g, '"')
+        .trim();
+    }
+
+    return text;
+  }
+
+  if (typeof value === 'object') {
+    const obj = value as Record<string, any>;
+    const candidate =
+      obj.text ??
+      obj.body ??
+      obj.conversation ??
+      obj.caption ??
+      obj.title ??
+      obj.description ??
+      obj?.message?.text ??
+      obj?.message?.body ??
+      obj?.message?.conversation ??
+      obj?.message?.content?.text ??
+      obj?.content?.text ??
+      obj?.data?.text;
+
+    if (candidate !== null && candidate !== undefined) {
+      const nested = extractHumanText(candidate, depth + 1);
+      if (nested) return nested;
+    }
+  }
+
+  return '';
+}
+
 function parseEvolutionContact(contactData: any): { name: string | null; photoUrl: string | null } {
   const first = Array.isArray(contactData) ? contactData[0] : contactData;
   if (!first || typeof first !== 'object') return { name: null, photoUrl: null };
@@ -402,9 +456,11 @@ serve(async (req) => {
 
     // Processar diferentes tipos de mensagem
     if (message.conversation) {
-      content = message.conversation;
+      content = extractHumanText(message.conversation);
     } else if (message.extendedTextMessage) {
-      content = message.extendedTextMessage.text || '';
+      content = extractHumanText(message.extendedTextMessage.text || '');
+    } else if (message.content) {
+      content = extractHumanText(message.content);
     } else if (message.imageMessage) {
       messageType = 'image';
       content = message.imageMessage.caption || '';
@@ -456,6 +512,8 @@ serve(async (req) => {
       const loc = message.locationMessage;
       content = `📍 ${loc.degreesLatitude}, ${loc.degreesLongitude}`;
     }
+
+    content = extractHumanText(content) || content;
 
     // Extrair contextInfo (mensagem citada) - pode estar em vários lugares
     const contextInfo = data.contextInfo || 

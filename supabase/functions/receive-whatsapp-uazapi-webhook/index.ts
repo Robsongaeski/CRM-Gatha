@@ -502,6 +502,61 @@ function asText(value: unknown): string {
   return "";
 }
 
+function extractHumanText(value: unknown, depth = 0): string {
+  if (depth > 3 || value === null || value === undefined) return "";
+
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return "";
+
+    // JSON string real
+    if ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"))) {
+      try {
+        const parsed = JSON.parse(text);
+        const parsedText = extractHumanText(parsed, depth + 1);
+        if (parsedText) return parsedText;
+      } catch {
+        // segue para regex pseudo-objeto
+      }
+    }
+
+    // Formato pseudo-objeto: { text: '...', ... }
+    const pseudoMatch = text.match(/(?:^|[,{]\s*)text\s*:\s*(['"])([\s\S]*?)\1/i);
+    if (pseudoMatch?.[2]) {
+      return pseudoMatch[2]
+        .replace(/\\n/g, "\n")
+        .replace(/\\'/g, "'")
+        .replace(/\\"/g, "\"")
+        .trim();
+    }
+
+    return text;
+  }
+
+  if (typeof value === "object") {
+    const candidate = pick(value, [
+      "text",
+      "body",
+      "conversation",
+      "caption",
+      "title",
+      "description",
+      "message.text",
+      "message.body",
+      "message.conversation",
+      "message.content.text",
+      "content.text",
+      "data.text",
+    ]);
+    if (candidate !== null && candidate !== undefined) {
+      const fromCandidate = extractHumanText(candidate, depth + 1);
+      if (fromCandidate) return fromCandidate;
+    }
+  }
+
+  return asText(value).trim();
+}
+
 function pickTextFromMany(objects: any[], paths: string[]): string {
   for (const obj of objects) {
     if (!obj) continue;
@@ -1062,13 +1117,13 @@ serve(async (req) => {
         const messageContent = message?.content;
 
         if (message.conversation) {
-          content = message.conversation;
+          content = extractHumanText(message.conversation);
         } else if (message.extendedTextMessage) {
-          content = message.extendedTextMessage.text || "";
+          content = extractHumanText(message.extendedTextMessage.text || "");
         } else if (message.content) {
-          if (typeof message.content === "string") content = message.content;
+          if (typeof message.content === "string") content = extractHumanText(message.content);
           else if (message.content && typeof message.content === "object") {
-            content = pickTextFromMany([message.content], [
+            content = extractHumanText(message.content) || pickTextFromMany([message.content], [
               "text",
               "conversation",
               "extendedTextMessage.text",
@@ -1125,9 +1180,9 @@ serve(async (req) => {
           );
           const fallbackText = asText(fallbackContent);
           if (fallbackText) {
-            content = fallbackText;
+            content = extractHumanText(fallbackText);
           } else if (fallbackContent && typeof fallbackContent === "object") {
-            content = pickTextFromMany([fallbackContent], [
+            content = extractHumanText(fallbackContent) || pickTextFromMany([fallbackContent], [
               "text",
               "conversation",
               "extendedTextMessage.text",
@@ -1137,6 +1192,8 @@ serve(async (req) => {
             ]);
           }
         }
+
+        content = extractHumanText(content) || content;
 
         if (content === "[object Object]") content = "";
 

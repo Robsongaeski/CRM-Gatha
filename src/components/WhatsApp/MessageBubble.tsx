@@ -24,6 +24,47 @@ interface Message {
 // Regex para detectar URLs
 const URL_REGEX = /(https?:\/\/[^\s]+)/gi;
 
+function extractDisplayText(raw: string | null | undefined): string {
+  if (!raw) return '';
+  const text = String(raw).trim();
+  if (!text) return '';
+
+  // Tenta ler payload JSON real
+  if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object') {
+        const obj = parsed as Record<string, any>;
+        const fromObject =
+          obj.text ??
+          obj.body ??
+          obj.conversation ??
+          obj.caption ??
+          obj.title ??
+          obj.description ??
+          obj?.message?.text ??
+          obj?.message?.body ??
+          obj?.content?.text;
+        if (typeof fromObject === 'string' && fromObject.trim()) return fromObject.trim();
+      }
+    } catch {
+      // fallback para formato pseudo-objeto
+    }
+  }
+
+  // Tenta ler formato pseudo-objeto: { text: '...' , ... }
+  const pseudoMatch = text.match(/(?:^|[,{]\s*)text\s*:\s*(['"])([\s\S]*?)\1/i);
+  if (pseudoMatch?.[2]) {
+    return pseudoMatch[2]
+      .replace(/\\n/g, '\n')
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"')
+      .trim();
+  }
+
+  return text;
+}
+
 // Função para renderizar texto com links clicáveis
 const renderTextWithLinks = (text: string) => {
   const parts = text.split(URL_REGEX);
@@ -60,6 +101,8 @@ interface MessageBubbleProps {
 export default function MessageBubble({ message, senderName, isGroup = false, onReply, onForward }: MessageBubbleProps) {
   const isOutgoing = message.direction === 'outgoing';
   const isSystemMessage = message.type === 'system';
+  const normalizedContent = extractDisplayText(message.content);
+  const normalizedQuotedContent = extractDisplayText(message.quoted_message?.content ?? null);
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [modalImageUrl, setModalImageUrl] = useState<string | null>(null);
   const incomingGroupSender = !isOutgoing && isGroup
@@ -71,7 +114,7 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
     return (
       <div className="flex justify-center my-3">
         <div className="bg-[#e7f3ff] text-[#3b5998] text-xs px-4 py-2 rounded-lg max-w-[85%] text-center shadow-sm border border-[#d0e3f7]">
-          <p className="whitespace-pre-wrap">{message.content}</p>
+          <p className="whitespace-pre-wrap">{normalizedContent}</p>
           <span className="text-[10px] text-[#667781] mt-1 block">
             {format(new Date(message.created_at), "dd/MM 'às' HH:mm", { locale: ptBR })}
           </span>
@@ -130,8 +173,8 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
       // Document or other file - extract filename from URL or content
       const getFileName = () => {
         // Try to get filename from content (usually contains the original filename)
-        if (message.content && !message.content.includes('http')) {
-          return message.content;
+        if (normalizedContent && !normalizedContent.includes('http')) {
+          return normalizedContent;
         }
         // Try to extract from URL
         try {
@@ -234,7 +277,7 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
         <div className="bg-[#f0f2f5] rounded-lg p-3 mb-1">
           <p className="text-xs font-medium text-[#54656f] mb-1">Contato</p>
           <p className="text-sm text-[#111b21] break-words whitespace-pre-wrap">
-            {message.content || '[Contato]'}
+            {normalizedContent || '[Contato]'}
           </p>
         </div>
       );
@@ -331,13 +374,13 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
           {/* Removido o nome da instância para mensagens recebidas conforme solicitado */}
           {message.quoted_message && (
             <div className="text-xs mb-1 p-2 rounded bg-[#d1f4cc] border-l-4 border-[#06cf9c]">
-              <p className="text-[#667781] line-clamp-2">{message.quoted_message.content}</p>
+              <p className="text-[#667781] line-clamp-2">{normalizedQuotedContent}</p>
             </div>
           )}
           {renderMedia()}
-          {message.content && message.type !== 'contact' && (
+          {normalizedContent && message.type !== 'contact' && (
             <p className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px] inline-block float-left">
-              {renderTextWithLinks(message.content)}
+              {renderTextWithLinks(normalizedContent)}
               <span className="inline-block w-[60px] h-[1px]" />
             </p>
           )}

@@ -40,6 +40,23 @@ export default function ConversationList({
   onSortOrderChange,
   onConversationOpened,
 }: ConversationListProps) {
+  const normalizePreviewText = (raw: string | null | undefined) => {
+    if (!raw) return '';
+    const text = String(raw).trim();
+    if (!text) return '';
+
+    const pseudoMatch = text.match(/(?:^|[,{]\s*)text\s*:\s*(['"])([\s\S]*?)\1/i);
+    if (pseudoMatch?.[2]) {
+      return pseudoMatch[2]
+        .replace(/\\n/g, '\n')
+        .replace(/\\'/g, "'")
+        .replace(/\\"/g, '"')
+        .trim();
+    }
+
+    return text;
+  };
+
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -229,7 +246,7 @@ export default function ConversationList({
                           'text-sm truncate flex-1',
                           unreadCount > 0 ? 'text-[#111b21] font-medium' : 'text-[#667781]'
                         )}>
-                          {group.lastMessagePreview || 'Sem mensagens'}
+                          {normalizePreviewText(group.lastMessagePreview) || 'Sem mensagens'}
                         </p>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                           {hasMultipleInstances && (
