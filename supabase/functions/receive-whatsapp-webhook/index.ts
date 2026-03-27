@@ -6,6 +6,73 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HISTORY_DISABLED_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+function normalizeImportHistoryDays(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 7;
+  return Math.min(365, Math.max(1, Math.trunc(parsed)));
+}
+
+function parseIncomingTimestamp(value: unknown): Date | null {
+  if (value === null || value === undefined || value === '') return null;
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const asMs = value > 1_000_000_000_000 ? value : value * 1000;
+    const date = new Date(asMs);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d+(\.\d+)?$/.test(trimmed)) {
+      const numeric = Number(trimmed);
+      if (!Number.isFinite(numeric)) return null;
+      const asMs = numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
+      const date = new Date(asMs);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  return null;
+}
+
+function shouldSkipByHistoryPolicy(params: {
+  importHistoryEnabled: boolean;
+  importHistoryDays: number;
+  messageTimestamp: Date | null;
+}): { skip: boolean; reason: string } {
+  if (!params.messageTimestamp) {
+    return { skip: false, reason: 'no-timestamp' };
+  }
+
+  const ageMs = Date.now() - params.messageTimestamp.getTime();
+  if (!Number.isFinite(ageMs)) {
+    return { skip: false, reason: 'invalid-age' };
+  }
+
+  if (params.importHistoryEnabled) {
+    if (ageMs > params.importHistoryDays * DAY_MS) {
+      return { skip: true, reason: `older-than-${params.importHistoryDays}d` };
+    }
+    return { skip: false, reason: 'inside-history-window' };
+  }
+
+  if (ageMs > HISTORY_DISABLED_MAX_AGE_MS) {
+    return { skip: true, reason: 'stale-message-while-history-disabled' };
+  }
+
+  return { skip: false, reason: 'recent-message-while-history-disabled' };
+}
+
 // Normaliza telefone brasileiro
 function normalizePhone(phone: string): string {
   if (!phone) return '';
@@ -149,6 +216,21 @@ function extractHumanText(value: unknown, depth = 0): string {
   }
 
   return '';
+}
+
+function extractEvolutionMessageTimestamp(data: any, key: any, message: any): Date | null {
+  return parseIncomingTimestamp(
+    data?.messageTimestamp ??
+    data?.message_timestamp ??
+    data?.timestamp ??
+    data?.ts ??
+    data?.t ??
+    key?.timestamp ??
+    message?.messageTimestamp ??
+    message?.timestamp ??
+    message?.ts ??
+    message?.t
+  );
 }
 
 function parseEvolutionContact(contactData: any): { name: string | null; photoUrl: string | null } {
@@ -369,6 +451,27 @@ serve(async (req) => {
     const externalMessageId = key.id || data.messageId;
     const message = data.message || {};
     const pushName = data.pushName || '';
+    const importHistoryEnabled = Boolean(instance.import_history_enabled);
+    const importHistoryDays = normalizeImportHistoryDays(instance.import_history_days);
+    const messageTimestamp = extractEvolutionMessageTimestamp(data, key, message);
+    const historyDecision = shouldSkipByHistoryPolicy({
+      importHistoryEnabled,
+      importHistoryDays,
+      messageTimestamp,
+    });
+    if (historyDecision.skip) {
+      console.log('Mensagem ignorada por política de histórico:', {
+        instance: instanceName,
+        reason: historyDecision.reason,
+        importHistoryEnabled,
+        importHistoryDays,
+        messageTimestamp: messageTimestamp?.toISOString() || null,
+      });
+      return new Response(JSON.stringify({ success: true, ignored: true, reason: historyDecision.reason }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+    const messageTimestampIso = (messageTimestamp || new Date()).toISOString();
 
     // Ignorar broadcasts
     if (remoteJid?.includes('@broadcast')) {
@@ -671,11 +774,16 @@ serve(async (req) => {
 
     if (existingConversation) {
       conversation = existingConversation;
+      const incomingTs = messageTimestamp?.getTime() ?? Date.now();
+      const existingTs = conversation.last_message_at ? new Date(conversation.last_message_at).getTime() : 0;
+      const isNewerThanConversation = !Number.isFinite(existingTs) || incomingTs >= existingTs;
       
       // Atualizar conversa
       const updateData: any = {
-        last_message_at: new Date().toISOString(),
-        last_message_preview: content?.substring(0, 100) || `[${messageType}]`
+        last_message_at: isNewerThanConversation ? messageTimestampIso : conversation.last_message_at,
+        last_message_preview: isNewerThanConversation
+          ? (content?.substring(0, 100) || `[${messageType}]`)
+          : conversation.last_message_preview
       };
       
       // Incrementar unread apenas se não for mensagem própria
@@ -827,7 +935,7 @@ serve(async (req) => {
           contact_photo_url: isGroup ? null : contactPhotoUrl,
           status: 'pending',
           unread_count: fromMe ? 0 : 1,
-          last_message_at: new Date().toISOString(),
+          last_message_at: messageTimestampIso,
           last_message_preview: content?.substring(0, 100) || `[${messageType}]`
         })
         .select()
@@ -847,6 +955,7 @@ serve(async (req) => {
       .insert({
         conversation_id: conversation.id,
         instance_id: instance.id,
+        created_at: messageTimestampIso,
         message_id_external: externalMessageId,
         from_me: fromMe,
         sender_phone: senderPhone,

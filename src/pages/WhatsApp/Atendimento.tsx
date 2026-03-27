@@ -56,7 +56,8 @@ export default function Atendimento() {
   // Buscar conversas apenas das instâncias permitidas
   const { data: conversations = [], isLoading: loadingConversations } = useWhatsappConversations(
     filters,
-    allowedInstanceIds.length > 0 ? allowedInstanceIds : undefined
+    allowedInstanceIds.length > 0 ? allowedInstanceIds : undefined,
+    { limit: 100, searchLimit: 2000 },
   );
   
   const groupedConversations = useGroupedConversations(conversations);

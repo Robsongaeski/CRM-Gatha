@@ -4,6 +4,9 @@ import { useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+
+const DEFAULT_CONVERSATION_LIST_LIMIT = 1000;
+const CONVERSATION_SEARCH_LIMIT = 2000;
 export interface WhatsappConversation {
   id: string;
   instance_id: string;
@@ -50,13 +53,28 @@ export interface ConversationFilters {
   instanceId?: string;
 }
 
-export function useWhatsappConversations(filters: ConversationFilters, allowedInstanceIds?: string[]) {
+interface ConversationQueryOptions {
+  limit?: number;
+  searchLimit?: number;
+}
+
+export function useWhatsappConversations(
+  filters: ConversationFilters,
+  allowedInstanceIds?: string[],
+  options?: ConversationQueryOptions,
+) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const lastInvalidateAtRef = useRef(0);
 
   const query = useQuery({
-    queryKey: ['whatsapp-conversations', filters, allowedInstanceIds],
+    queryKey: [
+      'whatsapp-conversations',
+      filters,
+      allowedInstanceIds,
+      options?.limit ?? null,
+      options?.searchLimit ?? null,
+    ],
     queryFn: async () => {
       // Usar left join para manter conversas mesmo se instância foi removida
       // Hint necessário pois profiles tem 2 FK (assigned_to e finished_by)
@@ -99,7 +117,10 @@ export function useWhatsappConversations(filters: ConversationFilters, allowedIn
         query = query.in('instance_id', allowedInstanceIds);
       }
 
-      const { data, error } = await query.limit(1000);
+      const fetchLimit = filters.search
+        ? (options?.searchLimit ?? CONVERSATION_SEARCH_LIMIT)
+        : (options?.limit ?? DEFAULT_CONVERSATION_LIST_LIMIT);
+      const { data, error } = await query.limit(fetchLimit);
       if (error) throw error;
 
       // Busca client-side para nome/telefone/preview

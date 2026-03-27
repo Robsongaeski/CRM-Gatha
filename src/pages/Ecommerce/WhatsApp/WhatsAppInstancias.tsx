@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useWhatsappInstances, useCreateWhatsappInstance, useCreateUazapiInstance, useDeleteWhatsappInstance, useDisconnectInstance, useCheckInstanceStatus, useRestartInstance, WhatsappInstance } from '@/hooks/whatsapp/useWhatsappInstances';
+import { useCreateWhatsappInstance, useCreateUazapiInstance, useDeleteWhatsappInstance, useDisconnectInstance, useCheckInstanceStatus, useRestartInstance, WhatsappInstance } from '@/hooks/whatsapp/useWhatsappInstances';
 import { useUserInstances, useInstanceUsers } from '@/hooks/whatsapp/useWhatsappInstanceUsers';
 import { usePermissions } from '@/hooks/usePermissions';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Plus, Smartphone, Wifi, WifiOff, Trash2, QrCode, Settings2, Users, RefreshCw, Pencil, Phone, Info, RotateCcw, Cloud, Zap } from 'lucide-react';
@@ -25,6 +26,8 @@ interface WhatsAppInstanciasProps {
   hideQuickRepliesButton?: boolean;
 }
 
+const DEFAULT_IMPORT_HISTORY_DAYS = 7;
+
 export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: WhatsAppInstanciasProps) {
   const { isAdmin, can } = usePermissions();
   const canManageInstances = isAdmin || can('whatsapp.instancias.gerenciar');
@@ -42,8 +45,12 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
   const [showQRDialog, setShowQRDialog] = useState(false);
   const [selectedInstance, setSelectedInstance] = useState<WhatsappInstance | null>(null);
   const [newInstanceName, setNewInstanceName] = useState('');
+  const [newInstanceImportHistory, setNewInstanceImportHistory] = useState(false);
+  const [newInstanceImportDays, setNewInstanceImportDays] = useState(DEFAULT_IMPORT_HISTORY_DAYS);
   const [showAddUazapiDialog, setShowAddUazapiDialog] = useState(false);
   const [newUazapiInstanceName, setNewUazapiInstanceName] = useState('');
+  const [newUazapiImportHistory, setNewUazapiImportHistory] = useState(false);
+  const [newUazapiImportDays, setNewUazapiImportDays] = useState(DEFAULT_IMPORT_HISTORY_DAYS);
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [showUsersDialog, setShowUsersDialog] = useState(false);
   const [usersInstance, setUsersInstance] = useState<WhatsappInstance | null>(null);
@@ -57,11 +64,19 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
       return;
     }
     const instanceName = newInstanceName.trim().toLowerCase().replace(/\s+/g, '-');
+    const importDays = Math.min(365, Math.max(1, Number(newInstanceImportDays) || DEFAULT_IMPORT_HISTORY_DAYS));
     try {
-      await createInstance.mutateAsync({ nome: newInstanceName.trim(), instance_name: instanceName });
+      await createInstance.mutateAsync({
+        nome: newInstanceName.trim(),
+        instance_name: instanceName,
+        import_history_enabled: newInstanceImportHistory,
+        import_history_days: importDays,
+      });
       toast.success('Instância criada com sucesso!');
       setShowAddDialog(false);
       setNewInstanceName('');
+      setNewInstanceImportHistory(false);
+      setNewInstanceImportDays(DEFAULT_IMPORT_HISTORY_DAYS);
     } catch (error: any) {
       toast.error(sanitizeError(error));
     }
@@ -73,10 +88,18 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
       return;
     }
     const instanceName = newUazapiInstanceName.trim().toLowerCase().replace(/\s+/g, '-');
+    const importDays = Math.min(365, Math.max(1, Number(newUazapiImportDays) || DEFAULT_IMPORT_HISTORY_DAYS));
     try {
-      await createUazapiInstance.mutateAsync({ nome: newUazapiInstanceName.trim(), instance_name: instanceName });
+      await createUazapiInstance.mutateAsync({
+        nome: newUazapiInstanceName.trim(),
+        instance_name: instanceName,
+        import_history_enabled: newUazapiImportHistory,
+        import_history_days: importDays,
+      });
       setShowAddUazapiDialog(false);
       setNewUazapiInstanceName('');
+      setNewUazapiImportHistory(false);
+      setNewUazapiImportDays(DEFAULT_IMPORT_HISTORY_DAYS);
     } catch (error: any) {
       toast.error(sanitizeError(error));
     }
@@ -210,6 +233,31 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
                         onKeyDown={(e) => e.key === 'Enter' && handleCreateUazapi()}
                       />
                     </div>
+                    <div className="space-y-3 rounded-md border p-3">
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="uazapi-import-history"
+                          checked={newUazapiImportHistory}
+                          onCheckedChange={(checked) => setNewUazapiImportHistory(checked === true)}
+                        />
+                        <Label htmlFor="uazapi-import-history" className="cursor-pointer">
+                          Importar histórico ao conectar
+                        </Label>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="uazapi-import-days">Importar até quantos dias</Label>
+                        <Input
+                          id="uazapi-import-days"
+                          type="number"
+                          min={1}
+                          max={365}
+                          value={newUazapiImportDays}
+                          onChange={(e) => setNewUazapiImportDays(Number(e.target.value) || DEFAULT_IMPORT_HISTORY_DAYS)}
+                          disabled={!newUazapiImportHistory}
+                        />
+                      </div>
+                    </div>
+                    
                   </div>
                   <DialogFooter>
                     <Button variant="outline" onClick={() => setShowAddUazapiDialog(false)}>Cancelar</Button>
@@ -239,6 +287,30 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
                         value={newInstanceName}
                         onChange={(e) => setNewInstanceName(e.target.value)}
                       />
+                    </div>
+                    <div className="space-y-3 rounded-md border p-3">
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="evolution-import-history"
+                          checked={newInstanceImportHistory}
+                          onCheckedChange={(checked) => setNewInstanceImportHistory(checked === true)}
+                        />
+                        <Label htmlFor="evolution-import-history" className="cursor-pointer">
+                          Importar histórico ao conectar
+                        </Label>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="evolution-import-days">Importar até quantos dias</Label>
+                        <Input
+                          id="evolution-import-days"
+                          type="number"
+                          min={1}
+                          max={365}
+                          value={newInstanceImportDays}
+                          onChange={(e) => setNewInstanceImportDays(Number(e.target.value) || DEFAULT_IMPORT_HISTORY_DAYS)}
+                          disabled={!newInstanceImportHistory}
+                        />
+                      </div>
                     </div>
                   </div>
                   <DialogFooter>
@@ -539,3 +611,4 @@ function InstanceCard({ instance, onConnect, onDisconnect, onDelete, onCheckStat
     </Card>
   );
 }
+

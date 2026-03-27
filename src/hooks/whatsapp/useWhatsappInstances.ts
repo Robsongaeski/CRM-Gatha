@@ -23,6 +23,8 @@ export interface WhatsappInstance {
   meta_account_name?: string | null;
   uazapi_instance_token?: string | null;
   uazapi_instance_external_id?: string | null;
+  import_history_enabled?: boolean | null;
+  import_history_days?: number | null;
 }
 
 function invalidateInstanceQueries(queryClient: ReturnType<typeof useQueryClient>) {
@@ -51,7 +53,12 @@ export function useCreateWhatsappInstance() {
   const { user } = useAuth();
 
   return useMutation({
-    mutationFn: async (data: { nome: string; instance_name: string }) => {
+    mutationFn: async (data: {
+      nome: string;
+      instance_name: string;
+      import_history_enabled?: boolean;
+      import_history_days?: number;
+    }) => {
       // Primeiro criar na Evolution API
       const { data: evolutionResult, error: evolutionError } = await supabase.functions
         .invoke('whatsapp-instance-manage', {
@@ -67,7 +74,9 @@ export function useCreateWhatsappInstance() {
         .insert({
           nome: data.nome,
           instance_name: data.instance_name,
-          status: 'disconnected'
+          status: 'disconnected',
+          import_history_enabled: data.import_history_enabled ?? false,
+          import_history_days: data.import_history_days ?? 7,
         })
         .select()
         .single();
@@ -102,7 +111,12 @@ export function useCreateUazapiInstance() {
   const { user } = useAuth();
 
   return useMutation({
-    mutationFn: async (data: { nome: string; instance_name: string }) => {
+    mutationFn: async (data: {
+      nome: string;
+      instance_name: string;
+      import_history_enabled?: boolean;
+      import_history_days?: number;
+    }) => {
       // Criar na UAZAPI via Edge Function
       const { data: uazapiResult, error: uazapiError } = await supabase.functions
         .invoke('whatsapp-instance-manage', {
@@ -117,6 +131,8 @@ export function useCreateUazapiInstance() {
         instance_name: data.instance_name,
         status: 'disconnected',
         api_type: 'uazapi',
+        import_history_enabled: data.import_history_enabled ?? false,
+        import_history_days: data.import_history_days ?? 7,
       };
 
       if (uazapiResult.instanceToken) insertPayload.uazapi_instance_token = uazapiResult.instanceToken;
@@ -134,6 +150,8 @@ export function useCreateUazapiInstance() {
           instance_name: data.instance_name,
           status: 'disconnected' as const,
           api_type: 'uazapi' as const,
+          import_history_enabled: data.import_history_enabled ?? false,
+          import_history_days: data.import_history_days ?? 7,
         };
         const retry = await supabase
           .from('whatsapp_instances')

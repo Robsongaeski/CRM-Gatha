@@ -4191,6 +4191,8 @@ export type Database = {
           created_at: string | null
           foto_url: string | null
           id: string
+          import_history_days: number
+          import_history_enabled: boolean
           instance_name: string
           is_active: boolean | null
           meta_account_name: string | null
@@ -4212,6 +4214,8 @@ export type Database = {
           created_at?: string | null
           foto_url?: string | null
           id?: string
+          import_history_days?: number
+          import_history_enabled?: boolean
           instance_name: string
           is_active?: boolean | null
           meta_account_name?: string | null
@@ -4233,6 +4237,8 @@ export type Database = {
           created_at?: string | null
           foto_url?: string | null
           id?: string
+          import_history_days?: number
+          import_history_enabled?: boolean
           instance_name?: string
           is_active?: boolean | null
           meta_account_name?: string | null
