@@ -40,6 +40,20 @@ const parseJsonSafe = async (r: Response) => {
 };
 
 const uazErr = (data: any, fallback: string) => String(pick(data, ["message", "error", "details", "response.message"]) || fallback);
+const CONNECTED_STATES = new Set(["open", "opened", "connected", "online", "authenticated", "ready"]);
+const normalizeConnectionState = (raw: any): { status: "connected" | "disconnected"; rawState: string } => {
+  const rawText =
+    typeof raw === "string"
+      ? raw
+      : raw?.connected || raw?.isConnected || raw?.loggedIn || raw?.authenticated || raw?.isOpen
+        ? "connected"
+        : raw?.status || raw?.state || raw?.connectionStatus || raw?.connection || "unknown";
+  const normalized = String(rawText || "unknown").toLowerCase().trim();
+  return {
+    status: CONNECTED_STATES.has(normalized) ? "connected" : "disconnected",
+    rawState: String(rawText || "unknown"),
+  };
+};
 const uazToken = (d: any) => {
   const t = pick(d, ["token", "instance.token", "data.token", "data.instance.token"]);
   return t ? String(t) : "";
@@ -54,10 +68,24 @@ const uazPair = (d: any) => {
   return p ? String(p) : null;
 };
 const uazStatus = (d: any): { status: "connected" | "disconnected"; rawState: string } => {
-  const rawAny = pick(d, ["instance.status", "status", "state", "connection", "data.instance.status", "data.status", "data.state"]);
-  const raw = typeof rawAny === "string" ? rawAny : rawAny?.connected ? "connected" : rawAny?.status || "unknown";
-  const ok = ["open", "connected", "online"].includes(String(raw).toLowerCase());
-  return { status: ok ? "connected" : "disconnected", rawState: String(raw || "unknown") };
+  const rawAny = pick(d, [
+    "instance.status",
+    "instance.state",
+    "instance.connectionStatus",
+    "status",
+    "state",
+    "connectionState",
+    "connection",
+    "connection.status",
+    "data.instance.status",
+    "data.instance.state",
+    "data.instance.connectionStatus",
+    "data.status",
+    "data.state",
+    "data.connectionState",
+    "data.connection.status",
+  ]);
+  return normalizeConnectionState(rawAny);
 };
 const uazPhone = (d: any) => {
   const r = pick(d, [
@@ -591,9 +619,23 @@ serve(async (req) => {
           if (!evolutionApiUrl || !evolutionApiKey) throw new Error("Evolution API nao configurada");
           const r = await fetch(`${baseUrl}/instance/connectionState/${instanceName}`, { headers: { apikey: evolutionApiKey } });
           const d = await parseJsonSafe(r);
-          const rawState = d?.instance?.state || d?.state || d?.status || "unknown";
-          const connected = ["open", "connected", "online"].includes(String(rawState).toLowerCase());
-          let status: "connected" | "disconnected" | "error" = connected ? "connected" : "disconnected";
+          const normalizedState = normalizeConnectionState(
+            pick(d, [
+              "instance.state",
+              "instance.status",
+              "instance.connectionStatus",
+              "state",
+              "status",
+              "connectionState",
+              "connection.status",
+              "data.instance.state",
+              "data.instance.status",
+              "data.status",
+              "data.state",
+            ]),
+          );
+          const rawState = normalizedState.rawState;
+          let status: "connected" | "disconnected" | "error" = normalizedState.status;
           let numeroWhatsapp: string | null = null;
           let sessionCorrupted = false;
           if (status === "connected") {
@@ -659,7 +701,21 @@ serve(async (req) => {
               if (!evolutionApiUrl || !evolutionApiKey) continue;
               const r = await fetch(`${baseUrl}/instance/connectionState/${inst.instance_name}`, { headers: { apikey: evolutionApiKey } });
               const d = await parseJsonSafe(r);
-              status = ["open", "connected", "online"].includes(String(d?.instance?.state || d?.state || d?.status || "").toLowerCase()) ? "connected" : "disconnected";
+              status = normalizeConnectionState(
+                pick(d, [
+                  "instance.state",
+                  "instance.status",
+                  "instance.connectionStatus",
+                  "state",
+                  "status",
+                  "connectionState",
+                  "connection.status",
+                  "data.instance.state",
+                  "data.instance.status",
+                  "data.status",
+                  "data.state",
+                ]),
+              ).status;
               if (status === "connected") {
                 try {
                   const fr = await fetch(`${baseUrl}/instance/fetchInstances?instanceName=${inst.instance_name}`, { headers: { apikey: evolutionApiKey } });

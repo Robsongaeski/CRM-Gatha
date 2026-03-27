@@ -309,6 +309,7 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
           instanceId={selectedInstance.id}
           instanceName={selectedInstance.instance_name}
           apiType={selectedInstance.api_type}
+          currentStatus={instances.find((instance) => instance.id === selectedInstance.id)?.status}
           open={showQRDialog}
           onOpenChange={(open) => {
             setShowQRDialog(open);

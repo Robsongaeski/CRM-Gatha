@@ -182,6 +182,7 @@ export default function GuiaSistema() {
 
   const handleDownloadPdf = () => generatePdfFromRef(contentRef, 'SalesPeak-CRM-Guia-do-Sistema.pdf', setIsGeneratingPdf);
   const handleDownloadTutorialPdf = () => generatePdfFromRef(tutorialRef, 'SalesPeak-CRM-Tutoriais-de-Uso.pdf', setIsGeneratingTutorialPdf);
+  const SYSTEM_GUIDE_VERSION = '2.0.0';
 
   return (
     <div ref={contentRef} className="space-y-8 max-w-5xl mx-auto print:max-w-none">
@@ -192,6 +193,9 @@ export default function GuiaSistema() {
           <p className="text-muted-foreground mt-2">
             Documentação técnica e funcional completa do SalesPeak CRM
           </p>
+          <div className="mt-2">
+            <Badge variant="secondary">Versão {SYSTEM_GUIDE_VERSION}</Badge>
+          </div>
         </div>
         <div className="flex gap-2">
           <Button onClick={handleDownloadPdf} variant="outline" disabled={isGeneratingPdf}>
@@ -2843,6 +2847,7 @@ Regras:
       {/* Rodapé */}
       <div className="text-center text-sm text-muted-foreground py-8 print:hidden">
         <p>SalesPeak CRM - Documentação do Sistema</p>
+        <p>Versão do guia: {SYSTEM_GUIDE_VERSION}</p>
         <p>Última atualização: {new Date().toLocaleDateString('pt-BR')}</p>
       </div>
 

@@ -180,18 +180,21 @@ serve(async (req) => {
 
     // Processar CONNECTION_UPDATE para atualizar status da instância
     if (normalizedEvent === 'connection.update') {
-      const state = data?.state || data?.status;
-      console.log('Connection update:', instanceName, state);
+      const state = data?.state || data?.status || data?.instance?.state || data?.instance?.status || data?.connection?.state;
+      const stateNormalized = String(state || '').toLowerCase().trim();
+      const connectedStates = new Set(['open', 'opened', 'connected', 'online', 'authenticated', 'ready']);
+      const isConnected = connectedStates.has(stateNormalized);
+      console.log('Connection update:', instanceName, state, stateNormalized);
       
       if (instanceName && state) {
-        const status = state === 'open' ? 'connected' : 'disconnected';
+        const status = isConnected ? 'connected' : 'disconnected';
         const updateData: any = { status };
         let resolvedInstanceId: string | null = null;
         
-        // Se conectou (open), tentar extrair o número do payload
-        if (state === 'open') {
+        // Se conectou, tentar extrair o número do payload
+        if (isConnected) {
           // O número pode vir em diferentes campos do payload
-          const ownerJid = data?.ownerJid || data?.owner;
+          const ownerJid = data?.ownerJid || data?.owner || data?.instance?.ownerJid || data?.instance?.owner;
           if (ownerJid) {
             const numeroWhatsapp = ownerJid.split('@')[0].split(':')[0];
             if (numeroWhatsapp && numeroWhatsapp.match(/^\d{10,15}$/)) {

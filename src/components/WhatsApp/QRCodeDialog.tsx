@@ -9,11 +9,40 @@ interface QRCodeDialogProps {
   instanceId: string;
   instanceName: string;
   apiType?: 'evolution' | 'cloud_api' | 'uazapi';
+  currentStatus?: 'disconnected' | 'connecting' | 'connected' | 'error';
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export default function QRCodeDialog({ instanceId, instanceName, apiType, open, onOpenChange }: QRCodeDialogProps) {
+const CONNECTED_STATES = new Set(['open', 'opened', 'connected', 'online', 'authenticated', 'ready']);
+
+function isConnectionResultConnected(result: any): boolean {
+  const candidates = [
+    result?.status,
+    result?.state,
+    result?.rawState,
+    result?.rawData?.status,
+    result?.rawData?.state,
+    result?.rawData?.connectionState,
+    result?.rawData?.instance?.status,
+    result?.rawData?.instance?.state,
+    result?.rawData?.instance?.connectionStatus,
+    result?.rawData?.connection?.state,
+  ]
+    .filter((value) => value !== null && value !== undefined)
+    .map((value) => String(value).toLowerCase().trim());
+
+  return candidates.some((value) => CONNECTED_STATES.has(value));
+}
+
+export default function QRCodeDialog({
+  instanceId,
+  instanceName,
+  apiType,
+  currentStatus,
+  open,
+  onOpenChange,
+}: QRCodeDialogProps) {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -73,7 +102,7 @@ export default function QRCodeDialog({ instanceId, instanceName, apiType, open, 
     const interval = setInterval(async () => {
       try {
         const result = await checkStatus.mutateAsync({ instanceId, instanceName, apiType });
-        if (result?.status === 'connected') {
+        if (isConnectionResultConnected(result)) {
           setIsConnected(true);
           setQrCode(null);
           // Auto-configure webhook when connected.
@@ -86,13 +115,27 @@ export default function QRCodeDialog({ instanceId, instanceName, apiType, open, 
           }
         }
       } catch (error) {
+        // Erros transitórios no polling não devem interromper o processo.
         console.error('Error checking status:', error);
-        setConnectionError(sanitizeError(error));
       }
     }, 3000);
 
     return () => clearInterval(interval);
   }, [open, instanceId, instanceName, apiType, isConnected, onOpenChange, connectionError]);
+
+  // Fallback: se a instância já foi marcada como conectada na listagem, fecha o modal.
+  useEffect(() => {
+    if (!open || isConnected) return;
+
+    if (currentStatus === 'connected') {
+      setIsConnected(true);
+      setQrCode(null);
+      if (!autoCloseTriggeredRef.current) {
+        autoCloseTriggeredRef.current = true;
+        setTimeout(() => onOpenChange(false), 1200);
+      }
+    }
+  }, [open, isConnected, currentStatus, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
