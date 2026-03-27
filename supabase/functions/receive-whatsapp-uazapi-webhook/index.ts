@@ -7,7 +7,6 @@ const corsHeaders = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const HISTORY_DISABLED_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 function normalizeImportHistoryDays(value: unknown): number {
   const parsed = Number(value);
@@ -704,11 +703,15 @@ function shouldSkipByHistoryPolicy(params: {
   instance: any;
   messageTimestamp: Date | null;
 }): { skip: boolean; reason: string } {
+  if (params.eventType !== "history") {
+    return { skip: false, reason: "non-history-event" };
+  }
+
   const importEnabled = Boolean(params.instance?.import_history_enabled);
   const historyDays = normalizeImportHistoryDays(params.instance?.import_history_days);
   const now = Date.now();
 
-  if (params.eventType === "history" && !importEnabled) {
+  if (!importEnabled) {
     return { skip: true, reason: "history-disabled" };
   }
 
@@ -727,16 +730,7 @@ function shouldSkipByHistoryPolicy(params: {
     }
     return { skip: false, reason: "inside-history-window" };
   }
-
-  if (params.eventType === "history") {
-    return { skip: true, reason: "history-disabled" };
-  }
-
-  if (ageMs > HISTORY_DISABLED_MAX_AGE_MS) {
-    return { skip: true, reason: "stale-message-while-history-disabled" };
-  }
-
-  return { skip: false, reason: "recent-message-while-history-disabled" };
+  return { skip: false, reason: "history-enabled-no-limit-hit" };
 }
 
 serve(async (req) => {

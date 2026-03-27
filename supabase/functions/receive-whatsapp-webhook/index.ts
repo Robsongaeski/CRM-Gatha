@@ -7,7 +7,6 @@ const corsHeaders = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const HISTORY_DISABLED_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 function normalizeImportHistoryDays(value: unknown): number {
   const parsed = Number(value);
@@ -59,18 +58,15 @@ function shouldSkipByHistoryPolicy(params: {
     return { skip: false, reason: 'invalid-age' };
   }
 
-  if (params.importHistoryEnabled) {
-    if (ageMs > params.importHistoryDays * DAY_MS) {
-      return { skip: true, reason: `older-than-${params.importHistoryDays}d` };
-    }
-    return { skip: false, reason: 'inside-history-window' };
+  if (!params.importHistoryEnabled) {
+    return { skip: false, reason: 'history-disabled-no-filter' };
   }
 
-  if (ageMs > HISTORY_DISABLED_MAX_AGE_MS) {
-    return { skip: true, reason: 'stale-message-while-history-disabled' };
+  if (ageMs > params.importHistoryDays * DAY_MS) {
+    return { skip: true, reason: `older-than-${params.importHistoryDays}d` };
   }
 
-  return { skip: false, reason: 'recent-message-while-history-disabled' };
+  return { skip: false, reason: 'inside-history-window' };
 }
 
 // Normaliza telefone brasileiro
