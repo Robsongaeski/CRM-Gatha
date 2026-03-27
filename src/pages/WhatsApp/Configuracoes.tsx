@@ -9,8 +9,9 @@ import { ShieldAlert } from 'lucide-react';
 export default function Configuracoes() {
   const { can, isAdmin, isLoading } = usePermissions();
   
-  const canSeeInstances = isAdmin || can('whatsapp.instancias.gerenciar') || can('whatsapp.visualizar');
-  const canManageReplies = isAdmin || can('whatsapp.respostas_rapidas.gerenciar');
+  const canConfigureWhatsapp = can('whatsapp.configurar') || can('ecommerce.whatsapp.configurar');
+  const canSeeInstances = isAdmin || canConfigureWhatsapp || can('whatsapp.instancias.gerenciar') || can('whatsapp.visualizar');
+  const canManageReplies = isAdmin || canConfigureWhatsapp || can('whatsapp.respostas_rapidas.gerenciar');
   
   if (isLoading) {
     return <div className="p-6">Carregando permissões...</div>;

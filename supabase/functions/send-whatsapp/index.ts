@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -29,7 +29,7 @@ function normalizePhone(phone: string): string {
   return cleaned;
 }
 
-// Gera variações do número brasileiro (com/sem nono dígito)
+// Gera variaÃ§Ãµes do nÃºmero brasileiro (com/sem nono dÃ­gito)
 function getPhoneVariations(jid: string): string[] {
   const cleaned = jid.replace(/@.*$/, '').replace(/\D/g, '');
   const variations: string[] = [cleaned];
@@ -48,16 +48,115 @@ function formatRemoteJid(phone: string, isGroup: boolean = false): string {
   return `${normalized}@s.whatsapp.net`;
 }
 
-// ─── UAZAPI: Extrair número limpo do JID ──────────────────────────────────────
+function pick(obj: any, paths: string[]): any {
+  for (const path of paths) {
+    const value = path.split('.').reduce((acc: any, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), obj);
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return null;
+}
+
+async function parseJsonSafe(response: Response): Promise<any> {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      return await response.json();
+    } catch {
+      return {};
+    }
+  }
+  return { raw: await response.text() };
+}
+
+async function loadUazapiConfig(supabase: any): Promise<{ baseUrl: string; adminToken: string }> {
+  const { data, error } = await supabase
+    .from('system_config')
+    .select('key, value')
+    .in('key', ['uazapi_api_url', 'uazapi_admin_token']);
+  if (error) throw error;
+
+  const map: Record<string, string> = {};
+  for (const row of data || []) map[row.key] = row.value || '';
+
+  const baseUrl = (map['uazapi_api_url'] || '').replace(/\/+$/, '');
+  const adminToken = map['uazapi_admin_token'] || '';
+  if (!baseUrl || !adminToken) throw new Error('UAZAPI nao configurada. Configure URL e Admin Token nas configuracoes.');
+  return { baseUrl, adminToken };
+}
+
+async function uazapiRequest(
+  baseUrl: string,
+  path: string,
+  opts: { method?: string; token?: string; adminToken?: string; body?: any } = {}
+): Promise<{ response: Response; data: any }> {
+  const { method = 'GET', token, adminToken, body } = opts;
+  const url = new URL(`${baseUrl}${path}`);
+  if (token) url.searchParams.set('token', token);
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+  if (adminToken) headers['admintoken'] = adminToken;
+  if (token) {
+    headers['token'] = token;
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url.toString(), {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(10000),
+  });
+  const data = await parseJsonSafe(response);
+  return { response, data };
+}
+
+async function persistUazapiToken(supabase: any, instanceId: string, token: string, externalId?: string | null) {
+  try {
+    await supabase
+      .from('whatsapp_instances')
+      .update({
+        uazapi_instance_token: token,
+        uazapi_instance_external_id: externalId || null,
+      })
+      .eq('id', instanceId);
+  } catch {
+    // Keep compatibility if new columns are not in DB yet.
+  }
+}
+
+async function resolveUazapiTokenForInstance(supabase: any, instance: any, baseUrl: string, adminToken: string): Promise<string> {
+  let token = String(instance?.uazapi_instance_token || '');
+  if (token) return token;
+
+  const allResp = await uazapiRequest(baseUrl, '/instance/all', { adminToken });
+  if (!allResp.response.ok) {
+    throw new Error('Nao foi possivel listar instancias da UAZAPI para recuperar o token.');
+  }
+
+  const instances = Array.isArray(allResp.data)
+    ? allResp.data
+    : pick(allResp.data, ['instances', 'data', 'results', 'response']) || [];
+
+  const found = (instances as any[]).find((item) =>
+    String(item?.name || item?.instanceName || item?.instance_name || '').trim().toLowerCase() ===
+    String(instance.instance_name || '').trim().toLowerCase()
+  );
+  token = String(pick(found, ['token', 'instance.token']) || '');
+  if (!token) throw new Error(`Token da instancia UAZAPI nao encontrado para \"${instance.instance_name}\".`);
+
+  await persistUazapiToken(supabase, instance.id, token, String(pick(found, ['id', 'instance.id']) || ''));
+  return token;
+}
+
+// â”€â”€â”€ UAZAPI: Extrair nÃºmero limpo do JID â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function jidToPhone(jid: string): string {
   return jid.replace(/@.*$/, '');
 }
 
-// ─── UAZAPI: Enviar mensagem ───────────────────────────────────────────────────
+// â”€â”€â”€ UAZAPI: Enviar mensagem â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function sendViaUazapi(
   uazapiUrl: string,
-  adminToken: string,
-  instanceName: string,
+  instanceToken: string,
   targetJid: string,
   messageType: string,
   content: string,
@@ -67,33 +166,35 @@ async function sendViaUazapi(
   mediaFilename?: string,
 ): Promise<any> {
   const phone = jidToPhone(targetJid);
-  const headers = { 'Authorization': adminToken, 'Content-Type': 'application/json' };
+  const number = targetJid.includes('@g.us') ? targetJid : phone;
 
   if (messageType === 'text') {
-    const response = await fetch(`${uazapiUrl}/send/text`, {
+    const { response, data } = await uazapiRequest(uazapiUrl, '/send/text', {
       method: 'POST',
-      headers,
-      body: JSON.stringify({ phone, message: content, instanceName })
+      token: instanceToken,
+      body: { number, phone: number, text: content, message: content }
     });
-    const json = await response.json();
-    json._httpStatus = response.status;
-    return json;
+    data._httpStatus = response.status;
+    return data;
   } else if (['image', 'video', 'audio', 'document'].includes(messageType)) {
-    const payload: any = { phone, instanceName, caption: content || '' };
-    if (mediaUrl) { payload.url = mediaUrl; }
-    else if (mediaBase64) {
+    const payload: any = { number, phone: number, type: messageType, caption: content || '' };
+    if (mediaUrl) {
+      payload.media = mediaUrl;
+      payload.url = mediaUrl;
+    } else if (mediaBase64) {
+      payload.media = mediaBase64;
       payload.base64 = mediaBase64;
       payload.mimetype = mediaMimeType;
-      payload.filename = mediaFilename;
+      payload.fileName = mediaFilename;
+      payload.docName = mediaFilename;
     }
-    const response = await fetch(`${uazapiUrl}/send/media`, {
+    const { response, data } = await uazapiRequest(uazapiUrl, '/send/media', {
       method: 'POST',
-      headers,
-      body: JSON.stringify(payload)
+      token: instanceToken,
+      body: payload
     });
-    const json = await response.json();
-    json._httpStatus = response.status;
-    return json;
+    data._httpStatus = response.status;
+    return data;
   }
   return null;
 }
@@ -133,8 +234,8 @@ serve(async (req) => {
 
     console.log('Enviando mensagem:', { instanceId, remoteJid, messageType });
 
-    // Buscar instância
-    let instance;
+    // Buscar instÃ¢ncia
+    let instance: any;
     if (instanceId) {
       const { data } = await supabase
         .from('whatsapp_instances')
@@ -153,40 +254,26 @@ serve(async (req) => {
       instance = data;
     }
 
-    if (!instance) throw new Error('Nenhuma instância WhatsApp disponível');
+    if (!instance) throw new Error('Nenhuma instÃ¢ncia WhatsApp disponÃ­vel');
 
-    // ─── ROTEAMENTO POR PROVEDOR ──────────────────────────────────────────────
+    // â”€â”€â”€ ROTEAMENTO POR PROVEDOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const apiType = instance.api_type || 'evolution';
-    console.log('API Type da instância:', apiType);
+    console.log('API Type da instÃ¢ncia:', apiType);
 
-    // ─── UAZAPI ──────────────────────────────────────────────────────────────
+    // â”€â”€â”€ UAZAPI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (apiType === 'uazapi') {
-      // Buscar configs da UAZAPI no banco
-      const { data: configs } = await supabase
-        .from('system_config')
-        .select('key, value')
-        .in('key', ['uazapi_api_url', 'uazapi_admin_token']);
+      const { baseUrl: uazapiUrl, adminToken } = await loadUazapiConfig(supabase);
+      const instanceToken = await resolveUazapiTokenForInstance(supabase, instance, uazapiUrl, adminToken);
 
-      const configMap: Record<string, string> = {};
-      for (const c of configs || []) configMap[c.key] = c.value;
-
-      const uazapiUrl = (configMap['uazapi_api_url'] || '').replace(/\/+$/, '');
-      const adminToken = configMap['uazapi_admin_token'] || '';
-
-      if (!uazapiUrl || !adminToken) {
-        throw new Error('UAZAPI não configurada. Configure a URL e Admin Token nas configurações.');
-      }
-
-      // Verificar status real da instância via UAZAPI
+      // Verificar status real da instÃ¢ncia via UAZAPI
       let isReallyConnected = instance.status === 'connected';
       if (isReallyConnected) {
         try {
-          const checkResp = await fetch(`${uazapiUrl}/instance/status?instanceName=${instance.instance_name}`, {
-            headers: { 'Authorization': adminToken },
-            signal: AbortSignal.timeout(5000)
+          const checkResp = await uazapiRequest(uazapiUrl, '/instance/status', {
+            token: instanceToken,
           });
-          const checkData = await checkResp.json();
-          const rawState = checkData?.state || checkData?.status || checkData?.connection || 'unknown';
+          const checkData = checkResp.data;
+          const rawState = pick(checkData, ['instance.status', 'status', 'state', 'connection', 'data.status']) || 'unknown';
           const connectedStates = ['open', 'connected', 'online'];
           if (!connectedStates.includes(String(rawState).toLowerCase())) {
             isReallyConnected = false;
@@ -198,7 +285,7 @@ serve(async (req) => {
       }
 
       if (!isReallyConnected) {
-        // Adicionar à fila
+        // Adicionar Ã  fila
         await supabase.from('whatsapp_message_queue').insert({
           instance_id: instance.id,
           conversation_id: conversationId,
@@ -229,14 +316,14 @@ serve(async (req) => {
           }).eq('id', conversationId);
         }
 
-        return new Response(JSON.stringify({ success: true, queued: true, message: 'Mensagem adicionada à fila (instância offline)' }), {
+        return new Response(JSON.stringify({ success: true, queued: true, message: 'Mensagem adicionada Ã  fila (instÃ¢ncia offline)' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 202
         });
       }
 
       const formattedJid = remoteJid.includes('@') ? remoteJid : formatRemoteJid(remoteJid);
       const uazapiResponse = await sendViaUazapi(
-        uazapiUrl, adminToken, instance.instance_name, formattedJid,
+        uazapiUrl, instanceToken, formattedJid,
         messageType, content, mediaUrl, mediaBase64, mediaMimeType, mediaFilename
       );
 
@@ -252,7 +339,7 @@ serve(async (req) => {
           });
           await supabase.from('whatsapp_conversations').update({
             last_message_at: new Date().toISOString(),
-            last_message_preview: `❌ ${content?.substring(0, 80) || '[mídia]'}`,
+            last_message_preview: `âŒ ${content?.substring(0, 80) || '[mÃ­dia]'}`,
           }).eq('id', conversationId);
         }
         return new Response(JSON.stringify({ success: false, error: errorMsg }), {
@@ -262,7 +349,7 @@ serve(async (req) => {
 
       const messageIdExternal = uazapiResponse?.id || uazapiResponse?.messageId || uazapiResponse?.key?.id;
 
-      // Salvar mídia no Storage se vier base64
+      // Salvar mÃ­dia no Storage se vier base64
       let finalMediaUrl = mediaUrl;
       if (mediaBase64 && !finalMediaUrl) {
         try {
@@ -277,7 +364,7 @@ serve(async (req) => {
             const { data: publicUrlData } = supabase.storage.from('whatsapp-media').getPublicUrl(filePath);
             finalMediaUrl = publicUrlData?.publicUrl;
           }
-        } catch (e) { console.error('Erro ao salvar mídia:', e); }
+        } catch (e) { console.error('Erro ao salvar mÃ­dia:', e); }
       }
 
       const { data: savedMessage } = await supabase.from('whatsapp_messages').insert({
@@ -308,13 +395,13 @@ serve(async (req) => {
       });
     }
 
-    // ─── EVOLUTION API (padrão) ───────────────────────────────────────────────
+    // â”€â”€â”€ EVOLUTION API (padrÃ£o) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (!evolutionApiUrl || !evolutionApiKey) {
-      throw new Error('Evolution API não configurada');
+      throw new Error('Evolution API nÃ£o configurada');
     }
     console.log('Evolution API URL normalizada:', evolutionApiUrl);
 
-    // Verificar se instância está realmente conectada
+    // Verificar se instÃ¢ncia estÃ¡ realmente conectada
     let isReallyConnected = instance.status === 'connected';
     if (isReallyConnected) {
       try {
@@ -328,7 +415,7 @@ serve(async (req) => {
           await supabase.from('whatsapp_instances').update({ status: 'disconnected' }).eq('id', instance.id);
         }
       } catch (e) {
-        console.log('Falha ao verificar status real da instância (continuando com status do banco):', e);
+        console.log('Falha ao verificar status real da instÃ¢ncia (continuando com status do banco):', e);
       }
     }
 
@@ -364,7 +451,7 @@ serve(async (req) => {
       }
 
       return new Response(JSON.stringify({
-        success: true, queued: true, message: 'Mensagem adicionada à fila (instância offline)'
+        success: true, queued: true, message: 'Mensagem adicionada Ã  fila (instÃ¢ncia offline)'
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 202 });
     }
 
@@ -449,7 +536,7 @@ serve(async (req) => {
     if (hasApiError(evolutionResponse)) {
       const numberNotExists = isNumberNotFound(evolutionResponse);
       const errorMsg = numberNotExists
-        ? 'Este número não possui WhatsApp ativo. Verifique se o número está correto (com DDD).'
+        ? 'Este nÃºmero nÃ£o possui WhatsApp ativo. Verifique se o nÃºmero estÃ¡ correto (com DDD).'
         : evolutionResponse?.error || 'Erro ao enviar mensagem pelo WhatsApp';
 
       if (conversationId) {
@@ -459,7 +546,7 @@ serve(async (req) => {
         });
         await supabase.from('whatsapp_conversations').update({
           last_message_at: new Date().toISOString(),
-          last_message_preview: `❌ ${content?.substring(0, 80) || '[mídia]'}`,
+          last_message_preview: `âŒ ${content?.substring(0, 80) || '[mÃ­dia]'}`,
         }).eq('id', conversationId);
       }
 
@@ -470,7 +557,7 @@ serve(async (req) => {
 
     messageIdExternal = evolutionResponse?.key?.id || evolutionResponse?.messageId;
 
-    // Upload de mídia base64 para Storage
+    // Upload de mÃ­dia base64 para Storage
     let finalMediaUrl = mediaUrl;
     if (mediaBase64 && !finalMediaUrl) {
       try {
@@ -485,7 +572,7 @@ serve(async (req) => {
           const { data: publicUrlData } = supabase.storage.from('whatsapp-media').getPublicUrl(filePath);
           finalMediaUrl = publicUrlData?.publicUrl;
         }
-      } catch (e) { console.error('Erro no upload de mídia:', e); }
+      } catch (e) { console.error('Erro no upload de mÃ­dia:', e); }
     }
 
     const { data: savedMessage, error: saveError } = await supabase.from('whatsapp_messages').insert({
@@ -521,11 +608,14 @@ serve(async (req) => {
     console.error('Erro ao enviar WhatsApp:', error);
     const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
     let friendlyMessage = errorMessage;
-    if (errorMessage.includes('not connected')) friendlyMessage = 'WhatsApp não está conectado. Verifique a instância.';
-    else if (errorMessage.includes('invalid number')) friendlyMessage = 'Número de telefone inválido.';
+    if (errorMessage.includes('not connected')) friendlyMessage = 'WhatsApp nÃ£o estÃ¡ conectado. Verifique a instÃ¢ncia.';
+    else if (errorMessage.includes('invalid number')) friendlyMessage = 'NÃºmero de telefone invÃ¡lido.';
 
     return new Response(JSON.stringify({ success: false, error: friendlyMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400
     });
   }
 });
+
+
+

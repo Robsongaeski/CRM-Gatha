@@ -35,15 +35,20 @@ export function useMovimentoEtapa() {
       }
 
       // 1. Atualizar etapa e status do pedido
-      const { error: updateError } = await supabase
+      const { data: updatedPedido, error: updateError } = await supabase
         .from('pedidos')
         .update({ 
           etapa_producao_id: etapaNovaId,
           status: novoStatus
         })
-        .eq('id', pedidoId);
+        .eq('id', pedidoId)
+        .select('id')
+        .maybeSingle();
 
       if (updateError) throw updateError;
+      if (!updatedPedido) {
+        throw new Error('Voce nao tem permissao para mover este pedido.');
+      }
 
       // 2. Registrar movimento
       const { error: movimentoError } = await supabase

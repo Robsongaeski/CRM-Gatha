@@ -11,6 +11,7 @@ interface Message {
   direction: 'incoming' | 'outgoing';
   type: string;
   content: string | null;
+  sender_phone?: string | null;
   media_url: string | null;
   media_mimetype: string | null;
   status: string | null;
@@ -51,15 +52,19 @@ interface MessageBubbleProps {
   message: Message;
   instanceName?: string;
   senderName?: string;
+  isGroup?: boolean;
   onReply?: (message: Message) => void;
   onForward?: (message: Message) => void;
 }
 
-export default function MessageBubble({ message, instanceName, senderName, onReply, onForward }: MessageBubbleProps) {
+export default function MessageBubble({ message, senderName, isGroup = false, onReply, onForward }: MessageBubbleProps) {
   const isOutgoing = message.direction === 'outgoing';
   const isSystemMessage = message.type === 'system';
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [modalImageUrl, setModalImageUrl] = useState<string | null>(null);
+  const incomingGroupSender = !isOutgoing && isGroup
+    ? (senderName?.trim() || message.sender_phone || null)
+    : null;
 
   // Renderizar mensagem de sistema (interna, não visível ao cliente)
   if (isSystemMessage) {
@@ -84,6 +89,18 @@ export default function MessageBubble({ message, instanceName, senderName, onRep
 
     // Se tem URL de mídia
     if (message.media_url) {
+      if (message.type === 'sticker') {
+        return (
+          <img
+            src={message.media_url}
+            alt="Sticker"
+            className="max-w-[180px] rounded-lg mb-1 cursor-pointer hover:opacity-90 transition-opacity"
+            loading="lazy"
+            onClick={() => handleImageClick(message.media_url!)}
+          />
+        );
+      }
+
       if (mimetype.startsWith('image/') || message.type === 'image') {
         return (
           <img
@@ -212,6 +229,17 @@ export default function MessageBubble({ message, instanceName, senderName, onRep
       );
     }
 
+    if (message.type === 'contact') {
+      return (
+        <div className="bg-[#f0f2f5] rounded-lg p-3 mb-1">
+          <p className="text-xs font-medium text-[#54656f] mb-1">Contato</p>
+          <p className="text-sm text-[#111b21] break-words whitespace-pre-wrap">
+            {message.content || '[Contato]'}
+          </p>
+        </div>
+      );
+    }
+
     return null;
   };
 
@@ -295,6 +323,11 @@ export default function MessageBubble({ message, instanceName, senderName, onRep
               👤 {senderName}
             </div>
           )}
+          {incomingGroupSender && (
+            <div className="text-[11px] font-semibold text-[#5e6c76] mb-1 leading-tight">
+              {incomingGroupSender}
+            </div>
+          )}
           {/* Removido o nome da instância para mensagens recebidas conforme solicitado */}
           {message.quoted_message && (
             <div className="text-xs mb-1 p-2 rounded bg-[#d1f4cc] border-l-4 border-[#06cf9c]">
@@ -302,7 +335,7 @@ export default function MessageBubble({ message, instanceName, senderName, onRep
             </div>
           )}
           {renderMedia()}
-          {message.content && (
+          {message.content && message.type !== 'contact' && (
             <p className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px] inline-block float-left">
               {renderTextWithLinks(message.content)}
               <span className="inline-block w-[60px] h-[1px]" />

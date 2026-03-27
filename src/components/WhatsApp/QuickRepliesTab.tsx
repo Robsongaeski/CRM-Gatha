@@ -152,7 +152,11 @@ function SortableReplyItem({ reply, onEdit, onDelete }: SortableReplyItemProps) 
 
 export default function QuickRepliesTab() {
   const { can, isAdmin } = usePermissions();
-  const canManage = isAdmin || can('whatsapp.respostas_rapidas.gerenciar');
+  const canManage =
+    isAdmin ||
+    can('whatsapp.configurar') ||
+    can('ecommerce.whatsapp.configurar') ||
+    can('whatsapp.respostas_rapidas.gerenciar');
   
   const { data: replies = [], isLoading } = useAllWhatsappQuickReplies();
   const createReply = useCreateQuickReply();

@@ -89,7 +89,11 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
 
   const handleDisconnect = async (instance: WhatsappInstance) => {
     try {
-      await disconnectInstance.mutateAsync({ instanceId: instance.id, instanceName: instance.instance_name });
+      await disconnectInstance.mutateAsync({
+        instanceId: instance.id,
+        instanceName: instance.instance_name,
+        apiType: instance.api_type,
+      });
       toast.success('Instância desconectada');
     } catch (error: any) {
       toast.error(sanitizeError(error));
@@ -98,7 +102,11 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
 
   const handleDelete = async (instance: WhatsappInstance) => {
     try {
-      await deleteInstance.mutateAsync({ id: instance.id, instance_name: instance.instance_name });
+      await deleteInstance.mutateAsync({
+        id: instance.id,
+        instance_name: instance.instance_name,
+        api_type: instance.api_type,
+      });
       toast.success('Instância excluída');
     } catch (error: any) {
       toast.error(sanitizeError(error));
@@ -107,7 +115,11 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
 
   const handleCheckStatus = async (instance: WhatsappInstance) => {
     try {
-      const result = await checkStatus.mutateAsync({ instanceId: instance.id, instanceName: instance.instance_name });
+      const result = await checkStatus.mutateAsync({
+        instanceId: instance.id,
+        instanceName: instance.instance_name,
+        apiType: instance.api_type,
+      });
       await refetch();
       if (result.sessionCorrupted) {
         toast.error('Sessão corrompida! A instância precisa ser reiniciada.');
@@ -121,7 +133,11 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
 
   const handleRestart = async (instance: WhatsappInstance) => {
     try {
-      const result = await restartInstance.mutateAsync({ instanceId: instance.id, instanceName: instance.instance_name });
+      const result = await restartInstance.mutateAsync({
+        instanceId: instance.id,
+        instanceName: instance.instance_name,
+        apiType: instance.api_type,
+      });
       // Abrir QR dialog se retornou QR code
       if (result.qrcode) {
         setSelectedInstance(instance);
@@ -292,6 +308,7 @@ export default function WhatsAppInstancias({ hideQuickRepliesButton = false }: W
         <QRCodeDialog
           instanceId={selectedInstance.id}
           instanceName={selectedInstance.instance_name}
+          apiType={selectedInstance.api_type}
           open={showQRDialog}
           onOpenChange={(open) => {
             setShowQRDialog(open);

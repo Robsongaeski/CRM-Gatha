@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { compressImage } from '@/lib/imageCompression';
 import { useQueryClient } from '@tanstack/react-query';
+import { sanitizeError } from '@/lib/errorHandling';
 
 interface ImagemAprovacaoUploadProps {
   pedidoId: string;
@@ -82,15 +83,20 @@ export function ImagemAprovacaoUpload({
         .getPublicUrl(data.path);
 
       // Atualizar pedido no banco
-      const { error: updateError } = await supabase
+      const { data: updatedPedido, error: updateError } = await supabase
         .from('pedidos')
         .update({ 
           imagem_aprovacao_url: publicUrl,
           imagem_aprovada: false
         })
-        .eq('id', pedidoId);
+        .eq('id', pedidoId)
+        .select('id, imagem_aprovacao_url')
+        .maybeSingle();
 
       if (updateError) throw updateError;
+      if (!updatedPedido) {
+        throw new Error('Sem permissao para atualizar este pedido.');
+      }
 
       setPreviewUrl(publicUrl);
       setAprovada(false);
@@ -101,7 +107,7 @@ export function ImagemAprovacaoUpload({
       toast.success('Imagem de aprovação carregada!');
     } catch (error: any) {
       console.error('Erro ao fazer upload:', error);
-      toast.error('Erro ao enviar imagem');
+      toast.error(sanitizeError(error));
     } finally {
       setUploading(false);
       if (inputRef.current) {
@@ -157,15 +163,20 @@ export function ImagemAprovacaoUpload({
       }
 
       // Atualizar pedido
-      const { error } = await supabase
+      const { data: updatedPedido, error } = await supabase
         .from('pedidos')
         .update({ 
           imagem_aprovacao_url: null,
           imagem_aprovada: false
         })
-        .eq('id', pedidoId);
+        .eq('id', pedidoId)
+        .select('id')
+        .maybeSingle();
 
       if (error) throw error;
+      if (!updatedPedido) {
+        throw new Error('Sem permissao para atualizar este pedido.');
+      }
 
       setPreviewUrl(undefined);
       setAprovada(false);
@@ -176,18 +187,23 @@ export function ImagemAprovacaoUpload({
       toast.success('Imagem removida');
     } catch (error: any) {
       console.error('Erro ao remover imagem:', error);
-      toast.error('Não foi possível remover a imagem');
+      toast.error(sanitizeError(error));
     }
   };
 
   const handleToggleAprovada = async (checked: boolean) => {
     try {
-      const { error } = await supabase
+      const { data: updatedPedido, error } = await supabase
         .from('pedidos')
         .update({ imagem_aprovada: checked })
-        .eq('id', pedidoId);
+        .eq('id', pedidoId)
+        .select('id, imagem_aprovada')
+        .maybeSingle();
 
       if (error) throw error;
+      if (!updatedPedido) {
+        throw new Error('Sem permissao para atualizar este pedido.');
+      }
 
       setAprovada(checked);
       
@@ -197,7 +213,7 @@ export function ImagemAprovacaoUpload({
       toast.success(checked ? 'Imagem marcada como aprovada!' : 'Aprovação removida');
     } catch (error) {
       console.error('Erro ao atualizar aprovação:', error);
-      toast.error('Erro ao atualizar status');
+      toast.error(sanitizeError(error));
     }
   };
 

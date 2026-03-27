@@ -47,31 +47,40 @@ export function useUserInstances() {
     queryFn: async (): Promise<WhatsappInstance[]> => {
       if (!user) return [];
       
-      // Primeiro verificar se é admin
-      const { data: isAdmin } = await supabase.rpc('is_admin', { _user_id: user.id });
-      
-      if (isAdmin) {
-        // Admin vê todas as instâncias (incluindo desconectadas, mas não deletadas)
+      // Verificar papéis/permissões que podem gerenciar todas as instâncias
+      const [isAdminRes, canLegacyManageRes, canGranularManageRes] = await Promise.all([
+        supabase.rpc('is_admin', { _user_id: user.id }),
+        supabase.rpc('has_permission', { _user_id: user.id, _permission_id: 'ecommerce.whatsapp.configurar' }),
+        supabase.rpc('has_permission', { _user_id: user.id, _permission_id: 'whatsapp.instancias.gerenciar' }),
+      ]);
+
+      const isAdmin = Boolean(isAdminRes.data);
+      const canManageAll = isAdmin || Boolean(canLegacyManageRes.data) || Boolean(canGranularManageRes.data);
+
+      if (canManageAll) {
+        // Usuário com permissão de gestão vê todas as instâncias ativas
         const { data, error } = await supabase
           .from('whatsapp_instances')
           .select('*')
+          .eq('is_active', true)
           .order('ordem');
         
         if (error) throw error;
         return (data || []) as WhatsappInstance[];
       }
       
-      // Usuário comum - buscar vínculos (inclui desconectadas, só exclui deletadas)
+      // Usuário comum: buscar apenas instâncias vinculadas e ativas
       const { data: userInstances, error } = await supabase
         .from('whatsapp_instance_users')
         .select(`
-          instance:whatsapp_instances(*)
+          instance:whatsapp_instances!inner(*)
         `)
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .eq('instance.is_active', true);
       
       if (error) throw error;
       
-      // Retorna todas as instâncias vinculadas (conectadas ou não)
+      // Retorna instâncias vinculadas (conectadas ou não), sem inativas
       return (userInstances || [])
         .map(ui => ui.instance as WhatsappInstance)
         .filter((inst): inst is WhatsappInstance => inst !== null);

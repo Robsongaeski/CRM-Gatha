@@ -97,6 +97,61 @@ function inferMimeTypeFromBuffer(buffer: Uint8Array, mediaType: string, fallback
   return fallback;
 }
 
+function parseEvolutionContact(contactData: any): { name: string | null; photoUrl: string | null } {
+  const first = Array.isArray(contactData) ? contactData[0] : contactData;
+  if (!first || typeof first !== 'object') return { name: null, photoUrl: null };
+
+  const name = first.pushName || first.name || first.notify || first.waName || first.contactName || null;
+  const photoUrl = first.profilePicUrl ||
+    first.profilePictureUrl ||
+    first.pictureUrl ||
+    first.image ||
+    first.imageUrl ||
+    first.photo ||
+    null;
+
+  return {
+    name: typeof name === 'string' && name.trim() ? name.trim() : null,
+    photoUrl: typeof photoUrl === 'string' && photoUrl.trim() ? photoUrl.trim() : null,
+  };
+}
+
+async function fetchEvolutionContactData(
+  evolutionApiUrl: string,
+  evolutionApiKey: string,
+  instanceName: string,
+  remoteJid: string,
+  senderPhone: string,
+): Promise<{ name: string | null; photoUrl: string | null }> {
+  const candidates = [
+    remoteJid?.includes('@s.whatsapp.net') ? remoteJid : null,
+    senderPhone ? `${senderPhone}@s.whatsapp.net` : null,
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    try {
+      const contactResponse = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
+        method: 'POST',
+        headers: {
+          'apikey': evolutionApiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          where: { id: candidate }
+        })
+      });
+      if (!contactResponse.ok) continue;
+      const contactData = await contactResponse.json();
+      const parsed = parseEvolutionContact(contactData);
+      if (parsed.name || parsed.photoUrl) return parsed;
+    } catch {
+      // ignore
+    }
+  }
+
+  return { name: null, photoUrl: null };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -131,6 +186,7 @@ serve(async (req) => {
       if (instanceName && state) {
         const status = state === 'open' ? 'connected' : 'disconnected';
         const updateData: any = { status };
+        let resolvedInstanceId: string | null = null;
         
         // Se conectou (open), tentar extrair o número do payload
         if (state === 'open') {
@@ -145,10 +201,28 @@ serve(async (req) => {
           }
         }
         
-        await supabase
+        const { data: updatedInstance } = await supabase
           .from('whatsapp_instances')
+          .select('id')
           .update(updateData)
-          .eq('instance_name', instanceName);
+          .eq('instance_name', instanceName)
+          .maybeSingle();
+
+        resolvedInstanceId = updatedInstance?.id || null;
+
+        // Reaproveita a lógica central de conflito/migração por número
+        if (status === 'connected' && resolvedInstanceId) {
+          supabase.functions.invoke('whatsapp-instance-manage', {
+            body: {
+              action: 'check-status',
+              instanceId: resolvedInstanceId,
+              instanceName,
+              apiType: 'evolution',
+            },
+          }).catch((err) => {
+            console.error('Erro ao reconciliar status após connection.update:', err);
+          });
+        }
       }
       
       return new Response(JSON.stringify({ success: true, connectionUpdate: true }), { 
@@ -285,6 +359,18 @@ serve(async (req) => {
       // Ignorar @lid (linked device IDs)
       if (!participant.includes('@lid')) {
         senderPhone = extractPhoneFromJid(participant);
+      }
+
+      if (!fromMe && !senderName) {
+        senderName = data.participantName ||
+          data.authorName ||
+          data.senderName ||
+          data.notifyName ||
+          '';
+      }
+
+      if (!fromMe && !senderName && senderPhone) {
+        senderName = senderPhone;
       }
     }
 
@@ -572,6 +658,27 @@ serve(async (req) => {
         }
       }
 
+      // Se ainda não tem foto do contato, tentar buscar no provider
+      if (!isGroup && !fromMe && !conversation.contact_photo_url && evolutionApiUrl && evolutionApiKey && senderPhone) {
+        try {
+          const contactData = await fetchEvolutionContactData(
+            evolutionApiUrl,
+            evolutionApiKey,
+            instanceName,
+            remoteJid,
+            senderPhone,
+          );
+          if (contactData.photoUrl) {
+            updateData.contact_photo_url = contactData.photoUrl;
+          }
+          if (!updateData.contact_name && !conversation.contact_name && contactData.name) {
+            updateData.contact_name = contactData.name;
+          }
+        } catch (e) {
+          console.error('Erro ao buscar foto do contato (update):', e);
+        }
+      }
+
       // Para grupos: buscar nome se ainda não tiver
       if (isGroup && !conversation.group_name && evolutionApiUrl && evolutionApiKey) {
         try {
@@ -603,6 +710,7 @@ serve(async (req) => {
       // Criar nova conversa
       let groupName = null;
       let groupPhotoUrl = null;
+      let contactPhotoUrl = null;
 
       // Buscar metadados do grupo
       if (isGroup && evolutionApiUrl && evolutionApiKey) {
@@ -625,30 +733,23 @@ serve(async (req) => {
 
       // Para contatos individuais com @lid: buscar nome do contato via API se não temos pushName
       let contactName = senderName;
-      if (!isGroup && !contactName && isLinkedId(remoteJid) && evolutionApiUrl && evolutionApiKey && senderPhone) {
+      if (!isGroup && evolutionApiUrl && evolutionApiKey && senderPhone) {
         try {
-          console.log('Buscando nome do contato via API para:', senderPhone);
-          const contactResponse = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
-            method: 'POST',
-            headers: {
-              'apikey': evolutionApiKey,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              where: { id: senderPhone + '@s.whatsapp.net' }
-            })
-          });
-          if (contactResponse.ok) {
-            const contactData = await contactResponse.json();
-            console.log('Contact data:', JSON.stringify(contactData).substring(0, 500));
-            if (Array.isArray(contactData) && contactData.length > 0) {
-              contactName = contactData[0].pushName || contactData[0].name || contactData[0].notify || '';
-            } else if (contactData.pushName || contactData.name) {
-              contactName = contactData.pushName || contactData.name || '';
-            }
+          const contactData = await fetchEvolutionContactData(
+            evolutionApiUrl,
+            evolutionApiKey,
+            instanceName,
+            remoteJid,
+            senderPhone,
+          );
+          if ((!contactName || isLinkedId(remoteJid)) && contactData.name) {
+            contactName = contactData.name;
+          }
+          if (contactData.photoUrl) {
+            contactPhotoUrl = contactData.photoUrl;
           }
         } catch (e) {
-          console.error('Erro ao buscar contato:', e);
+          console.error('Erro ao buscar dados do contato:', e);
         }
       }
 
@@ -662,6 +763,7 @@ serve(async (req) => {
           group_photo_url: groupPhotoUrl,
           contact_name: isGroup ? null : contactName,
           contact_phone: isGroup ? null : normalizePhone(senderPhone),
+          contact_photo_url: isGroup ? null : contactPhotoUrl,
           status: 'pending',
           unread_count: fromMe ? 0 : 1,
           last_message_at: new Date().toISOString(),

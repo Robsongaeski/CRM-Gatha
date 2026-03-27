@@ -176,9 +176,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     try {
-      await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        console.warn('[AuthContext] Falha no logout global, tentando logout local:', error);
+
+        const { error: localError } = await supabase.auth.signOut({ scope: 'local' });
+        if (localError) {
+          throw localError;
+        }
+      }
+
+      // Garante atualizaÃ§Ã£o imediata do estado local, mesmo se o evento demorar.
+      setSession(null);
+      setUser(null);
       toast.success('Logout realizado com sucesso');
-      navigate('/auth');
+      navigate('/auth', { replace: true });
     } catch (error) {
       toast.error(sanitizeError(error));
     }

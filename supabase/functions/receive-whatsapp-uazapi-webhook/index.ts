@@ -324,6 +324,54 @@ async function resolveUazapiToken(supabase: any, instance: any, baseUrl: string,
   return token;
 }
 
+async function fetchUazapiContactPhoto(
+  baseUrl: string,
+  instanceToken: string,
+  remoteJid: string,
+  senderPhone?: string | null,
+): Promise<string | null> {
+  const normalizedPhone = normalizePhone(String(senderPhone || ""));
+  const phoneJid = normalizedPhone ? `${normalizedPhone}@s.whatsapp.net` : "";
+
+  const payloadCandidates = [
+    remoteJid ? { chatid: remoteJid } : null,
+    phoneJid ? { chatid: phoneJid } : null,
+    normalizedPhone ? { number: normalizedPhone } : null,
+    normalizedPhone ? { phone: normalizedPhone } : null,
+    phoneJid ? { id: phoneJid } : null,
+  ].filter(Boolean) as Array<Record<string, string>>;
+
+  for (const body of payloadCandidates) {
+    try {
+      const details = await uazapiRequest(baseUrl, "/chat/details", {
+        method: "POST",
+        token: instanceToken,
+        body,
+      });
+      if (!details.response.ok) continue;
+
+      const photo = String(
+        pick(details.data, [
+          "imagePreview",
+          "data.imagePreview",
+          "chat.imagePreview",
+          "image",
+          "data.image",
+          "chat.image",
+        ]) || "",
+      ).trim();
+
+      if (photo && /^https?:\/\//i.test(photo)) {
+        return photo;
+      }
+    } catch {
+      // ignore and try next payload candidate
+    }
+  }
+
+  return null;
+}
+
 async function resolveInstanceByIdentifier(supabase: any, identifier: string): Promise<any | null> {
   if (!identifier) return null;
 
@@ -783,6 +831,8 @@ serve(async (req) => {
     });
 
     const results = [];
+    let uazapiConfigCache: { baseUrl: string; adminToken: string } | null = null;
+    let uazapiInstanceTokenCache: string | null = null;
 
     for (let index = 0; index < messages.length; index++) {
       const msgData = messages[index];
@@ -972,6 +1022,27 @@ serve(async (req) => {
           const participantJid = normalizeRemoteJid(participantRaw, false);
           if (participantJid && participantJid.includes("@s.whatsapp.net")) {
             senderPhone = extractPhoneFromJid(participantJid);
+          }
+
+          if (!fromMe && !senderName) {
+            senderName = String(
+              pickFromMany(sources, [
+                "participantName",
+                "key.participantName",
+                "message.participantName",
+                "authorName",
+                "message.authorName",
+                "sender.pushName",
+                "sender.name",
+                "message.senderName",
+                "notifyName",
+                "chat.participantName",
+              ]) || "",
+            ).trim();
+          }
+
+          if (!fromMe && !senderName && senderPhone) {
+            senderName = senderPhone;
           }
         }
 
@@ -1460,6 +1531,29 @@ serve(async (req) => {
             }
           }
 
+          if (!isGroup && !fromMe && !conversation.contact_photo_url) {
+            try {
+              if (!uazapiConfigCache) uazapiConfigCache = await loadUazapiConfig(supabase);
+              if (!uazapiInstanceTokenCache) {
+                uazapiInstanceTokenCache = await resolveUazapiToken(
+                  supabase,
+                  instance,
+                  uazapiConfigCache.baseUrl,
+                  uazapiConfigCache.adminToken,
+                );
+              }
+              const photoUrl = await fetchUazapiContactPhoto(
+                uazapiConfigCache.baseUrl,
+                uazapiInstanceTokenCache,
+                remoteJid,
+                normalizedPhone || senderPhone,
+              );
+              if (photoUrl) updateData.contact_photo_url = photoUrl;
+            } catch (photoErr) {
+              console.warn("[UAZAPI WEBHOOK] failed to resolve contact photo (update):", photoErr);
+            }
+          }
+
           await supabase.from("whatsapp_conversations").update(updateData).eq("id", conversation.id);
           console.log("[UAZAPI WEBHOOK] conversation matched:", {
             source: conversationSource,
@@ -1467,6 +1561,29 @@ serve(async (req) => {
             remoteJid,
           });
         } else {
+          let contactPhotoUrl: string | null = null;
+          if (!isGroup && !fromMe) {
+            try {
+              if (!uazapiConfigCache) uazapiConfigCache = await loadUazapiConfig(supabase);
+              if (!uazapiInstanceTokenCache) {
+                uazapiInstanceTokenCache = await resolveUazapiToken(
+                  supabase,
+                  instance,
+                  uazapiConfigCache.baseUrl,
+                  uazapiConfigCache.adminToken,
+                );
+              }
+              contactPhotoUrl = await fetchUazapiContactPhoto(
+                uazapiConfigCache.baseUrl,
+                uazapiInstanceTokenCache,
+                remoteJid,
+                normalizedPhone || senderPhone,
+              );
+            } catch (photoErr) {
+              console.warn("[UAZAPI WEBHOOK] failed to resolve contact photo (create):", photoErr);
+            }
+          }
+
           const { data: newConversation, error: convError } = await supabase
             .from("whatsapp_conversations")
             .insert({
@@ -1475,6 +1592,7 @@ serve(async (req) => {
               is_group: isGroup,
               contact_name: isGroup ? null : senderName || null,
               contact_phone: isGroup ? null : normalizedPhone || null,
+              contact_photo_url: isGroup ? null : contactPhotoUrl,
               status: "pending",
               unread_count: fromMe ? 0 : 1,
               last_message_at: new Date().toISOString(),

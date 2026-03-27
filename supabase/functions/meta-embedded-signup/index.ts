@@ -210,7 +210,12 @@ serve(async (req) => {
           })
           .eq('id', existingInstance.id);
 
-        if (error) throw error;
+        if (error) {
+          if ((error as any).message?.includes('whatsapp_instances_connected_phone_unique')) {
+            throw new Error(`O número ${cleanPhone} já está conectado em outra instância. Desconecte a instância atual antes de conectar novamente.`);
+          }
+          throw error;
+        }
         instanceId = existingInstance.id;
       } else {
         // Create new instance
@@ -233,7 +238,12 @@ serve(async (req) => {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) {
+          if ((error as any).message?.includes('whatsapp_instances_connected_phone_unique')) {
+            throw new Error(`O número ${cleanPhone} já está conectado em outra instância. Desconecte a instância atual antes de conectar novamente.`);
+          }
+          throw error;
+        }
         instanceId = newInstance.id;
       }
 

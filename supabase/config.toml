@@ -48,5 +48,8 @@ verify_jwt = false
 [functions.receive-whatsapp-cloud-webhook]
 verify_jwt = false
 
+[functions.receive-whatsapp-uazapi-webhook]
+verify_jwt = false
+
 [functions.meta-embedded-signup]
 verify_jwt = false

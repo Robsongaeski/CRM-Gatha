@@ -4202,6 +4202,8 @@ export type Database = {
           numero_whatsapp: string | null
           ordem: number | null
           status: string | null
+          uazapi_instance_external_id: string | null
+          uazapi_instance_token: string | null
           updated_at: string | null
           webhook_configured: boolean | null
         }
@@ -4221,6 +4223,8 @@ export type Database = {
           numero_whatsapp?: string | null
           ordem?: number | null
           status?: string | null
+          uazapi_instance_external_id?: string | null
+          uazapi_instance_token?: string | null
           updated_at?: string | null
           webhook_configured?: boolean | null
         }
@@ -4240,6 +4244,8 @@ export type Database = {
           numero_whatsapp?: string | null
           ordem?: number | null
           status?: string | null
+          uazapi_instance_external_id?: string | null
+          uazapi_instance_token?: string | null
           updated_at?: string | null
           webhook_configured?: boolean | null
         }

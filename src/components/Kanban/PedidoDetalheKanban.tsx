@@ -35,6 +35,7 @@ import {
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
+import { sanitizeError } from '@/lib/errorHandling';
 
 // IDs das etapas que permitem upload de imagem de aprovação
 const ETAPAS_APROVACAO = [
@@ -156,19 +157,22 @@ export function PedidoDetalheKanban({ pedidoId, onClose }: PedidoDetalheKanbanPr
         }
       ];
 
-      const { error } = await supabase
+      const { data: updatedPedido, error } = await supabase
         .from('pedidos')
         .update({ observacao: JSON.stringify(novasObservacoes) })
-        .eq('id', pedidoId);
+        .eq('id', pedidoId)
+        .select('id')
+        .maybeSingle();
 
       if (error) throw error;
+      if (!updatedPedido) throw new Error('Sem permissao para atualizar este pedido.');
 
       queryClient.invalidateQueries({ queryKey: ['pedidos-kanban'] });
       queryClient.invalidateQueries({ queryKey: ['pedido', pedidoId] });
       toast.success('Observação adicionada');
       setNovaObservacao('');
     } catch (error) {
-      toast.error('Erro ao adicionar observação');
+      toast.error(sanitizeError(error));
       console.error(error);
     }
   };
@@ -183,12 +187,15 @@ export function PedidoDetalheKanban({ pedidoId, onClose }: PedidoDetalheKanbanPr
         texto: editingText.trim()
       };
 
-      const { error } = await supabase
+      const { data: updatedPedido, error } = await supabase
         .from('pedidos')
         .update({ observacao: JSON.stringify(novasObservacoes) })
-        .eq('id', pedidoId);
+        .eq('id', pedidoId)
+        .select('id')
+        .maybeSingle();
 
       if (error) throw error;
+      if (!updatedPedido) throw new Error('Sem permissao para atualizar este pedido.');
 
       queryClient.invalidateQueries({ queryKey: ['pedidos-kanban'] });
       queryClient.invalidateQueries({ queryKey: ['pedido', pedidoId] });
@@ -196,7 +203,7 @@ export function PedidoDetalheKanban({ pedidoId, onClose }: PedidoDetalheKanbanPr
       setEditingIndex(null);
       setEditingText('');
     } catch (error) {
-      toast.error('Erro ao editar observação');
+      toast.error(sanitizeError(error));
       console.error(error);
     }
   };
@@ -207,18 +214,21 @@ export function PedidoDetalheKanban({ pedidoId, onClose }: PedidoDetalheKanbanPr
     try {
       const novasObservacoes = observacoes.filter((_, i) => i !== index);
 
-      const { error } = await supabase
+      const { data: updatedPedido, error } = await supabase
         .from('pedidos')
         .update({ observacao: novasObservacoes.length > 0 ? JSON.stringify(novasObservacoes) : null })
-        .eq('id', pedidoId);
+        .eq('id', pedidoId)
+        .select('id')
+        .maybeSingle();
 
       if (error) throw error;
+      if (!updatedPedido) throw new Error('Sem permissao para atualizar este pedido.');
 
       queryClient.invalidateQueries({ queryKey: ['pedidos-kanban'] });
       queryClient.invalidateQueries({ queryKey: ['pedido', pedidoId] });
       toast.success('Observação excluída');
     } catch (error) {
-      toast.error('Erro ao excluir observação');
+      toast.error(sanitizeError(error));
       console.error(error);
     }
   };

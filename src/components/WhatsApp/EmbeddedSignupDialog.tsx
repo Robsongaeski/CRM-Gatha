@@ -223,7 +223,7 @@ export default function EmbeddedSignupDialog({ open, onOpenChange }: EmbeddedSig
       setResultData(registerResult);
       setStep('success');
       queryClient.invalidateQueries({ queryKey: ['whatsapp-instances'] });
-      queryClient.invalidateQueries({ queryKey: ['user-whatsapp-instances'] });
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-user-instances'] });
       toast.success('WhatsApp Cloud API conectado com sucesso!');
 
     } catch (err: any) {

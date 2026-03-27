@@ -839,6 +839,7 @@ export default function ChatArea({
                         direction: msg.from_me ? 'outgoing' : 'incoming',
                         type: msg.message_type,
                         content: msg.content,
+                        sender_phone: msg.sender_phone,
                         media_url: msg.media_url,
                         media_mimetype: msg.media_mime_type,
                         status: msg.status,
@@ -846,6 +847,7 @@ export default function ChatArea({
                         quoted_message: msg.quoted_content ? { content: msg.quoted_content } : null,
                       }} 
                       senderName={msg.sender_name}
+                      isGroup={conversation.is_group}
                       instanceName={conversation.instance?.nome}
                       onReply={(msg) => {
                         setReplyingTo(msg);

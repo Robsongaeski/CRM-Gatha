@@ -41,12 +41,17 @@ export function useMovimentoEtapaProposta() {
       }
 
       // 1. Atualizar etapa de aprovação da proposta
-      const { error: updateError } = await supabase
+      const { data: updatedProposta, error: updateError } = await supabase
         .from('propostas')
         .update({ etapa_aprovacao_id: etapaNovaId })
-        .eq('id', propostaId);
+        .eq('id', propostaId)
+        .select('id')
+        .maybeSingle();
 
       if (updateError) throw updateError;
+      if (!updatedProposta) {
+        throw new Error('Voce nao tem permissao para mover esta proposta.');
+      }
 
       // 2. Registrar movimento
       const { error: movimentoError } = await supabase

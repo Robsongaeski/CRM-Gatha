@@ -25,7 +25,7 @@ export default function Atendimento() {
   const processedPhoneRef = useRef<string | null>(null);
   
   const [filters, setFilters] = useState<ConversationFilters>({
-    assignment: 'all',
+    assignment: 'mine_and_new',
     status: 'all',
     search: '',
   });
