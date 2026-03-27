@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -53,6 +53,7 @@ export interface ConversationFilters {
 export function useWhatsappConversations(filters: ConversationFilters, allowedInstanceIds?: string[]) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const lastInvalidateAtRef = useRef(0);
 
   const query = useQuery({
     queryKey: ['whatsapp-conversations', filters, allowedInstanceIds],
@@ -98,7 +99,7 @@ export function useWhatsappConversations(filters: ConversationFilters, allowedIn
         query = query.in('instance_id', allowedInstanceIds);
       }
 
-      const { data, error } = await query.limit(100);
+      const { data, error } = await query.limit(1000);
       if (error) throw error;
 
       // Busca client-side para nome/telefone/preview
@@ -151,9 +152,17 @@ export function useWhatsappConversations(filters: ConversationFilters, allowedIn
                 conv.id === payload.new.id
                   ? { ...conv, ...(payload.new as Partial<WhatsappConversation>) }
                   : conv
-              );
+                );
             }
           );
+
+          // Conversas fora do limite atual nao entram apenas com setQueriesData.
+          // Forca um refetch com throttle para trazer conversas antigas que ficaram ativas.
+          const now = Date.now();
+          if (now - lastInvalidateAtRef.current > 1500) {
+            lastInvalidateAtRef.current = now;
+            queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'], refetchType: 'active' });
+          }
         }
       )
       .subscribe();

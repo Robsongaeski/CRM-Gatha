@@ -25,8 +25,8 @@ export default function WhatsAppAtendimento() {
   const processedPhoneRef = useRef<string | null>(null);
   
   const [filters, setFilters] = useState<ConversationFilters>({
-    assignment: 'mine_and_new',
-    status: 'active',
+    assignment: 'all',
+    status: 'all',
     search: '',
   });
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');

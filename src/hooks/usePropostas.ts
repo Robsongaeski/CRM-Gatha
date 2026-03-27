@@ -191,29 +191,58 @@ export function useUpdateProposta(id: string) {
 
       if (propostaError) throw propostaError;
 
-      // Deletar itens existentes
-      const { error: deleteError } = await supabase
+      // Segurança contra atualização parcial:
+      // 1) insere novos itens
+      // 2) remove antigos
+      // Se inserir falhar, os itens antigos continuam intactos.
+      const { data: itensAntigos, error: itensAntigosError } = await supabase
         .from('proposta_itens')
-        .delete()
+        .select('id')
         .eq('proposta_id', id);
 
-      if (deleteError) throw deleteError;
+      if (itensAntigosError) throw itensAntigosError;
 
-      // Criar novos itens
-      if (data.itens.length > 0) {
-        const itens = data.itens.map(item => ({
-          proposta_id: id,
-          produto_id: item.produto_id,
-          quantidade: item.quantidade,
-          valor_unitario: item.valor_unitario,
-          observacoes: item.observacoes || null,
-        }));
+      const oldItemIds = (itensAntigos || []).map(item => item.id);
+      let newItemIds: string[] = [];
 
-        const { error: itensError } = await supabase
-          .from('proposta_itens')
-          .insert(itens);
+      try {
+        // Criar novos itens
+        if (data.itens.length > 0) {
+          const itens = data.itens.map(item => ({
+            proposta_id: id,
+            produto_id: item.produto_id,
+            quantidade: item.quantidade,
+            valor_unitario: item.valor_unitario,
+            observacoes: item.observacoes || null,
+          }));
 
-        if (itensError) throw itensError;
+          const { data: itensInseridos, error: itensError } = await supabase
+            .from('proposta_itens')
+            .insert(itens)
+            .select('id');
+
+          if (itensError) throw itensError;
+          newItemIds = (itensInseridos || []).map(item => item.id);
+        }
+
+        // Deletar apenas os itens antigos, mantendo os novos inseridos
+        if (oldItemIds.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('proposta_itens')
+            .delete()
+            .in('id', oldItemIds);
+
+          if (deleteError) throw deleteError;
+        }
+      } catch (itemsError) {
+        // Rollback best-effort dos itens novos para não deixar duplicado.
+        if (newItemIds.length > 0) {
+          await supabase
+            .from('proposta_itens')
+            .delete()
+            .in('id', newItemIds);
+        }
+        throw itemsError;
       }
     },
     onSuccess: () => {

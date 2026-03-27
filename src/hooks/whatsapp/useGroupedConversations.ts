@@ -78,8 +78,7 @@ export function useGroupedConversations(conversations: WhatsappConversation[]): 
         
         // Validar se é um telefone brasileiro válido (10-11 dígitos após remover código país)
         // Se o remote_jid contém @lid, o contact_phone pode ser inválido (número do LID)
-        const isLidJid = conv.remote_jid?.includes('@lid');
-        const isValidPhone = normalizedPhone.length >= 10 && normalizedPhone.length <= 11 && !isLidJid;
+        const isValidPhone = normalizedPhone.length >= 10 && normalizedPhone.length <= 11;
         
         if (isValidPhone) {
           groupKey = normalizedPhone;
