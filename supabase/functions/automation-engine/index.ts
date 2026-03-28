@@ -735,19 +735,51 @@ async function processAction(
         return { success: true, output: { skipped: 'empty_keyword_response' } }
       }
 
-      const sendResult = await processAction(
-        supabase,
-        'send_whatsapp',
-        {
-          instance_id: context.instance_id,
-          remote_jid: context.remote_jid,
-          phone: context.contact_phone,
-          message: responseMessage,
-        },
-        context,
-        supabaseUrl,
-        supabaseServiceKey,
-      )
+      const splitMessages = config.split_messages === true
+      const splitDelaySecondsRaw = Number(config.split_delay_seconds ?? 2)
+      const splitDelaySeconds = Number.isFinite(splitDelaySecondsRaw)
+        ? Math.min(30, Math.max(0, splitDelaySecondsRaw))
+        : 2
+      const messagesToSend = splitMessages
+        ? splitAutoReplyMessage(responseMessage)
+        : [responseMessage]
+
+      if (messagesToSend.length === 0) {
+        return { success: true, output: { skipped: 'empty_keyword_response' } }
+      }
+
+      const sentMessages: string[] = []
+      let lastSendOutput: Record<string, unknown> = {}
+
+      for (let index = 0; index < messagesToSend.length; index++) {
+        const messagePart = String(messagesToSend[index] || '').trim()
+        if (!messagePart) continue
+
+        const sendResult = await processAction(
+          supabase,
+          'send_whatsapp',
+          {
+            instance_id: context.instance_id,
+            remote_jid: context.remote_jid,
+            phone: context.contact_phone,
+            message: messagePart,
+          },
+          context,
+          supabaseUrl,
+          supabaseServiceKey,
+        )
+
+        sentMessages.push(messagePart)
+        lastSendOutput = { ...lastSendOutput, ...(sendResult.output || {}) }
+
+        if (index < messagesToSend.length - 1 && splitDelaySeconds > 0) {
+          await waitMs(splitDelaySeconds * 1000)
+        }
+      }
+
+      if (sentMessages.length === 0) {
+        return { success: true, output: { skipped: 'empty_keyword_response' } }
+      }
 
       await supabase.from('automation_whatsapp_reply_logs').insert({
         workflow_id: workflowId,
@@ -759,9 +791,12 @@ async function processAction(
       return {
         success: true,
         output: {
-          ...(sendResult.output || {}),
+          ...lastSendOutput,
           keyword_matched: String(matchedRule.keyword || ''),
           keyword_response_variant: pickedResponseTemplate,
+          keyword_messages_sent: sentMessages.length,
+          keyword_messages: sentMessages,
+          keyword_sequence_enabled: splitMessages,
           auto_replied: true,
         },
       }
@@ -1084,6 +1119,30 @@ function getKeywordRuleResponses(rule: Record<string, unknown>): string[] {
     responses.push(String(rule.response || '').trim())
   }
   return Array.from(new Set(responses.filter(Boolean)))
+}
+
+function splitAutoReplyMessage(message: string): string[] {
+  const normalized = String(message || '').replace(/\r\n/g, '\n').trim()
+  if (!normalized) return []
+
+  if (normalized.includes('||')) {
+    return normalized
+      .split(/\s*\|\|\s*/g)
+      .map((part) => part.trim())
+      .filter(Boolean)
+  }
+
+  const byBlankLine = normalized
+    .split(/\n\s*\n+/g)
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  return byBlankLine.length > 1 ? byBlankLine : [normalized]
+}
+
+function waitMs(ms: number): Promise<void> {
+  if (!Number.isFinite(ms) || ms <= 0) return Promise.resolve()
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function pickRandomItem<T>(items: T[]): T | null {

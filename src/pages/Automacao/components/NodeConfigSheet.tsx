@@ -373,6 +373,19 @@ function TriggerConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any)
 function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) => void }) {
   const config = (node.data.config as any) || {};
   const subtype = node.data.subtype as string;
+  const knownActionSubtypes = new Set([
+    'send_whatsapp',
+    'send_email',
+    'create_notification',
+    'update_status',
+    'add_tag',
+    'remove_tag',
+    'assign_to_user',
+    'assign_round_robin',
+    'set_followup_flag',
+    'keyword_auto_reply',
+    'call_webhook',
+  ]);
   const needsWhatsappOptions = [
     'send_whatsapp',
     'assign_to_user',
@@ -1048,6 +1061,34 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
             </div>
           </FormSection>
 
+          <FormSection
+            title="Formato de Envio"
+            hint="Ative para enviar em varias mensagens curtas. Separe cada mensagem com linha em branco ou usando ||."
+          >
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={config.split_messages === true}
+                onChange={(e) => onUpdate({ ...config, split_messages: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              Enviar respostas em sequencia (nao em bloco unico)
+            </label>
+            {config.split_messages === true && (
+              <div className="flex items-center gap-2 mt-3">
+                <Input
+                  type="number"
+                  min="0"
+                  max="30"
+                  value={config.split_delay_seconds ?? 2}
+                  onChange={(e) => onUpdate({ ...config, split_delay_seconds: Math.min(30, Math.max(0, parseInt(e.target.value, 10) || 0)) })}
+                  className="w-24 bg-muted/50"
+                />
+                <span className="text-sm text-muted-foreground">segundos entre as mensagens</span>
+              </div>
+            )}
+          </FormSection>
+
           {renderKeywordRulesEditor(true)}
         </>
       )}
@@ -1078,6 +1119,18 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
             </Select>
           </FormSection>
         </>
+      )}
+
+      {!knownActionSubtypes.has(String(subtype || '').trim()) && (
+        <div className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-4 border border-dashed">
+          Este tipo de acao nao possui formulario de configuracao nesta versao.
+          <div className="mt-2 text-xs">
+            Subtipo recebido: <code>{String(subtype || '(vazio)')}</code>
+          </div>
+          <div className="mt-1 text-xs">
+            Dica: recrie este no pela paleta para usar o subtipo atual.
+          </div>
+        </div>
       )}
     </div>
   );

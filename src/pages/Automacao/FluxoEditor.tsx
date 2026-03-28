@@ -68,6 +68,50 @@ const defaultEdgeOptions = {
   markerEnd: { type: MarkerType.ArrowClosed },
 };
 
+const legacyActionSubtypeMap: Record<string, string> = {
+  keyword_reply: 'keyword_auto_reply',
+  auto_reply_keyword: 'keyword_auto_reply',
+  whatsapp_keyword_reply: 'keyword_auto_reply',
+  resposta_por_palavra: 'keyword_auto_reply',
+  resposta_palavra: 'keyword_auto_reply',
+};
+
+function normalizeActionSubtype(node: Node): Node {
+  if (node.type !== 'action') return node;
+
+  const data = (node.data as Record<string, unknown>) || {};
+  const rawSubtype = String(
+    data.subtype ??
+      data.actionSubtype ??
+      data.action_subtype ??
+      data.actionType ??
+      data.action_type ??
+      ''
+  ).trim();
+  const label = String(data.label || '').trim().toLowerCase();
+
+  let normalizedSubtype = legacyActionSubtypeMap[rawSubtype.toLowerCase()] || rawSubtype;
+  if (!normalizedSubtype && label.includes('resposta por palavra')) {
+    normalizedSubtype = 'keyword_auto_reply';
+  }
+
+  if (!normalizedSubtype || normalizedSubtype === String(data.subtype || '').trim()) {
+    return node;
+  }
+
+  return {
+    ...node,
+    data: {
+      ...node.data,
+      subtype: normalizedSubtype,
+    },
+  };
+}
+
+function normalizeLoadedNodes(nodes: Node[]) {
+  return nodes.map(normalizeActionSubtype);
+}
+
 function buildDraftWorkflowName(now = new Date()) {
   const pad = (value: number) => String(value).padStart(2, '0');
   const yyyy = now.getFullYear();
@@ -125,7 +169,10 @@ function FluxoEditorInner() {
       setAtivo(workflow.ativo);
       
       if (workflow.flow_data) {
-        setNodes(workflow.flow_data.nodes || []);
+        const loadedNodes = Array.isArray(workflow.flow_data.nodes)
+          ? (workflow.flow_data.nodes as Node[])
+          : [];
+        setNodes(normalizeLoadedNodes(loadedNodes));
         setEdges(workflow.flow_data.edges || []);
       }
     }

@@ -80,6 +80,40 @@ function TriggerConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any)
 function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) => void }) {
   const config = (node.data.config as any) || {};
   const subtype = node.data.subtype as string;
+  const rules = Array.isArray(config.rules) ? config.rules : [];
+  const knownActionSubtypes = new Set([
+    'send_whatsapp',
+    'send_email',
+    'create_notification',
+    'update_status',
+    'keyword_auto_reply',
+    'call_webhook',
+  ]);
+
+  const updateRule = (index: number, patch: Record<string, unknown>) => {
+    const nextRules = rules.map((rule: Record<string, unknown>, currentIndex: number) => {
+      if (currentIndex !== index) return rule;
+      return { ...rule, ...patch };
+    });
+    onUpdate({ ...config, rules: nextRules });
+  };
+
+  const addRule = () => {
+    onUpdate({
+      ...config,
+      rules: [
+        ...rules,
+        { keyword: '', response: '', match_type: config.match_type || 'contains' },
+      ],
+    });
+  };
+
+  const removeRule = (index: number) => {
+    onUpdate({
+      ...config,
+      rules: rules.filter((_: unknown, currentIndex: number) => currentIndex !== index),
+    });
+  };
   
   return (
     <div className="space-y-4">
@@ -178,6 +212,107 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
           />
         </div>
       )}
+
+      {subtype === 'keyword_auto_reply' && (
+        <>
+          <div className="space-y-2">
+            <Label>CorrespondÃªncia PadrÃ£o</Label>
+            <Select
+              value={config.match_type || 'contains'}
+              onValueChange={(value) => onUpdate({ ...config, match_type: value })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="contains">ContÃ©m</SelectItem>
+                <SelectItem value="exact">Exata</SelectItem>
+                <SelectItem value="starts_with">ComeÃ§a com</SelectItem>
+                <SelectItem value="ends_with">Termina com</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Cooldown (minutos)</Label>
+            <Input
+              type="number"
+              min="0"
+              value={config.cooldown_minutes ?? 60}
+              onChange={(e) => onUpdate({ ...config, cooldown_minutes: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+            />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={config.split_messages === true}
+              onChange={(e) => onUpdate({ ...config, split_messages: e.target.checked })}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            Enviar em sequencia (mensagens separadas)
+          </label>
+
+          {config.split_messages === true && (
+            <div className="space-y-2">
+              <Label>Intervalo entre mensagens (segundos)</Label>
+              <Input
+                type="number"
+                min="0"
+                max="30"
+                value={config.split_delay_seconds ?? 2}
+                onChange={(e) => onUpdate({ ...config, split_delay_seconds: Math.min(30, Math.max(0, parseInt(e.target.value, 10) || 0)) })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Separe as partes com linha em branco ou com ||.
+              </p>
+            </div>
+          )}
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={config.case_sensitive === true}
+              onChange={(e) => onUpdate({ ...config, case_sensitive: e.target.checked })}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            Diferenciar maiÃºsculas e minÃºsculas
+          </label>
+
+          <div className="space-y-3">
+            <Label>Regras de Palavra/Frase</Label>
+            {rules.length === 0 && (
+              <p className="text-xs text-muted-foreground">Nenhuma regra cadastrada.</p>
+            )}
+            {rules.map((rule: Record<string, unknown>, index: number) => (
+              <div key={`rule-${index}`} className="border rounded-lg p-3 space-y-2">
+                <Input
+                  value={String(rule.keyword || '')}
+                  onChange={(e) => updateRule(index, { keyword: e.target.value })}
+                  placeholder="Palavra ou frase"
+                />
+                <Textarea
+                  value={String(rule.response || '')}
+                  onChange={(e) => updateRule(index, { response: e.target.value })}
+                  placeholder="Resposta automÃ¡tica"
+                  rows={3}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => removeRule(index)}
+                >
+                  Remover regra
+                </Button>
+              </div>
+            ))}
+            <Button type="button" variant="outline" className="w-full" onClick={addRule}>
+              Adicionar regra
+            </Button>
+          </div>
+        </>
+      )}
       
       {subtype === 'call_webhook' && (
         <>
@@ -206,6 +341,12 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
             </Select>
           </div>
         </>
+      )}
+
+      {!knownActionSubtypes.has(String(subtype || '').trim()) && (
+        <div className="text-xs text-muted-foreground border border-dashed rounded-md p-3">
+          Este subtipo nÃ£o possui configuraÃ§Ãµes neste painel. Subtipo atual: <code>{String(subtype || '(vazio)')}</code>.
+        </div>
       )}
     </div>
   );
