@@ -25,6 +25,31 @@ export interface WhatsappMessage {
   created_at: string;
 }
 
+interface SendWhatsappResponse {
+  success?: boolean;
+  queued?: boolean;
+  message?: WhatsappMessage;
+  error?: string;
+}
+
+interface SendWhatsappParams {
+  conversationId: string;
+  instanceId: string;
+  remoteJid: string;
+  content: string;
+  messageType?: 'text' | 'image' | 'video' | 'audio' | 'document';
+  mediaUrl?: string;
+  mediaBase64?: string;
+  mediaFilename?: string;
+  mediaMimeType?: string;
+  quotedMessageId?: string;
+  senderName?: string;
+}
+
+interface SendMutationContext {
+  tempMessageId: string;
+}
+
 const MESSAGE_LIMIT = 200;
 
 export function useWhatsappMessages(conversationId: string | null) {
@@ -35,22 +60,21 @@ export function useWhatsappMessages(conversationId: string | null) {
     queryFn: async () => {
       if (!conversationId) return [];
 
-      const { data, error, count } = await supabase
+      const { data, error } = await supabase
         .from('whatsapp_messages')
-        .select('*', { count: 'exact' })
+        .select('*')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
         .limit(MESSAGE_LIMIT);
 
       if (error) throw error;
 
-      // Inverter para ordem cronológica
+      // Reverse because query comes newest-first.
       return (data as WhatsappMessage[]).reverse();
     },
     enabled: !!conversationId
   });
 
-  // Realtime subscription
   useEffect(() => {
     if (!conversationId) return;
 
@@ -67,8 +91,7 @@ export function useWhatsappMessages(conversationId: string | null) {
         (payload) => {
           queryClient.setQueryData(['whatsapp-messages', conversationId], (old: WhatsappMessage[] = []) => {
             const newMessage = payload.new as WhatsappMessage;
-            // Evitar duplicatas
-            if (old.some(m => m.id === newMessage.id)) return old;
+            if (old.some((message) => message.id === newMessage.id)) return old;
             return [...old, newMessage];
           });
         }
@@ -83,7 +106,9 @@ export function useWhatsappMessages(conversationId: string | null) {
         },
         (payload) => {
           queryClient.setQueryData(['whatsapp-messages', conversationId], (old: WhatsappMessage[] = []) => {
-            return old.map(m => m.id === payload.new.id ? payload.new as WhatsappMessage : m);
+            return old.map((message) =>
+              message.id === payload.new.id ? (payload.new as WhatsappMessage) : message,
+            );
           });
         }
       )
@@ -100,63 +125,115 @@ export function useWhatsappMessages(conversationId: string | null) {
 export function useSendWhatsappMessage() {
   const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: async (params: {
-      conversationId: string;
-      instanceId: string;
-      remoteJid: string;
-      content: string;
-      messageType?: 'text' | 'image' | 'video' | 'audio' | 'document';
-      mediaUrl?: string;
-      mediaBase64?: string;
-      mediaFilename?: string;
-      mediaMimeType?: string;
-      quotedMessageId?: string;
-      senderName?: string;
-    }) => {
-      const { data, error } = await supabase.functions
-        .invoke('send-whatsapp', {
-          body: {
-            instanceId: params.instanceId,
-            remoteJid: params.remoteJid,
-            content: params.content,
-            messageType: params.messageType || 'text',
-            mediaUrl: params.mediaUrl,
-            mediaBase64: params.mediaBase64,
-            mediaFilename: params.mediaFilename,
-            mediaMimeType: params.mediaMimeType,
-            quotedMessageId: params.quotedMessageId,
-            conversationId: params.conversationId,
-            senderName: params.senderName
-          }
-        });
+  return useMutation<SendWhatsappResponse, Error, SendWhatsappParams, SendMutationContext>({
+    mutationFn: async (params) => {
+      const { data, error } = await supabase.functions.invoke('send-whatsapp', {
+        body: {
+          instanceId: params.instanceId,
+          remoteJid: params.remoteJid,
+          content: params.content,
+          messageType: params.messageType || 'text',
+          mediaUrl: params.mediaUrl,
+          mediaBase64: params.mediaBase64,
+          mediaFilename: params.mediaFilename,
+          mediaMimeType: params.mediaMimeType,
+          quotedMessageId: params.quotedMessageId,
+          conversationId: params.conversationId,
+          senderName: params.senderName
+        }
+      });
 
-      // supabase.functions.invoke coloca resposta em data mesmo com status >= 400
-      // mas pode retornar error se houve falha de rede/CORS
+      // invoke can return status >= 400 in data, while network/CORS returns error.
       if (error) {
-        // Tentar extrair mensagem do erro
-        const errMsg = (error as any)?.context?.body 
+        const errMsg = (error as any)?.context?.body
           ? await (error as any).context.json?.().catch(() => null)
           : null;
-        throw new Error(errMsg?.error || error.message || 'Erro de conexão com o servidor');
+        throw new Error(errMsg?.error || error.message || 'Erro de conexao com o servidor');
       }
-      
+
       if (data && !data.success && !data.queued) {
-        // Mensagem de erro vinda da edge function - já é amigável
         throw new Error(data.error || 'Erro ao processar envio da mensagem');
       }
-      
-      return data;
+
+      return (data ?? {}) as SendWhatsappResponse;
     },
-    onSuccess: (data, variables) => {
+    onMutate: async (variables) => {
+      const tempMessageId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const optimisticMessage: WhatsappMessage = {
+        id: tempMessageId,
+        conversation_id: variables.conversationId,
+        instance_id: variables.instanceId,
+        message_id_external: null,
+        from_me: true,
+        sender_phone: null,
+        sender_name: variables.senderName || null,
+        content: variables.content || null,
+        message_type: (variables.messageType || 'text') as WhatsappMessage['message_type'],
+        media_url: variables.mediaUrl || null,
+        media_mime_type: variables.mediaMimeType || null,
+        media_filename: variables.mediaFilename || null,
+        quoted_message_id: variables.quotedMessageId || null,
+        quoted_content: null,
+        quoted_sender: null,
+        reactions: null,
+        status: 'pending',
+        error_message: null,
+        created_at: new Date().toISOString(),
+      };
+
+      await queryClient.cancelQueries({ queryKey: ['whatsapp-messages', variables.conversationId] });
+      queryClient.setQueryData(
+        ['whatsapp-messages', variables.conversationId],
+        (old: WhatsappMessage[] = []) => [...old, optimisticMessage],
+      );
+
+      return { tempMessageId };
+    },
+    onSuccess: (data, variables, context) => {
+      const finalStatus = data.queued ? 'queued' : 'sent';
+      const savedMessage = data.message;
+
+      queryClient.setQueryData(
+        ['whatsapp-messages', variables.conversationId],
+        (old: WhatsappMessage[] = []) => {
+          if (!context?.tempMessageId) return old;
+
+          if (savedMessage?.id) {
+            const withoutTemp = old.filter((message) => message.id !== context.tempMessageId);
+            const alreadyExists = withoutTemp.some((message) => message.id === savedMessage.id);
+            if (alreadyExists) return withoutTemp;
+            return [...withoutTemp, savedMessage];
+          }
+
+          return old.map((message) =>
+            message.id === context.tempMessageId
+              ? { ...message, status: finalStatus, error_message: null }
+              : message,
+          );
+        },
+      );
+
       queryClient.invalidateQueries({ queryKey: ['whatsapp-messages', variables.conversationId] });
       queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'] });
-      
+
       if (data.queued) {
-        toast.info('Mensagem adicionada à fila (instância offline)');
+        toast.info('Mensagem adicionada a fila (instancia offline)');
       }
     },
-    onError: (error: Error) => {
+    onError: (error, variables, context) => {
+      queryClient.setQueryData(
+        ['whatsapp-messages', variables.conversationId],
+        (old: WhatsappMessage[] = []) => {
+          if (!context?.tempMessageId) return old;
+
+          return old.map((message) =>
+            message.id === context.tempMessageId
+              ? { ...message, status: 'error', error_message: error.message || 'Erro ao enviar' }
+              : message,
+          );
+        },
+      );
+
       toast.error(`Erro ao enviar mensagem: ${error.message}`);
     }
   });
