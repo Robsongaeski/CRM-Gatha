@@ -70,13 +70,13 @@ function extractDisplayText(raw: string | null | undefined): string {
   return text;
 }
 
-// FunÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o para renderizar texto com links clicÃƒÆ’Ã‚Â¡veis
+// Funcao para renderizar texto com links clicaveis
 const renderTextWithLinks = (text: string) => {
   const parts = text.split(URL_REGEX);
   
   return parts.map((part, index) => {
     if (URL_REGEX.test(part)) {
-      // Reset do regex pois ÃƒÆ’Ã‚Â© global
+      // Reset do regex pois e global
       URL_REGEX.lastIndex = 0;
       return (
         <a
@@ -114,14 +114,14 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
     ? (senderName?.trim() || message.sender_phone || null)
     : null;
 
-  // Renderizar mensagem de sistema (interna, nÃƒÆ’Ã‚Â£o visÃƒÆ’Ã‚Â­vel ao cliente)
+  // Renderizar mensagem de sistema (interna, nao visivel ao cliente)
   if (isSystemMessage) {
     return (
       <div className="flex justify-center my-3">
         <div className="bg-[#e7f3ff] text-[#3b5998] text-xs px-4 py-2 rounded-lg max-w-[85%] text-center shadow-sm border border-[#d0e3f7]">
           <p className="whitespace-pre-wrap">{normalizedContent}</p>
           <span className="text-[10px] text-[#667781] mt-1 block">
-            {format(new Date(message.created_at), "dd/MM 'ÃƒÆ’Ã‚Â s' HH:mm", { locale: ptBR })}
+            {format(new Date(message.created_at), "dd/MM 'as' HH:mm", { locale: ptBR })}
           </span>
         </div>
       </div>
@@ -135,7 +135,7 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
   const renderMedia = () => {
     const mimetype = message.media_mimetype || '';
 
-    // Se tem URL de mÃƒÆ’Ã‚Â­dia
+    // Se tem URL de midia
     if (message.media_url) {
       if (message.type === 'sticker') {
         return (
@@ -231,52 +231,47 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
       );
     }
 
-    // Fallback: mÃƒÆ’Ã‚Â­dia sem URL (falha no download)
+    // Fallback: midia sem URL (falha no download)
     if (message.type === 'image' && !message.media_url) {
       return (
         <div className="bg-[#f0f2f5] rounded-lg p-4 mb-1 text-center">
-          <span className="text-2xl">ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã‚Â·</span>
-          <p className="text-xs text-[#667781] mt-1">Imagem nÃƒÆ’Ã‚Â£o disponÃƒÆ’Ã‚Â­vel</p>
+          <span className="text-2xl">IMG</span>
+          <p className="text-xs text-[#667781] mt-1">Imagem nao disponivel</p>
         </div>
       );
     }
-
     if (message.type === 'video' && !message.media_url) {
       return (
         <div className="bg-[#f0f2f5] rounded-lg p-4 mb-1 text-center">
-          <span className="text-2xl">ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Â¥</span>
-          <p className="text-xs text-[#667781] mt-1">VÃƒÆ’Ã‚Â­deo nÃƒÆ’Ã‚Â£o disponÃƒÆ’Ã‚Â­vel</p>
+          <span className="text-2xl">VID</span>
+          <p className="text-xs text-[#667781] mt-1">Video nao disponivel</p>
         </div>
       );
     }
-
     if (message.type === 'audio' && !message.media_url) {
       return (
         <div className="bg-[#f0f2f5] rounded-lg p-4 mb-1 text-center">
-          <span className="text-2xl">ÃƒÂ°Ã…Â¸Ã…Â½Ã‚Âµ</span>
-          <p className="text-xs text-[#667781] mt-1">ÃƒÆ’Ã‚Âudio nÃƒÆ’Ã‚Â£o disponÃƒÆ’Ã‚Â­vel</p>
+          <span className="text-2xl">AUD</span>
+          <p className="text-xs text-[#667781] mt-1">Audio nao disponivel</p>
         </div>
       );
     }
-
     if (message.type === 'document' && !message.media_url) {
       return (
         <div className="bg-[#f0f2f5] rounded-lg p-4 mb-1 text-center">
-          <span className="text-2xl">ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Å¾</span>
-          <p className="text-xs text-[#667781] mt-1">Documento nÃƒÆ’Ã‚Â£o disponÃƒÆ’Ã‚Â­vel</p>
+          <span className="text-2xl">DOC</span>
+          <p className="text-xs text-[#667781] mt-1">Documento nao disponivel</p>
         </div>
       );
     }
-
     if (message.type === 'sticker' && !message.media_url) {
       return (
         <div className="bg-[#f0f2f5] rounded-lg p-4 mb-1 text-center">
-          <span className="text-2xl">ÃƒÂ°Ã…Â¸Ã‚ÂÃ‚Â·ÃƒÂ¯Ã‚Â¸Ã‚Â</span>
+          <span className="text-2xl">STK</span>
           <p className="text-xs text-[#667781] mt-1">Sticker</p>
         </div>
       );
     }
-
     if (message.type === 'contact') {
       return (
         <div className="bg-[#f0f2f5] rounded-lg p-3 mb-1">
@@ -358,7 +353,7 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
               : 'bg-white text-[#111b21] rounded-tl-[0px]'
           )}
         >
-          {/* Tail do balÃƒÆ’Ã‚Â£o usando SVG puro estilo WhatsApp */}
+          {/* Tail do balao usando SVG puro estilo WhatsApp */}
           <div className={cn(
             'absolute top-0 w-[8px] h-[13px]',
             isOutgoing ? '-right-[8px] text-[#d9fdd3]' : '-left-[8px] text-white scale-x-[-1]'
@@ -378,7 +373,7 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
               {incomingGroupSender}
             </div>
           )}
-          {/* Removido o nome da instÃƒÆ’Ã‚Â¢ncia para mensagens recebidas conforme solicitado */}
+          {/* Removido o nome da instancia para mensagens recebidas conforme solicitado */}
           {message.quoted_message && (
             <div className="text-xs mb-1 p-2 rounded bg-[#d1f4cc] border-l-4 border-[#06cf9c]">
               <p className="text-[#667781] line-clamp-2">{normalizedQuotedContent}</p>
@@ -399,7 +394,7 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
           </div>
           <div className="clear-both" />
 
-          {/* BotÃƒÆ’Ã‚Âµes de aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o (Responder/Encaminhar) - Aparecem no hover do container pai */}
+          {/* Botoes de acao (Responder/Encaminhar) - Aparecem no hover do container pai */}
           {(onReply || onForward) && (
             <div className="absolute top-1 right-1 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-10">
               <DropdownMenu>

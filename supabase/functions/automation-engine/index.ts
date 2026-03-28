@@ -61,6 +61,12 @@ serve(async (req) => {
       .update({ status: 'running', started_at: new Date().toISOString() })
       .eq('id', execution_id)
 
+    const { data: executionRow } = await supabase
+      .from('automation_workflow_executions')
+      .select('execution_path')
+      .eq('id', execution_id)
+      .maybeSingle()
+
     // Encontrar o nó inicial (trigger) ou o nó atual
     const nodes = flow_data.nodes || []
     const edges = flow_data.edges || []
@@ -79,7 +85,10 @@ serve(async (req) => {
     }
 
     // Processar a sequência de nós
-    const executionPath: string[] = []
+    const existingExecutionPath = Array.isArray(executionRow?.execution_path)
+      ? executionRow.execution_path.map((item: unknown) => String(item))
+      : []
+    const executionPath: string[] = [...existingExecutionPath]
     let context = { ...trigger_data, workflow_id, execution_id }
     
     // Se estamos começando pelo trigger, ir para o próximo nó
@@ -949,8 +958,8 @@ function processControl(
   switch (subtype) {
     case 'delay': {
       // Suportar ambos os formatos de config
-      const amount = Number(config.amount || config.delayValue) || 1
-      const unit = config.unit as string || config.delayUnit as string || 'hours'
+      const amount = Number(config.amount || config.delay || config.delayValue) || 1
+      const unit = config.unit as string || config.delayUnit as string || 'minutes'
       
       let delayMs = amount
       switch (unit) {
@@ -1236,7 +1245,7 @@ function resolveTemplate(template: string, context: Record<string, unknown>): st
     normalizedContext[normalizeTemplateKey(key)] = value
   })
 
-  const resolveToken = (rawKey: string, originalToken: string): string => {
+  const resolveToken = (rawKey: string): string => {
     const directValue = enrichedContext[rawKey]
     if (directValue !== undefined && directValue !== null && directValue !== '') {
       return String(directValue)
@@ -1249,15 +1258,15 @@ function resolveTemplate(template: string, context: Record<string, unknown>): st
       return String(normalizedValue)
     }
 
-    return originalToken
+    return ''
   }
 
-  const withBraces = template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key) => {
-    return resolveToken(String(key), match)
+  const withBraces = template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_match, key) => {
+    return resolveToken(String(key))
   })
 
-  return withBraces.replace(/\[([^\]]+)\]/g, (match, key) => {
-    return resolveToken(String(key), match)
+  return withBraces.replace(/\[([^\]]+)\]/g, (_match, key) => {
+    return resolveToken(String(key))
   })
 }
 

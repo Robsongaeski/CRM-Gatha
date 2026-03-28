@@ -32,7 +32,7 @@ const statusConfig: Record<ExecutionStatus, { label: string; icon: React.Element
     className: 'bg-destructive/10 text-destructive',
   },
   paused: {
-    label: 'Pausado',
+    label: 'Aguardando',
     icon: Clock,
     className: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
   },

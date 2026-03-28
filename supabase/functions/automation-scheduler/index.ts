@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Esta função é chamada por um cron job para processar ações agendadas
+// Called by a cron job to process scheduled actions.
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
@@ -19,7 +19,7 @@ serve(async (req) => {
 
     console.log('Checking for scheduled automation actions...')
 
-    // Buscar ações pendentes que já passaram do horário agendado
+    // Find pending actions that are already due.
     const { data: pendingActions, error: fetchError } = await supabase
       .from('automation_scheduled_actions')
       .select(`
@@ -51,7 +51,7 @@ serve(async (req) => {
           .update({ status: 'processing' })
           .eq('id', action.id)
 
-        // Buscar a execução para obter o workflow
+        // Load execution to get workflow metadata.
         const { data: execution } = await supabase
           .from('automation_workflow_executions')
           .select('id, workflow_id, trigger_entity, trigger_entity_id')
@@ -75,17 +75,26 @@ serve(async (req) => {
 
         const payload = action.payload as { flow_data?: Record<string, unknown>, trigger_data?: Record<string, unknown> }
 
-        // Encontrar o próximo nó após o delay
+        // Resume from the scheduled node.
+        // Compatibility:
+        // - Current format: action.node_id is already the next node to execute
+        // - Legacy format: action.node_id may point to the previous node (e.g. delay)
         const flowData = workflow.flow_data as { nodes: Array<{ id: string }>, edges: Array<{ source: string, target: string }> }
+        const nodes = flowData.nodes || []
         const edges = flowData.edges || []
-        const nextEdge = edges.find((e: { source: string }) => e.source === action.node_id)
-        
-        if (!nextEdge) {
-          // Fluxo terminou após o delay
+        let resumeNodeId = action.node_id
+        const hasDirectNode = nodes.some((node) => node.id === resumeNodeId)
+        if (!hasDirectNode) {
+          const nextEdge = edges.find((e: { source: string }) => e.source === action.node_id)
+          resumeNodeId = nextEdge?.target || ''
+        }
+
+        if (!resumeNodeId) {
+          // Workflow finished with no next node.
           await supabase
             .from('automation_workflow_executions')
-            .update({ 
-              status: 'completed', 
+            .update({
+              status: 'completed',
               completed_at: new Date().toISOString()
             })
             .eq('id', action.execution_id)
@@ -99,7 +108,7 @@ serve(async (req) => {
           continue
         }
 
-        // Continuar a execução a partir do próximo nó
+        // Continue execution from the correct node.
         const engineUrl = `${supabaseUrl}/functions/v1/automation-engine`
         const engineResponse = await fetch(engineUrl, {
           method: 'POST',
@@ -116,7 +125,7 @@ serve(async (req) => {
               entity_type: execution.trigger_entity,
               entity_id: execution.trigger_entity_id
             },
-            current_node_id: nextEdge.target
+            current_node_id: resumeNodeId
           }),
         })
 
@@ -124,7 +133,7 @@ serve(async (req) => {
           throw new Error(`Engine error: ${await engineResponse.text()}`)
         }
 
-        // Marcar ação como executada
+        // Mark action as executed.
         await supabase
           .from('automation_scheduled_actions')
           .update({ status: 'executed', executed_at: new Date().toISOString() })

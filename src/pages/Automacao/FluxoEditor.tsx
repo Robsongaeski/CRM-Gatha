@@ -324,13 +324,37 @@ function FluxoEditorInner() {
       setTipo('whatsapp');
       toast.info('Tipo do fluxo ajustado automaticamente para WhatsApp.');
     }
+
+    const normalizedNodes = nodes.map((node) => {
+      if (node.type !== 'control' || node.data?.subtype !== 'delay') return node;
+
+      const rawConfig = (node.data?.config as Record<string, unknown>) || {};
+      const amountRaw = Number(rawConfig.amount ?? rawConfig.delay ?? rawConfig.delayValue ?? 1);
+      const safeAmount = Number.isFinite(amountRaw) && amountRaw > 0 ? Math.trunc(amountRaw) : 1;
+      const unitRaw = String(rawConfig.unit ?? rawConfig.delayUnit ?? 'minutes');
+      const safeUnit = ['minutes', 'hours', 'days'].includes(unitRaw) ? unitRaw : 'minutes';
+
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          config: {
+            ...rawConfig,
+            amount: safeAmount,
+            delay: safeAmount,
+            unit: safeUnit,
+            delayUnit: safeUnit,
+          },
+        },
+      };
+    });
     
     const workflowData = {
       id: isNew ? undefined : id,
       nome: normalizedNome,
       descricao,
       tipo: normalizedTipo as any,
-      flow_data: { nodes, edges },
+      flow_data: { nodes: normalizedNodes, edges },
       trigger_config: nodes.find(n => n.type === 'trigger')?.data?.config || {},
     };
     await saveWorkflow.mutateAsync(workflowData);

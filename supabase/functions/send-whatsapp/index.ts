@@ -1,4 +1,4 @@
-﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -31,7 +31,7 @@ function normalizePhone(phone: string): string {
   return cleaned;
 }
 
-// Gera variaÃ§Ãµes do nÃºmero brasileiro (com/sem nono dÃ­gito)
+// Gera variacoes do numero brasileiro (com/sem nono digito)
 function getPhoneVariations(jid: string): string[] {
   const cleaned = jid.replace(/@.*$/, '').replace(/\D/g, '');
   const variations: string[] = [cleaned];
@@ -175,12 +175,12 @@ async function resolveUazapiTokenForInstance(supabase: any, instance: any, baseU
   return token;
 }
 
-// â”€â”€â”€ UAZAPI: Extrair nÃºmero limpo do JID â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- UAZAPI: Extrair numero limpo do JID ---
 function jidToPhone(jid: string): string {
   return jid.replace(/@.*$/, '');
 }
 
-// â”€â”€â”€ UAZAPI: Enviar mensagem â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- UAZAPI: Enviar mensagem ---
 async function sendViaUazapi(
   uazapiUrl: string,
   instanceToken: string,
@@ -264,7 +264,7 @@ serve(async (req) => {
 
     console.log('Enviando mensagem:', { instanceId, remoteJid, messageType });
 
-    // Buscar instÃ¢ncia
+    // Buscar instancia
     let instance: any;
     if (instanceId) {
       const { data } = await supabase
@@ -284,7 +284,7 @@ serve(async (req) => {
       instance = data;
     }
 
-    if (!instance) throw new Error('Nenhuma instÃ¢ncia WhatsApp disponÃ­vel');
+    if (!instance) throw new Error('Nenhuma instancia WhatsApp disponivel');
 
     // Resolver JID de envio a partir da conversa para evitar JID inválido/stale (ex.: LID)
     let effectiveRemoteJid = remoteJid;
@@ -316,16 +316,16 @@ serve(async (req) => {
 
     console.log('Target JID resolved:', { incoming: remoteJid, effective: effectiveRemoteJid, conversationId });
 
-    // â”€â”€â”€ ROTEAMENTO POR PROVEDOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // --- ROTEAMENTO POR PROVEDOR ---
     const apiType = instance.api_type || 'evolution';
-    console.log('API Type da instÃ¢ncia:', apiType);
+    console.log('API Type da instancia:', apiType);
 
-    // â”€â”€â”€ UAZAPI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // --- UAZAPI ---
     if (apiType === 'uazapi') {
       const { baseUrl: uazapiUrl, adminToken } = await loadUazapiConfig(supabase);
       const instanceToken = await resolveUazapiTokenForInstance(supabase, instance, uazapiUrl, adminToken);
 
-      // Verificar status real da instÃ¢ncia via UAZAPI
+      // Verificar status real da instancia via UAZAPI
       let isReallyConnected = instance.status === 'connected';
       if (isReallyConnected) {
         try {
@@ -345,7 +345,7 @@ serve(async (req) => {
       }
 
       if (!isReallyConnected) {
-        // Adicionar Ã  fila
+        // Adicionar a fila
         await supabase.from('whatsapp_message_queue').insert({
           instance_id: instance.id,
           conversation_id: conversationId,
@@ -379,7 +379,7 @@ serve(async (req) => {
           await supabase.from('whatsapp_conversations').update(conversationPatch).eq('id', conversationId);
         }
 
-        return new Response(JSON.stringify({ success: true, queued: true, message: 'Mensagem adicionada Ã  fila (instÃ¢ncia offline)' }), {
+        return new Response(JSON.stringify({ success: true, queued: true, message: 'Mensagem adicionada a fila (instancia offline)' }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 202
         });
       }
@@ -402,7 +402,7 @@ serve(async (req) => {
           });
           await supabase.from('whatsapp_conversations').update({
             last_message_at: new Date().toISOString(),
-            last_message_preview: `âŒ ${content?.substring(0, 80) || '[mÃ­dia]'}`,
+            last_message_preview: '[erro] ' + (content?.substring(0, 80) || '[midia]'),
           }).eq('id', conversationId);
         }
         return new Response(JSON.stringify({ success: false, error: errorMsg }), {
@@ -412,7 +412,7 @@ serve(async (req) => {
 
       const messageIdExternal = uazapiResponse?.id || uazapiResponse?.messageId || uazapiResponse?.key?.id;
 
-      // Salvar mÃ­dia no Storage se vier base64
+      // Salvar midia no Storage se vier base64
       let finalMediaUrl = mediaUrl;
       if (mediaBase64 && !finalMediaUrl) {
         try {
@@ -427,7 +427,7 @@ serve(async (req) => {
             const { data: publicUrlData } = supabase.storage.from('whatsapp-media').getPublicUrl(filePath);
             finalMediaUrl = publicUrlData?.publicUrl;
           }
-        } catch (e) { console.error('Erro ao salvar mÃ­dia:', e); }
+        } catch (e) { console.error('Erro ao salvar midia:', e); }
       }
 
       const { data: savedMessage } = await supabase.from('whatsapp_messages').insert({
@@ -461,13 +461,13 @@ serve(async (req) => {
       });
     }
 
-    // â”€â”€â”€ EVOLUTION API (padrÃ£o) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // --- EVOLUTION API (padrao) ---
     if (!evolutionApiUrl || !evolutionApiKey) {
-      throw new Error('Evolution API nÃ£o configurada');
+      throw new Error('Evolution API nao configurada');
     }
     console.log('Evolution API URL normalizada:', evolutionApiUrl);
 
-    // Verificar se instÃ¢ncia estÃ¡ realmente conectada
+    // Verificar se instancia esta realmente conectada
     let isReallyConnected = instance.status === 'connected';
     if (isReallyConnected) {
       try {
@@ -481,7 +481,7 @@ serve(async (req) => {
           await supabase.from('whatsapp_instances').update({ status: 'disconnected' }).eq('id', instance.id);
         }
       } catch (e) {
-        console.log('Falha ao verificar status real da instÃ¢ncia (continuando com status do banco):', e);
+        console.log('Falha ao verificar status real da instancia (continuando com status do banco):', e);
       }
     }
 
@@ -520,7 +520,7 @@ serve(async (req) => {
       }
 
       return new Response(JSON.stringify({
-        success: true, queued: true, message: 'Mensagem adicionada Ã  fila (instÃ¢ncia offline)'
+        success: true, queued: true, message: 'Mensagem adicionada a fila (instancia offline)'
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 202 });
     }
 
@@ -605,7 +605,7 @@ serve(async (req) => {
     if (hasApiError(evolutionResponse)) {
       const numberNotExists = isNumberNotFound(evolutionResponse);
       const errorMsg = numberNotExists
-        ? 'Este nÃºmero nÃ£o possui WhatsApp ativo. Verifique se o nÃºmero estÃ¡ correto (com DDD).'
+        ? 'Este numero nao possui WhatsApp ativo. Verifique se o numero esta correto (com DDD).'
         : evolutionResponse?.error || 'Erro ao enviar mensagem pelo WhatsApp';
 
       if (conversationId) {
@@ -615,7 +615,7 @@ serve(async (req) => {
         });
         await supabase.from('whatsapp_conversations').update({
           last_message_at: new Date().toISOString(),
-          last_message_preview: `âŒ ${content?.substring(0, 80) || '[mÃ­dia]'}`,
+          last_message_preview: '[erro] ' + (content?.substring(0, 80) || '[midia]'),
         }).eq('id', conversationId);
       }
 
@@ -626,7 +626,7 @@ serve(async (req) => {
 
     messageIdExternal = evolutionResponse?.key?.id || evolutionResponse?.messageId;
 
-    // Upload de mÃ­dia base64 para Storage
+    // Upload de midia base64 para Storage
     let finalMediaUrl = mediaUrl;
     if (mediaBase64 && !finalMediaUrl) {
       try {
@@ -641,7 +641,7 @@ serve(async (req) => {
           const { data: publicUrlData } = supabase.storage.from('whatsapp-media').getPublicUrl(filePath);
           finalMediaUrl = publicUrlData?.publicUrl;
         }
-      } catch (e) { console.error('Erro no upload de mÃ­dia:', e); }
+      } catch (e) { console.error('Erro no upload de midia:', e); }
     }
 
     const { data: savedMessage, error: saveError } = await supabase.from('whatsapp_messages').insert({
@@ -680,14 +680,11 @@ serve(async (req) => {
     console.error('Erro ao enviar WhatsApp:', error);
     const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
     let friendlyMessage = errorMessage;
-    if (errorMessage.includes('not connected')) friendlyMessage = 'WhatsApp nÃ£o estÃ¡ conectado. Verifique a instÃ¢ncia.';
-    else if (errorMessage.includes('invalid number')) friendlyMessage = 'NÃºmero de telefone invÃ¡lido.';
+    if (errorMessage.includes('not connected')) friendlyMessage = 'WhatsApp nao esta conectado. Verifique a instancia.';
+    else if (errorMessage.includes('invalid number')) friendlyMessage = 'Numero de telefone invalido.';
 
     return new Response(JSON.stringify({ success: false, error: friendlyMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400
     });
   }
 });
-
-
-

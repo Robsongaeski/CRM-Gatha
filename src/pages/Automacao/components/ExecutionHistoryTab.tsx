@@ -29,8 +29,12 @@ export function ExecutionHistoryTab({ workflowId }: ExecutionHistoryTabProps) {
     
     return executions.filter(exec => {
       // Filtro por status
-      if (statusFilter !== 'all' && exec.status !== statusFilter) {
-        return false;
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'waiting') {
+          if (!['waiting', 'paused'].includes(exec.status)) return false;
+        } else if (exec.status !== statusFilter) {
+          return false;
+        }
       }
       
       // Filtro por busca (número do pedido, etc)
@@ -55,7 +59,7 @@ export function ExecutionHistoryTab({ workflowId }: ExecutionHistoryTabProps) {
       total: executions.length,
       completed: executions.filter(e => e.status === 'completed').length,
       failed: executions.filter(e => e.status === 'failed').length,
-      waiting: executions.filter(e => e.status === 'waiting' || e.status === 'running').length,
+      waiting: executions.filter(e => e.status === 'waiting' || e.status === 'paused').length,
     };
   }, [executions]);
 
@@ -118,6 +122,7 @@ export function ExecutionHistoryTab({ workflowId }: ExecutionHistoryTabProps) {
             <SelectItem value="completed">Completos</SelectItem>
             <SelectItem value="failed">Falhas</SelectItem>
             <SelectItem value="waiting">Aguardando</SelectItem>
+            <SelectItem value="paused">Pausado</SelectItem>
             <SelectItem value="running">Executando</SelectItem>
           </SelectContent>
         </Select>
