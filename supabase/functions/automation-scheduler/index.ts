@@ -148,11 +148,14 @@ serve(async (req) => {
       }
     }
 
+    const inactivityResult = await triggerWhatsappInactivityWorkflows(supabase, supabaseUrl, supabaseServiceKey)
+
     return new Response(
       JSON.stringify({ 
         success: true, 
         processed: results.length,
-        results 
+        results,
+        inactivity: inactivityResult,
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -172,3 +175,110 @@ serve(async (req) => {
     )
   }
 })
+
+async function triggerWhatsappInactivityWorkflows(
+  supabase: ReturnType<typeof createClient>,
+  supabaseUrl: string,
+  supabaseServiceKey: string,
+): Promise<{ workflowsChecked: number; conversationsTriggered: number }> {
+  try {
+    const { data: workflows, error: workflowsError } = await supabase
+      .from('automation_workflows')
+      .select('id, flow_data')
+      .eq('ativo', true)
+      .eq('tipo', 'whatsapp')
+
+    if (workflowsError) throw workflowsError
+
+    let conversationsTriggered = 0
+    let workflowsChecked = 0
+
+    for (const workflow of workflows || []) {
+      const flowData = workflow.flow_data as {
+        nodes?: Array<{ type: string; data?: { subtype?: string; config?: Record<string, unknown> } }>
+      }
+
+      const triggerNode = flowData?.nodes?.find(
+        (node) => node.type === 'trigger' && node.data?.subtype === 'whatsapp_inactive',
+      )
+      if (!triggerNode) continue
+      workflowsChecked += 1
+
+      const config = triggerNode.data?.config || {}
+      const inactivityDays = Number(config.inactivity_days || 3)
+      const onlyAssigned = config.only_assigned === true
+      const limitPerWorkflow = Math.min(Math.max(Number(config.limit || 50), 1), 200)
+      const instanceIds = Array.isArray(config.instance_ids) ? config.instance_ids.map(String).filter(Boolean) : []
+
+      const thresholdIso = new Date(Date.now() - inactivityDays * 24 * 60 * 60 * 1000).toISOString()
+
+      let conversationsQuery = supabase
+        .from('whatsapp_conversations')
+        .select(`
+          id,
+          instance_id,
+          remote_jid,
+          contact_name,
+          contact_phone,
+          status,
+          assigned_to,
+          is_group,
+          last_message_at,
+          last_customer_message_at,
+          needs_followup
+        `)
+        .eq('is_group', false)
+        .neq('status', 'finished')
+        .eq('needs_followup', false)
+        .or(`last_customer_message_at.lt.${thresholdIso},and(last_customer_message_at.is.null,last_message_at.lt.${thresholdIso})`)
+        .limit(limitPerWorkflow)
+
+      if (onlyAssigned) {
+        conversationsQuery = conversationsQuery.not('assigned_to', 'is', null)
+      }
+      if (instanceIds.length > 0) {
+        conversationsQuery = conversationsQuery.in('instance_id', instanceIds)
+      }
+
+      const { data: conversations, error: conversationsError } = await conversationsQuery
+      if (conversationsError) {
+        console.error('[AUTOMATION SCHEDULER] inactivity query error:', conversationsError)
+        continue
+      }
+
+      for (const conversation of conversations || []) {
+        const triggerPayload = {
+          trigger_type: 'whatsapp_inactive',
+          entity_type: 'whatsapp',
+          entity_id: conversation.id,
+          data: {
+            ...conversation,
+            conversation_id: conversation.id,
+            message_text: null,
+            from_me: false,
+          },
+        }
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/automation-trigger`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify(triggerPayload),
+        })
+
+        if (response.ok) {
+          conversationsTriggered += 1
+        } else {
+          console.error('[AUTOMATION SCHEDULER] inactivity trigger failed:', await response.text())
+        }
+      }
+    }
+
+    return { workflowsChecked, conversationsTriggered }
+  } catch (error) {
+    console.error('[AUTOMATION SCHEDULER] inactivity processing failed:', error)
+    return { workflowsChecked: 0, conversationsTriggered: 0 }
+  }
+}

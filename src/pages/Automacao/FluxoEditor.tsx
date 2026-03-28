@@ -46,6 +46,7 @@ import { FlowToolbar } from './components/FlowToolbar';
 import { CustomEdge, EdgeMarkerDefs } from './components/CustomEdge';
 import { GaleriaFluxosDialog } from './components/GaleriaFluxosDialog';
 import { ExecutionHistoryTab } from './components/ExecutionHistoryTab';
+import { WorkflowVersionsTab } from './components/WorkflowVersionsTab';
 import { FluxoExemplo } from './data/fluxosExemplo';
 import { getEntityTypeFromTrigger } from './data/camposEntidades';
 import { cn } from '@/lib/utils';
@@ -67,6 +68,16 @@ const defaultEdgeOptions = {
   markerEnd: { type: MarkerType.ArrowClosed },
 };
 
+function buildDraftWorkflowName(now = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const mm = pad(now.getMonth() + 1);
+  const dd = pad(now.getDate());
+  const hh = pad(now.getHours());
+  const min = pad(now.getMinutes());
+  return `Fluxo sem nome ${yyyy}-${mm}-${dd} ${hh}:${min}`;
+}
+
 function FluxoEditorInner() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -74,7 +85,7 @@ function FluxoEditorInner() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   
-  const { data: workflow, isLoading } = useAutomationWorkflow(isNew ? undefined : id);
+  const { data: workflow, isLoading, refetch: refetchWorkflow } = useAutomationWorkflow(isNew ? undefined : id);
   const saveWorkflow = useSaveWorkflow();
   const toggleWorkflow = useToggleWorkflow();
   
@@ -208,12 +219,25 @@ function FluxoEditorInner() {
         errors.push(`O nó "${node.data.label}" não está conectado ao fluxo`);
       }
     });
-    
+
+    // Check trigger minimum config
+    nodes.filter(n => n.type === 'trigger').forEach(node => {
+      const config = node.data.config as any;
+      const subtype = node.data.subtype;
+
+      if (subtype === 'whatsapp_inactive') {
+        const inactivityDays = Number(config?.inactivity_days || config?.min_inactivity_days || 0);
+        if (!Number.isFinite(inactivityDays) || inactivityDays < 1) {
+          errors.push(`Gatilho "${node.data.label}" precisa de prazo de inatividade (>= 1 dia)`);
+        }
+      }
+    });
+
     // Check actions have required config
     nodes.filter(n => n.type === 'action').forEach(node => {
       const config = node.data.config as any;
       const subtype = node.data.subtype;
-      
+
       // WhatsApp: aceitar message único ou messages array
       if (subtype === 'send_whatsapp') {
         const hasMessage = config?.message || (config?.randomMessages && Array.isArray(config?.messages) && config.messages.some((m: string) => m?.trim()));
@@ -227,8 +251,23 @@ function FluxoEditorInner() {
       if (subtype === 'call_webhook' && !config?.webhookUrl && !config?.url) {
         errors.push(`Ação "${node.data.label}" precisa de uma URL do webhook`);
       }
-    });
-    
+      if (subtype === 'assign_to_user' && !config?.user_id) {
+        errors.push(`Ação "${node.data.label}" precisa de um atendente selecionado`);
+      }
+      if (subtype === 'keyword_auto_reply') {
+        const rules = Array.isArray(config?.rules) ? config.rules : [];
+        const hasValidRule = rules.some((rule: any) => {
+          const responses = Array.isArray(rule?.responses)
+            ? rule.responses
+            : [rule?.response];
+          const hasResponse = responses.some((value: any) => String(value || '').trim());
+          return rule?.keyword?.trim() && hasResponse;
+        });
+        if (!hasValidRule) {
+          errors.push(`Ação "${node.data.label}" precisa de pelo menos uma regra palavra/resposta`);
+        }
+      }
+    });    
     return errors;
   }, [nodes, edges]);
   
@@ -272,17 +311,29 @@ function FluxoEditorInner() {
       errors.forEach(error => toast.error(error));
       return;
     }
+
+    const normalizedNome = nome.trim() || buildDraftWorkflowName();
+    if (!nome.trim()) {
+      setNome(normalizedNome);
+      toast.info('Nome provisorio aplicado automaticamente.');
+    }
+
+    let normalizedTipo = tipo;
+    if (entityType === 'whatsapp_conversation' && !['whatsapp', 'geral'].includes(tipo)) {
+      normalizedTipo = 'whatsapp';
+      setTipo('whatsapp');
+      toast.info('Tipo do fluxo ajustado automaticamente para WhatsApp.');
+    }
     
     const workflowData = {
       id: isNew ? undefined : id,
-      nome,
+      nome: normalizedNome,
       descricao,
-      tipo: tipo as any,
+      tipo: normalizedTipo as any,
       flow_data: { nodes, edges },
       trigger_config: nodes.find(n => n.type === 'trigger')?.data?.config || {},
     };
     await saveWorkflow.mutateAsync(workflowData);
-    toast.success('Fluxo salvo com sucesso!');
     if (isNew) navigate('/automacao');
   };
   
@@ -311,7 +362,7 @@ function FluxoEditorInner() {
   }
   
   return (
-    <div className="h-screen flex flex-col bg-muted/30">
+    <div className="h-[100dvh] flex flex-col bg-gradient-to-b from-muted/35 via-background to-background">
       <FlowToolbar
         nome={nome}
         setNome={setNome}
@@ -327,20 +378,21 @@ function FluxoEditorInner() {
         onFitView={() => fitView()}
       />
       
-      {/* Tabs para alternar entre editor e histórico */}
+      {/* Tabs para alternar entre editor e historico */}
       {!isNew && id && (
-        <div className="px-4 pt-2 border-b bg-background">
+        <div className="px-3 sm:px-4 pt-2 pb-2 border-b bg-background/80 backdrop-blur shrink-0">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="h-9">
+            <TabsList className="h-9 bg-muted/70 border rounded-lg p-1">
               <TabsTrigger value="editor" className="text-sm">Editor</TabsTrigger>
-              <TabsTrigger value="historico" className="text-sm">Histórico de Execuções</TabsTrigger>
+              <TabsTrigger value="historico" className="text-sm">Historico de Execucoes</TabsTrigger>
+              <TabsTrigger value="versoes" className="text-sm">Versoes</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
       )}
       
       {activeTab === 'editor' ? (
-        <div className="flex-1 relative" ref={reactFlowWrapper}>
+        <div className="flex-1 min-h-0 relative" ref={reactFlowWrapper}>
           {nodes.length === 0 && <EmptyCanvasHint />}
           
           {/* Drop zone indicator */}
@@ -384,9 +436,19 @@ function FluxoEditorInner() {
           
           <DraggableNodePalette onAddNode={onAddNode} />
         </div>
-      ) : (
-        <div className="flex-1 overflow-auto p-4">
+      ) : activeTab === 'historico' ? (
+        <div className="flex-1 min-h-0 overflow-auto p-4 sm:p-6">
           <ExecutionHistoryTab workflowId={id!} />
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-auto p-4 sm:p-6">
+          <WorkflowVersionsTab
+            workflowId={id!}
+            onRestored={async () => {
+              await refetchWorkflow();
+              setActiveTab('editor');
+            }}
+          />
         </div>
       )}
       
@@ -403,7 +465,7 @@ function FluxoEditorInner() {
       <Sheet open={showSettings} onOpenChange={setShowSettings}>
         <SheetContent>
           <SheetHeader>
-            <SheetTitle>Configurações do Fluxo</SheetTitle>
+            <SheetTitle>Configuracoes do Fluxo</SheetTitle>
             <SheetDescription>Configure as propriedades gerais</SheetDescription>
           </SheetHeader>
           <div className="space-y-6 mt-6">

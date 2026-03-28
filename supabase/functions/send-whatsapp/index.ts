@@ -18,6 +18,8 @@ interface SendMessageRequest {
   quotedMessageId?: string;
   conversationId?: string;
   senderName?: string;
+  keepUnread?: boolean;
+  keep_unread?: boolean;
 }
 
 // Normaliza telefone brasileiro
@@ -46,6 +48,31 @@ function formatRemoteJid(phone: string, isGroup: boolean = false): string {
   if (isGroup) return phone;
   const normalized = normalizePhone(phone);
   return `${normalized}@s.whatsapp.net`;
+}
+
+function extractDigits(value: string): string {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function isLikelyIndividualJid(jid: string): boolean {
+  return String(jid || '').includes('@s.whatsapp.net') || String(jid || '').includes('@c.us');
+}
+
+function shouldFallbackToConversationPhone(currentJid: string, conversationPhone: string): boolean {
+  if (!conversationPhone) return false;
+  if (!currentJid) return true;
+  if (currentJid.includes('@lid')) return true;
+  if (!isLikelyIndividualJid(currentJid)) return false;
+
+  const currentDigits = extractDigits(currentJid.split('@')[0] || currentJid);
+  const conversationDigits = extractDigits(conversationPhone);
+  if (!currentDigits || !conversationDigits) return false;
+
+  // No contexto do projeto (Brasil), números válidos normalmente ficam entre 10 e 13 dígitos.
+  if (currentDigits.length < 10 || currentDigits.length > 13) return true;
+
+  // Se os últimos dígitos não batem, provavelmente o JID está inconsistente.
+  return currentDigits.slice(-8) !== conversationDigits.slice(-8);
 }
 
 function pick(obj: any, paths: string[]): any {
@@ -229,8 +256,11 @@ serve(async (req) => {
       mediaMimeType,
       quotedMessageId,
       conversationId,
-      senderName
+      senderName,
+      keepUnread,
+      keep_unread,
     } = body;
+    const preserveUnread = keepUnread === true || keep_unread === true;
 
     console.log('Enviando mensagem:', { instanceId, remoteJid, messageType });
 
@@ -255,6 +285,36 @@ serve(async (req) => {
     }
 
     if (!instance) throw new Error('Nenhuma instÃ¢ncia WhatsApp disponÃ­vel');
+
+    // Resolver JID de envio a partir da conversa para evitar JID inválido/stale (ex.: LID)
+    let effectiveRemoteJid = remoteJid;
+    if (conversationId) {
+      const { data: conversationData } = await supabase
+        .from('whatsapp_conversations')
+        .select('id, is_group, remote_jid, contact_phone')
+        .eq('id', conversationId)
+        .maybeSingle();
+
+      if (conversationData?.is_group) {
+        effectiveRemoteJid = String(
+          remoteJid?.includes('@g.us')
+            ? remoteJid
+            : (conversationData.remote_jid || remoteJid || ''),
+        );
+      } else {
+        const currentJid = remoteJid?.includes('@') ? remoteJid : formatRemoteJid(remoteJid || '');
+        const conversationPhone = String(conversationData?.contact_phone || '');
+        if (shouldFallbackToConversationPhone(currentJid, conversationPhone)) {
+          effectiveRemoteJid = formatRemoteJid(conversationPhone);
+        } else {
+          effectiveRemoteJid = currentJid;
+        }
+      }
+    } else {
+      effectiveRemoteJid = remoteJid.includes('@') ? remoteJid : formatRemoteJid(remoteJid);
+    }
+
+    console.log('Target JID resolved:', { incoming: remoteJid, effective: effectiveRemoteJid, conversationId });
 
     // â”€â”€â”€ ROTEAMENTO POR PROVEDOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const apiType = instance.api_type || 'evolution';
@@ -289,7 +349,7 @@ serve(async (req) => {
         await supabase.from('whatsapp_message_queue').insert({
           instance_id: instance.id,
           conversation_id: conversationId,
-          remote_jid: remoteJid,
+          remote_jid: effectiveRemoteJid,
           content,
           message_type: messageType,
           media_url: mediaUrl,
@@ -309,11 +369,14 @@ serve(async (req) => {
             media_filename: mediaFilename,
             status: 'queued'
           });
-          await supabase.from('whatsapp_conversations').update({
+          const conversationPatch: Record<string, unknown> = {
             last_message_at: new Date().toISOString(),
             last_message_preview: content?.substring(0, 100) || `[${messageType}]`,
-            unread_count: 0
-          }).eq('id', conversationId);
+          };
+          if (!preserveUnread) {
+            conversationPatch.unread_count = 0;
+          }
+          await supabase.from('whatsapp_conversations').update(conversationPatch).eq('id', conversationId);
         }
 
         return new Response(JSON.stringify({ success: true, queued: true, message: 'Mensagem adicionada Ã  fila (instÃ¢ncia offline)' }), {
@@ -321,7 +384,7 @@ serve(async (req) => {
         });
       }
 
-      const formattedJid = remoteJid.includes('@') ? remoteJid : formatRemoteJid(remoteJid);
+      const formattedJid = effectiveRemoteJid.includes('@') ? effectiveRemoteJid : formatRemoteJid(effectiveRemoteJid);
       const uazapiResponse = await sendViaUazapi(
         uazapiUrl, instanceToken, formattedJid,
         messageType, content, mediaUrl, mediaBase64, mediaMimeType, mediaFilename
@@ -383,11 +446,14 @@ serve(async (req) => {
       }).select().single();
 
       if (conversationId) {
-        await supabase.from('whatsapp_conversations').update({
+        const conversationPatch: Record<string, unknown> = {
           last_message_at: new Date().toISOString(),
           last_message_preview: content?.substring(0, 100) || `[${messageType}]`,
-          unread_count: 0
-        }).eq('id', conversationId);
+        };
+        if (!preserveUnread) {
+          conversationPatch.unread_count = 0;
+        }
+        await supabase.from('whatsapp_conversations').update(conversationPatch).eq('id', conversationId);
       }
 
       return new Response(JSON.stringify({ success: true, message: savedMessage, uazapiResponse }), {
@@ -423,7 +489,7 @@ serve(async (req) => {
       await supabase.from('whatsapp_message_queue').insert({
         instance_id: instance.id,
         conversation_id: conversationId,
-        remote_jid: remoteJid,
+        remote_jid: effectiveRemoteJid,
         content,
         message_type: messageType,
         media_url: mediaUrl,
@@ -443,11 +509,14 @@ serve(async (req) => {
           media_filename: mediaFilename,
           status: 'queued'
         });
-        await supabase.from('whatsapp_conversations').update({
+        const conversationPatch: Record<string, unknown> = {
           last_message_at: new Date().toISOString(),
           last_message_preview: content?.substring(0, 100) || `[${messageType}]`,
-          unread_count: 0
-        }).eq('id', conversationId);
+        };
+        if (!preserveUnread) {
+          conversationPatch.unread_count = 0;
+        }
+        await supabase.from('whatsapp_conversations').update(conversationPatch).eq('id', conversationId);
       }
 
       return new Response(JSON.stringify({
@@ -456,7 +525,7 @@ serve(async (req) => {
     }
 
     // Tratar @lid
-    let formattedJid = remoteJid.includes('@') ? remoteJid : formatRemoteJid(remoteJid);
+    let formattedJid = effectiveRemoteJid.includes('@') ? effectiveRemoteJid : formatRemoteJid(effectiveRemoteJid);
     if (formattedJid.includes('@lid') && conversationId) {
       const { data: convData } = await supabase.from('whatsapp_conversations').select('contact_phone').eq('id', conversationId).single();
       if (convData?.contact_phone && convData.contact_phone.match(/^\d{10,13}$/)) {
@@ -593,11 +662,14 @@ serve(async (req) => {
     if (saveError) console.error('Erro ao salvar mensagem:', saveError);
 
     if (conversationId) {
-      await supabase.from('whatsapp_conversations').update({
+      const conversationPatch: Record<string, unknown> = {
         last_message_at: new Date().toISOString(),
         last_message_preview: content?.substring(0, 100) || `[${messageType}]`,
-        unread_count: 0
-      }).eq('id', conversationId);
+      };
+      if (!preserveUnread) {
+        conversationPatch.unread_count = 0;
+      }
+      await supabase.from('whatsapp_conversations').update(conversationPatch).eq('id', conversationId);
     }
 
     return new Response(JSON.stringify({ success: true, message: savedMessage, evolutionResponse }), {

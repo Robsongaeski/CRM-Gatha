@@ -29,6 +29,33 @@ Deno.serve(async (req) => {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       const supabase = createClient(supabaseUrl, supabaseKey);
+      const triggerAutomation = async (
+        triggerType: string,
+        conversationData: Record<string, unknown>,
+        messageData?: Record<string, unknown>,
+      ) => {
+        try {
+          await fetch(`${supabaseUrl}/functions/v1/automation-trigger`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${supabaseKey}`,
+            },
+            body: JSON.stringify({
+              trigger_type: triggerType,
+              entity_type: "whatsapp",
+              entity_id: conversationData.id,
+              data: {
+                ...conversationData,
+                conversation_id: conversationData.id,
+                ...(messageData || {}),
+              },
+            }),
+          });
+        } catch (triggerError) {
+          console.error("[Cloud Webhook] automation trigger error:", triggerError);
+        }
+      };
 
       const { data: config } = await supabase
         .from("system_config")
@@ -115,6 +142,10 @@ Deno.serve(async (req) => {
                     "Mídia",
                   last_message_at: new Date().toISOString(),
                   last_customer_message_at: new Date().toISOString(),
+                  needs_followup: false,
+                  followup_reason: null,
+                  followup_color: null,
+                  followup_flagged_at: null,
                   status: "pending",
                   unread_count: 1,
                 },
@@ -137,6 +168,10 @@ Deno.serve(async (req) => {
               .update({
                 unread_count: (conversation.unread_count || 0) + 1,
                 last_customer_message_at: new Date().toISOString(),
+                needs_followup: false,
+                followup_reason: null,
+                followup_color: null,
+                followup_flagged_at: null,
               })
               .eq("id", conversation.id);
 
@@ -180,6 +215,30 @@ Deno.serve(async (req) => {
                 ? new Date(parseInt(msg.timestamp) * 1000).toISOString()
                 : new Date().toISOString(),
             });
+
+            const triggerData = {
+              ...conversation,
+              id: conversation.id,
+              conversation_id: conversation.id,
+              instance_id: instance.id,
+              message_text: messageBody,
+              content: messageBody,
+              from_me: false,
+            };
+
+            await triggerAutomation("whatsapp_message", triggerData, {
+              message_type: messageType,
+              message_text: messageBody,
+              from_me: false,
+            });
+
+            if (!conversation.assigned_to && !conversation.is_group) {
+              await triggerAutomation("whatsapp_new_lead", triggerData, {
+                message_type: messageType,
+                message_text: messageBody,
+                from_me: false,
+              });
+            }
 
             console.log("Message saved for conversation:", conversation.id);
           }

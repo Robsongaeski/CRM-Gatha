@@ -301,6 +301,41 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const triggerAutomation = async (
+      triggerType: string,
+      conversationData: Record<string, unknown>,
+      messageData: {
+        messageText: string;
+        senderPhone: string;
+        senderName: string;
+        fromMe: boolean;
+      },
+    ) => {
+      try {
+        await fetch(`${supabaseUrl}/functions/v1/automation-trigger`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({
+            trigger_type: triggerType,
+            entity_type: 'whatsapp',
+            entity_id: String(conversationData.id || ''),
+            data: {
+              ...conversationData,
+              conversation_id: conversationData.id,
+              message_text: messageData.messageText,
+              sender_phone: messageData.senderPhone || null,
+              sender_name: messageData.senderName || null,
+              from_me: messageData.fromMe,
+            },
+          }),
+        });
+      } catch (automationError) {
+        console.error('[WHATSAPP WEBHOOK] automation trigger error:', automationError);
+      }
+    };
     
     const payload = await req.json();
     console.log('Webhook recebido:', JSON.stringify(payload, null, 2).substring(0, 2000));
@@ -785,6 +820,11 @@ serve(async (req) => {
       // Incrementar unread apenas se não for mensagem própria
       if (!fromMe) {
         updateData.unread_count = (conversation.unread_count || 0) + 1;
+        updateData.last_customer_message_at = messageTimestampIso;
+        updateData.needs_followup = false;
+        updateData.followup_reason = null;
+        updateData.followup_color = null;
+        updateData.followup_flagged_at = null;
         
         // Se conversa está finalizada e cliente mandou mensagem, reativar automaticamente
         // E limpar o atendente para que qualquer um possa atender
@@ -871,6 +911,7 @@ serve(async (req) => {
         .from('whatsapp_conversations')
         .update(updateData)
         .eq('id', conversation.id);
+      conversation = { ...conversation, ...updateData };
     } else {
       // Criar nova conversa
       let groupName = null;
@@ -932,6 +973,7 @@ serve(async (req) => {
           status: 'pending',
           unread_count: fromMe ? 0 : 1,
           last_message_at: messageTimestampIso,
+          last_customer_message_at: fromMe ? null : messageTimestampIso,
           last_message_preview: content?.substring(0, 100) || `[${messageType}]`
         })
         .select()
@@ -975,6 +1017,34 @@ serve(async (req) => {
     }
 
     console.log('Mensagem salva:', savedMessage.id, 'mediaUrl:', mediaUrl);
+
+    if (!fromMe && historyDecision?.skip !== true) {
+      const safeMessageText = String(content || '');
+      await triggerAutomation(
+        'whatsapp_message',
+        conversation as Record<string, unknown>,
+        {
+          messageText: safeMessageText,
+          senderPhone: senderPhone || '',
+          senderName: senderName || '',
+          fromMe,
+        },
+      );
+
+      const isNewLead = !conversation.assigned_to && !conversation.is_group;
+      if (isNewLead) {
+        await triggerAutomation(
+          'whatsapp_new_lead',
+          conversation as Record<string, unknown>,
+          {
+            messageText: safeMessageText,
+            senderPhone: senderPhone || '',
+            senderName: senderName || '',
+            fromMe,
+          },
+        );
+      }
+    }
 
     return new Response(JSON.stringify({ 
       success: true, 

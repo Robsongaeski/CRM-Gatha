@@ -25,6 +25,10 @@ export interface WhatsappConversation {
   last_message_preview: string | null;
   unread_count: number;
   internal_notes: string | null;
+  needs_followup?: boolean;
+  followup_color?: string | null;
+  followup_reason?: string | null;
+  followup_flagged_at?: string | null;
   created_at: string;
   instance?: {
     id: string;

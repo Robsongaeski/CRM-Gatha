@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Play, Pause, Trash2, Edit, MoreHorizontal, Zap, Mail, MessageSquare, ShoppingCart, Users, Activity } from 'lucide-react';
+import { Plus, Play, Pause, Trash2, Edit, MoreHorizontal, Zap, Mail, MessageSquare, ShoppingCart, Users, Activity, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAutomationWorkflows, useToggleWorkflow, useDeleteWorkflow, useWorkflowStats } from '@/hooks/useAutomationWorkflows';
+import { useAutomationWorkflows, useToggleWorkflow, useDeleteWorkflow, useDuplicateWorkflow, useWorkflowStats } from '@/hooks/useAutomationWorkflows';
 
 const tipoIcons: Record<string, React.ReactNode> = {
   ecommerce: <ShoppingCart className="h-4 w-4" />,
@@ -65,6 +65,7 @@ export default function FluxosLista() {
   const { data: stats } = useWorkflowStats();
   const toggleWorkflow = useToggleWorkflow();
   const deleteWorkflow = useDeleteWorkflow();
+  const duplicateWorkflow = useDuplicateWorkflow();
 
   const handleToggle = (id: string, ativo: boolean) => {
     toggleWorkflow.mutate({ id, ativo: !ativo });
@@ -212,6 +213,13 @@ export default function FluxosLista() {
                       <DropdownMenuItem onClick={() => navigate(`/automacao/${workflow.id}`)}>
                         <Edit className="h-4 w-4 mr-2" />
                         Editar
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => duplicateWorkflow.mutate(workflow)}
+                        disabled={duplicateWorkflow.isPending}
+                      >
+                        <Copy className="h-4 w-4 mr-2" />
+                        Duplicar
                       </DropdownMenuItem>
                       <DropdownMenuItem 
                         onClick={() => handleToggle(workflow.id, workflow.ativo)}

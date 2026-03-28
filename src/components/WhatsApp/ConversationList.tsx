@@ -4,7 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Search, Users, ArrowUp, ArrowDown, Layers, WifiOff, User, LayoutGrid, ListFilter } from 'lucide-react';
+import { Search, Users, ArrowUp, ArrowDown, WifiOff, User, LayoutGrid, ListFilter, AlertCircle } from 'lucide-react';
 import { ConversationFilters, WhatsappConversation } from '@/hooks/whatsapp/useWhatsappConversations';
 import { useGroupedConversations, GroupedConversation } from '@/hooks/whatsapp/useGroupedConversations';
 import { formatDistanceToNow } from 'date-fns';
@@ -198,6 +198,7 @@ export default function ConversationList({
                 const hasMultipleInstances = group.instances.length > 1;
                 const isSelected = group.groupKey === selectedGroupKey;
                 const unreadCount = group.totalUnread || 0;
+                const followupColor = group.followupColor || '#f59e0b';
                 
                 return (
                   <div
@@ -208,6 +209,7 @@ export default function ConversationList({
                       isSelected && 'bg-[#f0f2f5]',
                       unreadCount > 0 && !isSelected && 'bg-[#f0fdf4]'
                     )}
+                    style={group.hasFollowup ? { borderLeft: `3px solid ${followupColor}` } : undefined}
                   >
                     <Avatar className="h-12 w-12 flex-shrink-0">
                       <AvatarImage src={group.photoUrl || undefined} />
@@ -223,12 +225,24 @@ export default function ConversationList({
                     <div className="flex-1 min-w-0 flex flex-col justify-center py-0">
                       {/* Linha 1: Nome + Hora */}
                       <div className="flex items-center justify-between gap-2">
-                        <span className={cn(
-                          'text-[16px] text-[#111b21] truncate',
-                          unreadCount > 0 ? 'font-semibold' : 'font-normal'
-                        )}>
-                          {group.mainName}
-                        </span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {group.hasFollowup && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <AlertCircle className="h-3.5 w-3.5 shrink-0" style={{ color: followupColor }} />
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                {group.followupReason || 'Conversa marcada para retorno'}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          <span className={cn(
+                            'text-[16px] text-[#111b21] truncate',
+                            unreadCount > 0 ? 'font-semibold' : 'font-normal'
+                          )}>
+                            {group.mainName}
+                          </span>
+                        </div>
                         <span className={cn(
                           'text-xs whitespace-nowrap flex-shrink-0',
                           unreadCount > 0 ? 'text-[#25d366] font-medium' : 'text-[#667781]'
@@ -280,6 +294,12 @@ export default function ConversationList({
                             {group.instances.map(i => i.nome).join(', ')}
                           </span>
                         </div>
+                        {group.hasFollowup && (
+                          <span className="inline-flex items-center gap-1 truncate" style={{ color: followupColor }}>
+                            <AlertCircle className="h-3 w-3" />
+                            Retorno
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

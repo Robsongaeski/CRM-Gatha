@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { 
   Zap, ShoppingCart, Users, MessageSquare, FileText, Mail, Bell, 
   RefreshCw, Tag, User, Webhook, GitBranch, Clock, Calendar, 
@@ -39,6 +39,8 @@ const triggerNodes: NodeItem[] = [
   { type: 'trigger', subtype: 'lead_status_changed', label: 'Lead Status', icon: <RefreshCw className="h-4 w-4" />, description: 'Status do lead mudou' },
   { type: 'trigger', subtype: 'pedido_created', label: 'Pedido Comercial', icon: <FileText className="h-4 w-4" />, description: 'Pedido comercial criado' },
   { type: 'trigger', subtype: 'whatsapp_message', label: 'Msg WhatsApp', icon: <MessageSquare className="h-4 w-4" />, description: 'Mensagem recebida' },
+  { type: 'trigger', subtype: 'whatsapp_new_lead', label: 'Novo Lead WhatsApp', icon: <Users className="h-4 w-4" />, description: 'Conversa nova sem atendente' },
+  { type: 'trigger', subtype: 'whatsapp_inactive', label: 'Conversa Inativa', icon: <Clock className="h-4 w-4" />, description: 'Sem interação por X dias' },
   { type: 'trigger', subtype: 'payment_confirmed', label: 'Pagamento', icon: <CreditCard className="h-4 w-4" />, description: 'Pagamento aprovado' },
 ];
 
@@ -49,6 +51,9 @@ const actionNodes: NodeItem[] = [
   { type: 'action', subtype: 'update_status', label: 'Alterar Status', icon: <RefreshCw className="h-4 w-4" />, description: 'Atualiza status' },
   { type: 'action', subtype: 'add_tag', label: 'Adicionar Tag', icon: <Tag className="h-4 w-4" />, description: 'Adiciona tag' },
   { type: 'action', subtype: 'assign_to_user', label: 'Atribuir Usuário', icon: <User className="h-4 w-4" />, description: 'Atribui responsável' },
+  { type: 'action', subtype: 'assign_round_robin', label: 'Distribuir Lead', icon: <Users className="h-4 w-4" />, description: 'Round-robin entre atendentes' },
+  { type: 'action', subtype: 'set_followup_flag', label: 'Marcar Retorno', icon: <Bell className="h-4 w-4" />, description: 'Marca conversa para follow-up' },
+  { type: 'action', subtype: 'keyword_auto_reply', label: 'Resposta por Palavra', icon: <MessageSquare className="h-4 w-4" />, description: 'Auto resposta por palavra/frase' },
   { type: 'action', subtype: 'call_webhook', label: 'Webhook', icon: <Webhook className="h-4 w-4" />, description: 'Requisição HTTP' },
 ];
 
@@ -268,10 +273,10 @@ export function DraggableNodePalette({ onAddNode }: DraggableNodePaletteProps) {
 
   return (
     <div className={cn(
-      'absolute left-4 top-4 z-20 transition-all duration-300',
+      'absolute left-4 top-4 bottom-4 z-20 transition-all duration-300',
       isCollapsed ? 'w-14' : 'w-72'
     )}>
-      <div className="bg-background/95 backdrop-blur-md border rounded-2xl shadow-xl overflow-hidden">
+      <div className="h-full bg-background/95 backdrop-blur-md border rounded-2xl shadow-xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className={cn(
           'flex items-center gap-2 p-3 border-b bg-muted/30',
@@ -313,7 +318,7 @@ export function DraggableNodePalette({ onAddNode }: DraggableNodePaletteProps) {
         )}
 
         {/* Node groups */}
-        <ScrollArea className={isCollapsed ? 'h-[calc(100vh-14rem)]' : 'h-[calc(100vh-16rem)]'}>
+        <ScrollArea className="flex-1">
           <div className={cn('p-3 space-y-4', isCollapsed && 'px-2.5')}>
             {filteredTriggers.length > 0 && (
               <NodeGroup
@@ -357,3 +362,4 @@ export function DraggableNodePalette({ onAddNode }: DraggableNodePaletteProps) {
     </div>
   );
 }
+

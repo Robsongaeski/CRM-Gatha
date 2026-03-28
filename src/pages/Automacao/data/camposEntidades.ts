@@ -510,6 +510,8 @@ export const triggerToEntityMap: Record<string, string> = {
   // WhatsApp
   'whatsapp_message': 'whatsapp_conversation',
   'whatsapp_message_received': 'whatsapp_conversation',
+  'whatsapp_new_lead': 'whatsapp_conversation',
+  'whatsapp_inactive': 'whatsapp_conversation',
 };
 
 // Helper para obter campos disponíveis para um tipo de entidade

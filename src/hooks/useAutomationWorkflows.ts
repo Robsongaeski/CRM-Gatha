@@ -3,6 +3,16 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
 
+function buildDraftWorkflowName(now = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const mm = pad(now.getMonth() + 1);
+  const dd = pad(now.getDate());
+  const hh = pad(now.getHours());
+  const min = pad(now.getMinutes());
+  return `Fluxo sem nome ${yyyy}-${mm}-${dd} ${hh}:${min}`;
+}
+
 export interface AutomationWorkflow {
   id: string;
   nome: string;
@@ -29,6 +39,18 @@ export interface AutomationWorkflowExecution {
   started_at: string;
   completed_at: string | null;
   created_at: string;
+}
+
+export interface AutomationWorkflowVersion {
+  id: string;
+  workflow_id: string;
+  version_number: number;
+  snapshot: any;
+  created_by: string | null;
+  created_at: string;
+  profiles?: {
+    nome: string;
+  } | null;
 }
 
 export interface AutomationMessageTemplate {
@@ -93,11 +115,13 @@ export function useSaveWorkflow() {
 
   return useMutation({
     mutationFn: async (workflow: Partial<AutomationWorkflow> & { id?: string }) => {
+      const normalizedName = workflow.nome?.trim() || buildDraftWorkflowName();
+
       if (workflow.id) {
         const { data, error } = await supabase
           .from('automation_workflows')
           .update({
-            nome: workflow.nome,
+            nome: normalizedName,
             descricao: workflow.descricao,
             tipo: workflow.tipo,
             flow_data: workflow.flow_data,
@@ -112,7 +136,7 @@ export function useSaveWorkflow() {
         const { data, error } = await supabase
           .from('automation_workflows')
           .insert({
-            nome: workflow.nome,
+            nome: normalizedName,
             descricao: workflow.descricao,
             tipo: workflow.tipo || 'geral',
             flow_data: workflow.flow_data || { nodes: [], edges: [] },
@@ -128,10 +152,56 @@ export function useSaveWorkflow() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['automation-workflows'] });
       queryClient.invalidateQueries({ queryKey: ['automation-workflow'] });
+      queryClient.invalidateQueries({ queryKey: ['workflow-versions'] });
       toast.success('Fluxo salvo com sucesso!');
     },
     onError: (error: any) => {
       toast.error('Erro ao salvar fluxo: ' + error.message);
+    },
+  });
+}
+
+export function useWorkflowVersions(workflowId: string | undefined) {
+  return useQuery({
+    queryKey: ['workflow-versions', workflowId],
+    queryFn: async () => {
+      if (!workflowId) return [];
+
+      const { data, error } = await (supabase as any)
+        .from('automation_workflow_versions')
+        .select('id, workflow_id, version_number, snapshot, created_by, created_at, profiles:created_by(nome)')
+        .eq('workflow_id', workflowId)
+        .order('version_number', { ascending: false })
+        .limit(30);
+
+      if (error) throw error;
+      return (data || []) as AutomationWorkflowVersion[];
+    },
+    enabled: !!workflowId,
+    staleTime: 30000,
+  });
+}
+
+export function useRestoreWorkflowVersion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ workflowId, versionId }: { workflowId: string; versionId: string }) => {
+      const { data, error } = await (supabase as any).rpc('automation_restore_workflow_version', {
+        p_workflow_id: workflowId,
+        p_version_id: versionId,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['automation-workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['automation-workflow', variables.workflowId] });
+      queryClient.invalidateQueries({ queryKey: ['workflow-versions', variables.workflowId] });
+      toast.success('Versao restaurada com sucesso!');
+    },
+    onError: (error: any) => {
+      toast.error('Erro ao restaurar versao: ' + error.message);
     },
   });
 }
@@ -176,6 +246,44 @@ export function useDeleteWorkflow() {
     },
     onError: (error: any) => {
       toast.error('Erro ao excluir fluxo: ' + error.message);
+    },
+  });
+}
+
+// Hook para duplicar workflow
+export function useDuplicateWorkflow() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (workflow: AutomationWorkflow) => {
+      const copyName = `${String(workflow.nome || '').trim() || 'Fluxo'} (Copia)`;
+      const { data, error } = await supabase
+        .from('automation_workflows')
+        .insert({
+          nome: copyName,
+          descricao: workflow.descricao,
+          tipo: workflow.tipo,
+          ativo: false,
+          flow_data: workflow.flow_data || { nodes: [], edges: [] },
+          trigger_config: workflow.trigger_config || {},
+          created_by: user?.id || null,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data as AutomationWorkflow;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['automation-workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['automation-workflow'] });
+      queryClient.invalidateQueries({ queryKey: ['workflow-versions'] });
+      toast.success('Fluxo duplicado com sucesso!');
+      return data;
+    },
+    onError: (error: any) => {
+      toast.error('Erro ao duplicar fluxo: ' + error.message);
     },
   });
 }

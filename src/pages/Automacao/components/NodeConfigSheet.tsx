@@ -1,10 +1,10 @@
 import React from 'react';
 import { Node } from '@xyflow/react';
 import { Trash2, Zap, Send, GitBranch, Clock, Copy, Info } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -13,13 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
 import {
   Tooltip,
   TooltipContent,
@@ -37,6 +30,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
 import { 
   camposEntidades, 
@@ -97,6 +98,79 @@ const nodeTypeConfig: Record<string, {
   },
 };
 
+interface AutomationWhatsappInstanceOption {
+  id: string;
+  nome: string;
+}
+
+interface AutomationAttendantOption {
+  id: string;
+  nome: string;
+}
+
+interface AutomationInstanceUserLink {
+  instance_id: string;
+  user_id: string;
+}
+
+function useAutomationWhatsappOptions(enabled: boolean) {
+  const instancesQuery = useQuery({
+    queryKey: ['automation-whatsapp-instances'],
+    enabled,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('whatsapp_instances')
+        .select('id, nome')
+        .eq('is_active', true)
+        .order('ordem', { ascending: true });
+      if (error) throw error;
+      return (data || []) as AutomationWhatsappInstanceOption[];
+    },
+  });
+
+  const attendantsQuery = useQuery({
+    queryKey: ['automation-attendants'],
+    enabled,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, nome, ativo')
+        .order('nome', { ascending: true });
+      if (error) throw error;
+      return (data || [])
+        .filter((item: any) => item.ativo !== false)
+        .map((item: any) => ({ id: String(item.id), nome: String(item.nome || '') })) as AutomationAttendantOption[];
+    },
+  });
+
+  const linksQuery = useQuery({
+    queryKey: ['automation-whatsapp-instance-users'],
+    enabled,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('whatsapp_instance_users')
+        .select('instance_id, user_id');
+      if (error) throw error;
+      return (data || []) as AutomationInstanceUserLink[];
+    },
+  });
+
+  return {
+    instances: instancesQuery.data || [],
+    attendants: attendantsQuery.data || [],
+    links: linksQuery.data || [],
+    isLoading: instancesQuery.isLoading || attendantsQuery.isLoading || linksQuery.isLoading,
+  };
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item)).filter(Boolean);
+}
+
 function FormSection({ title, children, hint }: { title: string; children: React.ReactNode; hint?: string }) {
   return (
     <div className="space-y-3">
@@ -123,12 +197,22 @@ function FormSection({ title, children, hint }: { title: string; children: React
 function TriggerConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) => void }) {
   const config = (node.data.config as any) || {};
   const subtype = node.data.subtype as string;
-  
+  const isWhatsappTrigger = ['whatsapp_message', 'whatsapp_new_lead', 'whatsapp_inactive'].includes(subtype);
+  const { instances, isLoading } = useAutomationWhatsappOptions(isWhatsappTrigger);
+  const selectedInstanceIds = toStringArray(config.instance_ids);
+
+  const toggleInstance = (instanceId: string) => {
+    const next = selectedInstanceIds.includes(instanceId)
+      ? selectedInstanceIds.filter((id) => id !== instanceId)
+      : [...selectedInstanceIds, instanceId];
+    onUpdate({ ...config, instance_ids: next });
+  };
+
   return (
     <div className="space-y-6">
       {(subtype === 'order_status_changed' || subtype === 'lead_status_changed') && (
-        <FormSection 
-          title="Filtrar por Status" 
+        <FormSection
+          title="Filtrar por Status"
           hint="O fluxo será executado apenas quando o status for igual ao selecionado"
         >
           <Select
@@ -161,8 +245,112 @@ function TriggerConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any)
           </Select>
         </FormSection>
       )}
-      
-      {!['order_status_changed', 'lead_status_changed'].includes(subtype) && (
+
+      {isWhatsappTrigger && (
+        <>
+          <FormSection
+            title="Instâncias Monitoradas"
+            hint="Se nenhuma instância for marcada, o gatilho considera todas as instâncias com acesso"
+          >
+            {isLoading ? (
+              <div className="text-xs text-muted-foreground">Carregando instâncias...</div>
+            ) : instances.length === 0 ? (
+              <div className="text-xs text-muted-foreground">Nenhuma instância ativa encontrada.</div>
+            ) : (
+              <div className="max-h-40 overflow-y-auto space-y-2 rounded-lg border bg-muted/20 p-2">
+                {instances.map((instance) => (
+                  <label key={instance.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={selectedInstanceIds.includes(instance.id)}
+                      onChange={() => toggleInstance(instance.id)}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    <span>{instance.nome}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </FormSection>
+
+          {subtype === 'whatsapp_message' && (
+            <FormSection title="Filtros">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={config.skip_groups === true}
+                  onChange={(e) => onUpdate({ ...config, skip_groups: e.target.checked })}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Ignorar conversas em grupo
+              </label>
+            </FormSection>
+          )}
+
+          {subtype === 'whatsapp_new_lead' && (
+            <FormSection title="Regras de Novo Lead">
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={config.only_unassigned !== false}
+                    onChange={(e) => onUpdate({ ...config, only_unassigned: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  Somente conversas sem atendente
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={config.skip_groups !== false}
+                    onChange={(e) => onUpdate({ ...config, skip_groups: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  Ignorar grupos
+                </label>
+              </div>
+            </FormSection>
+          )}
+
+          {subtype === 'whatsapp_inactive' && (
+            <>
+              <FormSection title="Prazo de Inatividade">
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min="1"
+                    value={config.inactivity_days || 3}
+                    onChange={(e) => {
+                      const inactivityDays = Math.max(1, parseInt(e.target.value, 10) || 1);
+                      onUpdate({
+                        ...config,
+                        inactivity_days: inactivityDays,
+                        min_inactivity_days: inactivityDays,
+                      });
+                    }}
+                    className="w-24 bg-muted/50"
+                  />
+                  <span className="text-sm text-muted-foreground">dias sem interação do cliente</span>
+                </div>
+              </FormSection>
+
+              <FormSection title="Escopo">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={config.only_assigned !== false}
+                    onChange={(e) => onUpdate({ ...config, only_assigned: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  Apenas conversas com atendente atribuído
+                </label>
+              </FormSection>
+            </>
+          )}
+        </>
+      )}
+
+      {!['order_status_changed', 'lead_status_changed', 'whatsapp_message', 'whatsapp_new_lead', 'whatsapp_inactive'].includes(subtype) && (
         <div className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-4">
           Este gatilho não requer configuração adicional. Ele será ativado sempre que o evento ocorrer.
         </div>
@@ -174,7 +362,18 @@ function TriggerConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any)
 function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) => void }) {
   const config = (node.data.config as any) || {};
   const subtype = node.data.subtype as string;
-  
+  const needsWhatsappOptions = [
+    'send_whatsapp',
+    'assign_to_user',
+    'assign_round_robin',
+  ].includes(subtype);
+  const {
+    instances: whatsappInstances,
+    attendants,
+    links,
+    isLoading: loadingWhatsappOptions,
+  } = useAutomationWhatsappOptions(needsWhatsappOptions);
+
   // Inicializar config com valores existentes para suportar formatos antigos
   const normalizedConfig = {
     ...config,
@@ -183,13 +382,241 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
     randomMessages: config.randomMessages || false,
     messages: config.messages || [],
   };
-  
+
+  const selectedEligibleUserIds = toStringArray(config.eligible_user_ids);
+  const instanceIdsFromConfig = toStringArray(config.instance_ids);
+  const availableAttendants = React.useMemo(() => {
+    if (instanceIdsFromConfig.length === 0) return attendants;
+    const allowedIds = new Set(
+      links
+        .filter((link) => instanceIdsFromConfig.includes(String(link.instance_id)))
+        .map((link) => String(link.user_id)),
+    );
+    return attendants.filter((attendant) => allowedIds.has(attendant.id));
+  }, [attendants, instanceIdsFromConfig, links]);
+
+  const rules = Array.isArray(config.rules) ? config.rules : [];
+  const keywordVariables = [
+    '[saudação]',
+    '[nome atendente]',
+    '[nome]',
+    '[telefone]',
+    '[data atual]',
+    '[hora atual]',
+  ];
+
+  const toggleEligibleUser = (userId: string) => {
+    const next = selectedEligibleUserIds.includes(userId)
+      ? selectedEligibleUserIds.filter((id) => id !== userId)
+      : [...selectedEligibleUserIds, userId];
+    onUpdate({ ...config, eligible_user_ids: next });
+  };
+
+  const updateKeywordRule = (index: number, patch: Record<string, unknown>) => {
+    const nextRules = rules.map((rule, currentIndex) => {
+      if (currentIndex !== index) return rule;
+      return { ...(rule as Record<string, unknown>), ...patch };
+    });
+    onUpdate({ ...config, rules: nextRules });
+  };
+
+  const removeKeywordRule = (index: number) => {
+    const nextRules = rules.filter((_, currentIndex) => currentIndex !== index);
+    onUpdate({ ...config, rules: nextRules });
+  };
+
+  const addKeywordRule = () => {
+    const nextRules = [
+      ...rules,
+      {
+        keyword: '',
+        response: '',
+        responses: [''],
+        match_type: config.match_type || 'contains',
+      },
+    ];
+    onUpdate({ ...config, rules: nextRules });
+    setTimeout(() => {
+      const scrollContainer = document.querySelector('[data-automation-config-scroll]') as HTMLElement | null;
+      if (scrollContainer) {
+        scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
+      }
+    }, 0);
+  };
+
+  const getKeywordRuleResponses = (rule: Record<string, unknown>): string[] => {
+    const responses = Array.isArray(rule.responses)
+      ? rule.responses.map((item) => String(item ?? ''))
+      : [];
+    if (responses.length > 0) return responses;
+    if (typeof rule.response === 'string') return [rule.response];
+    return [''];
+  };
+
+  const updateKeywordRuleResponses = (index: number, responses: string[]) => {
+    const normalizedResponses = responses.length > 0 ? responses : [''];
+    updateKeywordRule(index, {
+      responses: normalizedResponses,
+      response: normalizedResponses[0] || '',
+    });
+  };
+
+  const updateKeywordRuleResponseAt = (index: number, responseIndex: number, value: string) => {
+    const currentRule = (rules[index] as Record<string, unknown>) || {};
+    const currentResponses = getKeywordRuleResponses(currentRule);
+    const nextResponses = currentResponses.map((item, i) => (i === responseIndex ? value : item));
+    updateKeywordRuleResponses(index, nextResponses);
+  };
+
+  const addKeywordRuleResponse = (index: number) => {
+    const currentRule = (rules[index] as Record<string, unknown>) || {};
+    const currentResponses = getKeywordRuleResponses(currentRule);
+    updateKeywordRuleResponses(index, [...currentResponses, '']);
+    setTimeout(() => {
+      const scrollContainer = document.querySelector('[data-automation-config-scroll]') as HTMLElement | null;
+      if (scrollContainer) {
+        scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
+      }
+    }, 0);
+  };
+
+  const removeKeywordRuleResponse = (index: number, responseIndex: number) => {
+    const currentRule = (rules[index] as Record<string, unknown>) || {};
+    const currentResponses = getKeywordRuleResponses(currentRule);
+    const nextResponses = currentResponses.filter((_, currentIndex) => currentIndex !== responseIndex);
+    updateKeywordRuleResponses(index, nextResponses.length > 0 ? nextResponses : ['']);
+  };
+
+  const appendVariableToKeywordRuleResponse = (index: number, responseIndex: number, variable: string) => {
+    const currentRule = (rules[index] as Record<string, unknown>) || {};
+    const currentResponses = getKeywordRuleResponses(currentRule);
+    const currentValue = currentResponses[responseIndex] || '';
+    const separator = currentValue.trim() ? ' ' : '';
+    updateKeywordRuleResponseAt(index, responseIndex, `${currentValue}${separator}${variable}`);
+  };
+
+  const renderKeywordRulesEditor = (isExpanded = false) => (
+    <FormSection
+      title="Regras de Palavra/Frase"
+      hint={isExpanded ? 'Editor ampliado para facilitar textos maiores.' : undefined}
+    >
+      <div className="space-y-3">
+        {rules.length === 0 && (
+          <div className="text-xs text-muted-foreground rounded-lg border border-dashed p-3">
+            Nenhuma regra cadastrada.
+          </div>
+        )}
+
+        {rules.map((rule, index) => {
+          const typedRule = rule as Record<string, unknown>;
+          const responseList = getKeywordRuleResponses(typedRule);
+          return (
+            <div key={`${index}-${String(typedRule.keyword || '')}`} className="rounded-xl border bg-muted/20 p-3 sm:p-4 space-y-3">
+              <div className="grid gap-2 sm:grid-cols-[1fr,10rem]">
+                <Input
+                  value={String(typedRule.keyword || '')}
+                  onChange={(e) => updateKeywordRule(index, { keyword: e.target.value })}
+                  placeholder="Palavra ou frase"
+                  className="bg-background"
+                />
+                <Select
+                  value={String(typedRule.match_type || config.match_type || 'contains')}
+                  onValueChange={(value) => updateKeywordRule(index, { match_type: value })}
+                >
+                  <SelectTrigger className="w-40 bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="contains">Contém</SelectItem>
+                    <SelectItem value="exact">Exata</SelectItem>
+                    <SelectItem value="starts_with">Começa com</SelectItem>
+                    <SelectItem value="ends_with">Termina com</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                {responseList.map((responseValue, responseIndex) => (
+                  <div key={`${index}-response-${responseIndex}`} className="space-y-2 rounded-lg border bg-background/70 p-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Resposta {responseIndex + 1}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeKeywordRuleResponse(index, responseIndex)}
+                      >
+                        Remover resposta
+                      </Button>
+                    </div>
+                    <Textarea
+                      value={responseValue}
+                      onChange={(e) => updateKeywordRuleResponseAt(index, responseIndex, e.target.value)}
+                      placeholder="Resposta automática"
+                      rows={isExpanded ? 5 : 3}
+                      className="bg-background resize-none min-h-[120px]"
+                    />
+                    <div className="flex flex-wrap gap-1">
+                      {keywordVariables.map((variable) => (
+                        <Badge
+                          key={`${index}-${responseIndex}-${variable}`}
+                          variant="secondary"
+                          className="text-[10px] cursor-pointer"
+                          onClick={() => appendVariableToKeywordRuleResponse(index, responseIndex, variable)}
+                        >
+                          {variable}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addKeywordRuleResponse(index)}
+                >
+                  Adicionar resposta
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Se houver mais de uma resposta, o envio sera aleatorio.
+                </p>
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeKeywordRule(index)}
+                >
+                  Remover regra
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={addKeywordRule}
+        >
+          Adicionar regra
+        </Button>
+      </div>
+    </FormSection>
+  );
+
   return (
     <div className="space-y-6">
       {subtype === 'send_whatsapp' && (
         <>
-          <FormSection 
-            title="Mensagem Principal" 
+          <FormSection
+            title="Mensagem Principal"
             hint="Use variáveis como {nome}, {numero_pedido}, {valor} para personalizar"
           >
             <Textarea
@@ -209,9 +636,9 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
             />
             <div className="flex flex-wrap gap-1.5 mt-2">
               {['{nome}', '{numero_pedido}', '{valor}', '{status}', '{saudacao}'].map(v => (
-                <Badge 
-                  key={v} 
-                  variant="secondary" 
+                <Badge
+                  key={v}
+                  variant="secondary"
                   className="text-xs cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors"
                   onClick={() => {
                     if (normalizedConfig.randomMessages) {
@@ -228,30 +655,28 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
               ))}
             </div>
           </FormSection>
-          
-          <FormSection 
-            title="Mensagens Alternativas" 
+
+          <FormSection
+            title="Mensagens Alternativas"
             hint="Ative para enviar mensagens aleatórias (evita detecção de bot)"
           >
             <div className="flex items-center gap-2 mb-3">
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 id="randomMessages"
                 checked={normalizedConfig.randomMessages}
                 onChange={(e) => {
                   if (e.target.checked) {
-                    // Converter para formato de mensagens múltiplas
-                    onUpdate({ 
-                      ...config, 
-                      randomMessages: true, 
+                    onUpdate({
+                      ...config,
+                      randomMessages: true,
                       messages: [config.message || '', '', '', '']
                     });
                   } else {
-                    // Converter para mensagem única
                     const firstMessage = config.messages?.[0] || config.message || '';
-                    onUpdate({ 
-                      ...config, 
-                      randomMessages: false, 
+                    onUpdate({
+                      ...config,
+                      randomMessages: false,
                       message: firstMessage,
                       messages: undefined
                     });
@@ -263,7 +688,7 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
                 Usar mensagens aleatórias
               </label>
             </div>
-            
+
             {normalizedConfig.randomMessages && (
               <div className="space-y-2">
                 {[1, 2, 3].map((idx) => (
@@ -281,14 +706,34 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
                   />
                 ))}
                 <p className="text-xs text-muted-foreground">
-                  💡 Uma mensagem será escolhida aleatoriamente a cada envio
+                  Uma mensagem será escolhida aleatoriamente a cada envio
                 </p>
               </div>
             )}
           </FormSection>
+
+          <FormSection
+            title="Instância de Envio"
+            hint="Opcional para fluxos de WhatsApp; obrigatório para fluxos fora do atendimento"
+          >
+            <Select
+              value={config.instance_id || 'auto'}
+              onValueChange={(value) => onUpdate({ ...config, instance_id: value === 'auto' ? undefined : value })}
+            >
+              <SelectTrigger className="bg-muted/50">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Usar instância da conversa</SelectItem>
+                {whatsappInstances.map((instance) => (
+                  <SelectItem key={instance.id} value={instance.id}>{instance.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormSection>
         </>
       )}
-      
+
       {subtype === 'send_email' && (
         <>
           <FormSection title="Assunto">
@@ -310,7 +755,7 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
           </FormSection>
         </>
       )}
-      
+
       {subtype === 'create_notification' && (
         <>
           <FormSection title="Tipo">
@@ -322,9 +767,9 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="info">ℹ️ Informação</SelectItem>
-                <SelectItem value="warning">⚠️ Alerta</SelectItem>
-                <SelectItem value="success">✅ Sucesso</SelectItem>
+                <SelectItem value="info">Informação</SelectItem>
+                <SelectItem value="warning">Alerta</SelectItem>
+                <SelectItem value="success">Sucesso</SelectItem>
               </SelectContent>
             </Select>
           </FormSection>
@@ -347,7 +792,7 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
           </FormSection>
         </>
       )}
-      
+
       {subtype === 'update_status' && (
         <FormSection title="Novo Status">
           <Input
@@ -358,7 +803,7 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
           />
         </FormSection>
       )}
-      
+
       {subtype === 'add_tag' && (
         <>
           <FormSection title="Nome da Tag">
@@ -387,7 +832,7 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
           </FormSection>
         </>
       )}
-      
+
       {subtype === 'remove_tag' && (
         <FormSection title="Nome da Tag a Remover">
           <Input
@@ -398,7 +843,204 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
           />
         </FormSection>
       )}
-      
+
+      {subtype === 'assign_to_user' && (
+        <>
+          <FormSection title="Atendente Responsável">
+            {loadingWhatsappOptions ? (
+              <div className="text-xs text-muted-foreground">Carregando atendentes...</div>
+            ) : attendants.length === 0 ? (
+              <div className="text-xs text-muted-foreground">Nenhum atendente ativo encontrado.</div>
+            ) : (
+              <Select
+                value={config.user_id || 'none'}
+                onValueChange={(value) => onUpdate({ ...config, user_id: value === 'none' ? undefined : value })}
+              >
+                <SelectTrigger className="bg-muted/50">
+                  <SelectValue placeholder="Selecione um atendente" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Selecione</SelectItem>
+                  {attendants.map((attendant) => (
+                    <SelectItem key={attendant.id} value={attendant.id}>{attendant.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FormSection>
+
+          <FormSection title="Comportamento">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={config.mark_in_progress !== false}
+                onChange={(e) => onUpdate({ ...config, mark_in_progress: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              Marcar conversa como em atendimento
+            </label>
+          </FormSection>
+        </>
+      )}
+
+      {subtype === 'assign_round_robin' && (
+        <>
+          <FormSection
+            title="Atendentes Elegíveis"
+            hint="Se nenhum atendente for marcado, a ação usa os usuários vinculados à instância"
+          >
+            {loadingWhatsappOptions ? (
+              <div className="text-xs text-muted-foreground">Carregando atendentes...</div>
+            ) : availableAttendants.length === 0 ? (
+              <div className="text-xs text-muted-foreground">Nenhum atendente disponível para seleção.</div>
+            ) : (
+              <div className="max-h-40 overflow-y-auto space-y-2 rounded-lg border bg-muted/20 p-2">
+                {availableAttendants.map((attendant) => (
+                  <label key={attendant.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={selectedEligibleUserIds.includes(attendant.id)}
+                      onChange={() => toggleEligibleUser(attendant.id)}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    <span>{attendant.nome}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </FormSection>
+
+          <FormSection title="Regras de Distribuição">
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={config.only_unassigned !== false}
+                  onChange={(e) => onUpdate({ ...config, only_unassigned: e.target.checked })}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Distribuir apenas se não houver atendente definido
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={config.skip_groups !== false}
+                  onChange={(e) => onUpdate({ ...config, skip_groups: e.target.checked })}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Ignorar grupos
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={config.mark_in_progress !== false}
+                  onChange={(e) => onUpdate({ ...config, mark_in_progress: e.target.checked })}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Marcar conversa como em atendimento
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={config.create_system_message !== false}
+                  onChange={(e) => onUpdate({ ...config, create_system_message: e.target.checked })}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Registrar mensagem interna da distribuição
+              </label>
+            </div>
+          </FormSection>
+        </>
+      )}
+
+      {subtype === 'set_followup_flag' && (
+        <>
+          <FormSection title="Cor da Marcação">
+            <div className="flex gap-2">
+              <Input
+                type="color"
+                value={config.color || '#f59e0b'}
+                onChange={(e) => onUpdate({ ...config, color: e.target.value })}
+                className="w-14 h-10 p-1 bg-muted/50"
+              />
+              <Input
+                value={config.color || '#f59e0b'}
+                onChange={(e) => onUpdate({ ...config, color: e.target.value })}
+                placeholder="#f59e0b"
+                className="flex-1 bg-muted/50 font-mono"
+              />
+            </div>
+          </FormSection>
+
+          <FormSection title="Motivo">
+            <Textarea
+              value={config.reason || ''}
+              onChange={(e) => onUpdate({ ...config, reason: e.target.value })}
+              placeholder="Conversa sem interação recente"
+              rows={3}
+              className="bg-muted/50 resize-none"
+            />
+          </FormSection>
+
+          <FormSection title="Notificação">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={config.notify_assigned_user === true}
+                onChange={(e) => onUpdate({ ...config, notify_assigned_user: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              Notificar atendente atribuído
+            </label>
+          </FormSection>
+        </>
+      )}
+
+      {subtype === 'keyword_auto_reply' && (
+        <>
+          <FormSection title="Correspondência Padrão">
+            <Select
+              value={config.match_type || 'contains'}
+              onValueChange={(value) => onUpdate({ ...config, match_type: value })}
+            >
+              <SelectTrigger className="bg-muted/50">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="contains">Contém</SelectItem>
+                <SelectItem value="exact">Exata</SelectItem>
+                <SelectItem value="starts_with">Começa com</SelectItem>
+                <SelectItem value="ends_with">Termina com</SelectItem>
+              </SelectContent>
+            </Select>
+            <label className="flex items-center gap-2 text-sm mt-2">
+              <input
+                type="checkbox"
+                checked={config.case_sensitive === true}
+                onChange={(e) => onUpdate({ ...config, case_sensitive: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              Diferenciar maiúsculas e minúsculas
+            </label>
+          </FormSection>
+
+          <FormSection title="Cooldown">
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="0"
+                value={config.cooldown_minutes ?? 60}
+                onChange={(e) => onUpdate({ ...config, cooldown_minutes: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                className="w-24 bg-muted/50"
+              />
+              <span className="text-sm text-muted-foreground">minutos sem repetir resposta automática</span>
+            </div>
+          </FormSection>
+
+          {renderKeywordRulesEditor(true)}
+        </>
+      )}
+
       {subtype === 'call_webhook' && (
         <>
           <FormSection title="URL do Webhook">
@@ -443,7 +1085,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
     : ['equals', 'not_equals', 'contains', 'greater', 'less', 'is_empty', 'is_not_empty'];
   
   // ==========================================
-  // CONDIÇÕES ESPECIAIS DE TEMPO
+  // CONDIÇÃ•ES ESPECIAIS DE TEMPO
   // ==========================================
   
   if (subtype === 'time_elapsed') {
@@ -631,7 +1273,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÕES DE INTERAÇÃO
+  // CONDIÇÃ•ES DE INTERAÇÃƒO
   // ==========================================
   
   if (subtype === 'customer_replied') {
@@ -745,7 +1387,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÕES DE VALOR
+  // CONDIÇÃ•ES DE VALOR
   // ==========================================
   
   if (subtype === 'value_range') {
@@ -808,7 +1450,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÕES DE RELACIONAMENTO
+  // CONDIÇÃ•ES DE RELACIONAMENTO
   // ==========================================
   
   if (subtype === 'returning_customer') {
@@ -864,7 +1506,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÕES DE LOGÍSTICA (E-COMMERCE)
+  // CONDIÇÃ•ES DE LOGÃSTICA (E-COMMERCE)
   // ==========================================
   
   if (subtype === 'delivery_delayed') {
@@ -948,7 +1590,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÕES ESPECIAIS ORIGINAIS
+  // CONDIÇÃ•ES ESPECIAIS ORIGINAIS
   // ==========================================
   
   if (subtype === 'exit_condition') {
@@ -1243,7 +1885,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÃO PADRÃO: comparação de campo
+  // CONDIÇÃƒO PADRÃƒO: comparação de campo
   // ==========================================
   
   return (
@@ -1505,99 +2147,123 @@ export function NodeConfigSheet({ node, entityType, onUpdate, onUpdateLabel, onD
   
   const nodeType = node.type as string;
   const typeConfig = nodeTypeConfig[nodeType] || nodeTypeConfig.trigger;
+  const nodeSubtype = String(node.data.subtype || 'padrao');
   
   return (
-    <Sheet open={!!node} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="w-[420px] sm:max-w-[420px] p-0 flex flex-col">
-        {/* Header */}
-        <SheetHeader className={cn(
-          'p-4 border-b',
-          typeConfig.bgColor
-        )}>
-          <div className="flex items-start gap-3">
-            <div className={cn(
-              'w-12 h-12 rounded-xl flex items-center justify-center shrink-0',
-              'bg-gradient-to-br from-background to-muted border shadow-sm',
-              typeConfig.color
-            )}>
-              {typeConfig.icon}
+    <Dialog open={!!node} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="w-[98vw] max-w-[1240px] max-h-[94dvh] h-[94dvh] p-0 overflow-hidden border shadow-2xl rounded-2xl">
+        <DialogHeader className="sr-only">
+          <DialogTitle>Configurações do Nó</DialogTitle>
+          <DialogDescription>
+            Configure as propriedades do nó selecionado no fluxo de automação.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="h-full min-h-0 flex flex-col lg:flex-row bg-gradient-to-br from-background via-background to-muted/15">
+          <aside className="lg:w-[320px] xl:w-[360px] shrink-0 border-b lg:border-b-0 lg:border-r bg-card/65 backdrop-blur flex flex-col min-h-0">
+            <div className="min-h-0 overflow-y-auto">
+              <div className={cn('p-5 border-b', typeConfig.bgColor)}>
+                <div className="flex items-start gap-3">
+                  <div className={cn(
+                    'w-12 h-12 rounded-xl flex items-center justify-center shrink-0',
+                    'bg-gradient-to-br from-background to-muted border shadow-sm',
+                    typeConfig.color
+                  )}>
+                    {typeConfig.icon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <Badge variant="outline" className={cn('mb-2', typeConfig.color, typeConfig.borderColor)}>
+                      {typeConfig.label}
+                    </Badge>
+                    {onUpdateLabel ? (
+                      <Input
+                        value={node.data.label as string}
+                        onChange={(e) => onUpdateLabel(e.target.value)}
+                        className="font-semibold text-base bg-background/90"
+                        placeholder="Nome do nó"
+                      />
+                    ) : (
+                      <h3 className="text-lg font-semibold truncate">{node.data.label as string}</h3>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 space-y-3">
+                <div className="rounded-lg border bg-card p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Tipo</p>
+                  <p className="text-sm font-medium">{typeConfig.label}</p>
+                </div>
+                <div className="rounded-lg border bg-card p-3">
+                  <p className="text-xs text-muted-foreground mb-1">Subtipo</p>
+                  <p className="text-sm font-medium break-all">{nodeSubtype}</p>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Ajuste os campos no painel ao lado. As alterações são aplicadas em tempo real.
+                </p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <SheetDescription className="sr-only">
-                Configure as propriedades deste nó do tipo {typeConfig.label}
-              </SheetDescription>
-              <Badge 
-                variant="outline" 
-                className={cn('mb-2', typeConfig.color, typeConfig.borderColor)}
-              >
-                {typeConfig.label}
-              </Badge>
-              {onUpdateLabel ? (
-                <Input
-                  value={node.data.label as string}
-                  onChange={(e) => onUpdateLabel(e.target.value)}
-                  className="font-semibold text-base bg-background/50"
-                  placeholder="Nome do nó"
-                />
-              ) : (
-                <SheetTitle className="text-lg truncate">
-                  {node.data.label as string}
-                </SheetTitle>
+
+            <div className="shrink-0 p-4 sm:p-5 border-t bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70 space-y-2">
+              {onDuplicate && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={onDuplicate}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Duplicar Nó
+                </Button>
               )}
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" className="w-full">
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Excluir Nó
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Excluir nó?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Esta ação não pode ser desfeita. O nó "{node.data.label as string}" será removido permanentemente do fluxo.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={onDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                      Excluir
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
-          </div>
-        </SheetHeader>
-        
-        {/* Content */}
-        <ScrollArea className="flex-1">
-          <div className="p-4">
-            {nodeType === 'trigger' && <TriggerConfig node={node} onUpdate={onUpdate} />}
-            {nodeType === 'action' && <ActionConfig node={node} onUpdate={onUpdate} />}
-            {nodeType === 'condition' && <ConditionConfig node={node} onUpdate={onUpdate} entityType={entityType} />}
-            {nodeType === 'control' && <ControlConfig node={node} onUpdate={onUpdate} />}
-          </div>
-        </ScrollArea>
-        
-        {/* Footer */}
-        <div className="p-4 border-t bg-muted/30 space-y-2">
-          {onDuplicate && (
-            <Button 
-              variant="outline" 
-              className="w-full" 
-              onClick={onDuplicate}
-            >
-              <Copy className="h-4 w-4 mr-2" />
-              Duplicar Nó
-            </Button>
-          )}
-          
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button 
-                variant="destructive" 
-                className="w-full"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Excluir Nó
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Excluir nó?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Esta ação não pode ser desfeita. O nó "{node.data.label as string}" será removido permanentemente do fluxo.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction onClick={onDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                  Excluir
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          </aside>
+
+          <section className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-background">
+            <div className="shrink-0 px-5 sm:px-6 py-4 border-b bg-gradient-to-r from-background to-muted/20">
+              <h4 className="text-base font-semibold">Configurações</h4>
+              <p className="text-sm text-muted-foreground">
+                Defina como este nó deve se comportar dentro do fluxo.
+              </p>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" data-automation-config-scroll>
+              <div className="mx-auto w-full max-w-4xl p-4 sm:p-6 pb-10">
+                {nodeType === 'trigger' && <TriggerConfig node={node} onUpdate={onUpdate} />}
+                {nodeType === 'action' && <ActionConfig node={node} onUpdate={onUpdate} />}
+                {nodeType === 'condition' && <ConditionConfig node={node} onUpdate={onUpdate} entityType={entityType} />}
+                {nodeType === 'control' && <ControlConfig node={node} onUpdate={onUpdate} />}
+              </div>
+            </div>
+          </section>
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
+
+
+
+

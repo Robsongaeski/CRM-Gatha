@@ -742,6 +742,43 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const triggerAutomation = async (
+      triggerType: string,
+      conversationData: Record<string, unknown>,
+      messageData: {
+        messageText: string;
+        senderPhone: string;
+        senderName: string;
+        fromMe: boolean;
+      },
+    ) => {
+      try {
+        const payload = {
+          trigger_type: triggerType,
+          entity_type: "whatsapp",
+          entity_id: String(conversationData.id || ""),
+          data: {
+            ...conversationData,
+            conversation_id: conversationData.id,
+            message_text: messageData.messageText,
+            sender_phone: messageData.senderPhone || null,
+            sender_name: messageData.senderName || null,
+            from_me: messageData.fromMe,
+          },
+        };
+
+        await fetch(`${supabaseUrl}/functions/v1/automation-trigger`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify(payload),
+        });
+      } catch (automationError) {
+        console.error("[UAZAPI WEBHOOK] automation trigger error:", automationError);
+      }
+    };
 
     const requestHeaders = Object.fromEntries(
       Array.from(req.headers.entries()).map(([key, value]) => [key, sanitizeHeaderValue(key, value)]),
@@ -1702,6 +1739,11 @@ serve(async (req) => {
 
           if (!fromMe && !isHistoryEvent) {
             updateData.unread_count = (conversation.unread_count || 0) + 1;
+            updateData.last_customer_message_at = messageTimestampIso;
+            updateData.needs_followup = false;
+            updateData.followup_reason = null;
+            updateData.followup_color = null;
+            updateData.followup_flagged_at = null;
             if (conversation.status === "finished") {
               updateData.status = "pending";
               updateData.assigned_to = null;
@@ -1743,6 +1785,7 @@ serve(async (req) => {
           }
 
           await supabase.from("whatsapp_conversations").update(updateData).eq("id", conversation.id);
+          conversation = { ...conversation, ...updateData };
           console.log("[UAZAPI WEBHOOK] conversation matched:", {
             source: conversationSource,
             conversationId: conversation.id,
@@ -1784,6 +1827,7 @@ serve(async (req) => {
               status: "pending",
               unread_count: fromMe || isHistoryEvent ? 0 : 1,
               last_message_at: messageTimestampIso,
+              last_customer_message_at: !fromMe ? messageTimestampIso : null,
               last_message_preview: contentText.substring(0, 100) || `[${messageType}]`,
             })
             .select()
@@ -1832,6 +1876,33 @@ serve(async (req) => {
           fromMe,
           hasMediaUrl: Boolean(mediaUrl),
         });
+
+        if (!fromMe && !isHistoryEvent) {
+          await triggerAutomation(
+            "whatsapp_message",
+            conversation as Record<string, unknown>,
+            {
+              messageText: safeContent,
+              senderPhone: senderPhone || "",
+              senderName: senderName || "",
+              fromMe,
+            },
+          );
+
+          const isNewLead = !conversation.assigned_to && !conversation.is_group;
+          if (isNewLead) {
+            await triggerAutomation(
+              "whatsapp_new_lead",
+              conversation as Record<string, unknown>,
+              {
+                messageText: safeContent,
+                senderPhone: senderPhone || "",
+                senderName: senderName || "",
+                fromMe,
+              },
+            );
+          }
+        }
 
         results.push({ messageId: savedMessage.id, conversationId: conversation.id });
       } catch (msgErr) {

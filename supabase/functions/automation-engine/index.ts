@@ -80,7 +80,7 @@ serve(async (req) => {
 
     // Processar a sequência de nós
     const executionPath: string[] = []
-    let context = { ...trigger_data }
+    let context = { ...trigger_data, workflow_id, execution_id }
     
     // Se estamos começando pelo trigger, ir para o próximo nó
     if (currentNode.type === 'trigger') {
@@ -166,7 +166,7 @@ serve(async (req) => {
         await supabase
           .from('automation_workflow_executions')
           .update({ 
-            status: 'waiting', 
+            status: 'paused', 
             current_node_id: nextNodeId || currentNode.id,
             execution_path: executionPath
           })
@@ -198,7 +198,7 @@ serve(async (req) => {
         await supabase
           .from('automation_workflow_executions')
           .update({ 
-            status: 'waiting', 
+            status: 'paused', 
             current_node_id: currentNode.id,
             execution_path: executionPath
           })
@@ -344,22 +344,30 @@ async function processAction(
   
   switch (subtype) {
     case 'send_whatsapp': {
-      const phone = resolveVariable(config.phone as string, context) || 
-                   context.customer_phone || context.whatsapp || context.telefone
-      
-      // Suporte para mensagens randômicas
+      const templateContext = await enrichTemplateContext(supabase, context)
+      const explicitRemoteJid = resolveVariable(config.remote_jid as string, context)
+      const explicitPhone = resolveVariable(config.phone as string, context)
+      const fallbackPhone = String(
+        context.contact_phone || context.customer_phone || context.whatsapp || context.telefone || '',
+      )
+      const remoteJid = explicitRemoteJid ||
+        (String(context.remote_jid || '').includes('@') ? String(context.remote_jid) : '') ||
+        formatPhoneAsJid(explicitPhone || fallbackPhone)
+      const instanceId = String(
+        config.instance_id || context.instance_id || context.conversation_instance_id || '',
+      )
+      const conversationId = String(context.conversation_id || context.entity_id || '')
+
       let message: string
       if (config.randomMessages && Array.isArray(config.messages) && config.messages.length > 0) {
         const randomIndex = Math.floor(Math.random() * config.messages.length)
-        message = resolveTemplate(config.messages[randomIndex] as string, context)
+        message = resolveTemplate(config.messages[randomIndex] as string, templateContext)
       } else {
-        message = resolveTemplate(config.message as string, context)
+        message = resolveTemplate(config.message as string, templateContext)
       }
-      
-      const instanceId = config.instance_id as string
-      
-      if (!phone || !message) {
-        throw new Error('WhatsApp: phone or message missing')
+
+      if (!remoteJid || !message || !instanceId) {
+        throw new Error('WhatsApp: remoteJid, message or instance_id missing')
       }
 
       const response = await fetch(`${supabaseUrl}/functions/v1/send-whatsapp`, {
@@ -369,9 +377,13 @@ async function processAction(
           'Authorization': `Bearer ${supabaseServiceKey}`,
         },
         body: JSON.stringify({
-          to: phone,
-          message,
-          instance_id: instanceId
+          instanceId,
+          remoteJid,
+          content: message,
+          messageType: 'text',
+          conversationId: conversationId || undefined,
+          senderName: 'Automacao',
+          keepUnread: true,
         }),
       })
 
@@ -380,13 +392,19 @@ async function processAction(
         throw new Error(`WhatsApp send failed: ${error}`)
       }
 
-      return { success: true, output: { whatsapp_sent: true, message_sent: message } }
+      const sendResult = await response.json().catch(() => ({}))
+      if (sendResult && sendResult.success === false) {
+        throw new Error(`WhatsApp send failed: ${sendResult.error || 'unknown error'}`)
+      }
+
+      return { success: true, output: { whatsapp_sent: true, message_sent: message, remote_jid: remoteJid } }
     }
 
     case 'send_email': {
+      const templateContext = await enrichTemplateContext(supabase, context)
       const to = resolveVariable(config.to as string, context) || context.customer_email || context.email
-      const subject = resolveTemplate(config.subject as string, context)
-      const body = resolveTemplate(config.body as string, context)
+      const subject = resolveTemplate(config.subject as string, templateContext)
+      const body = resolveTemplate(config.body as string, templateContext)
       
       if (!to || !subject || !body) {
         throw new Error('Email: to, subject, or body missing')
@@ -399,10 +417,11 @@ async function processAction(
     }
 
     case 'create_notification': {
+      const templateContext = await enrichTemplateContext(supabase, context)
       const userId = config.user_id as string || context.vendedor_id as string
-      const message = resolveTemplate(config.message as string || config.title as string, context)
+      const message = resolveTemplate(config.message as string || config.title as string, templateContext)
       const tipo = config.tipo as string || 'automacao'
-      const link = resolveTemplate(config.link as string, context)
+      const link = resolveTemplate(config.link as string, templateContext)
       
       if (!userId || !message) {
         throw new Error('Notification: user_id or message missing')
@@ -488,6 +507,254 @@ async function processAction(
           webhook_called: true, 
           response_status: response.status 
         } 
+      }
+    }
+
+    case 'assign_to_user': {
+      const conversationId = String(context.conversation_id || context.entity_id || '')
+      const userId = String(resolveVariable(config.user_id as string, context) || '')
+      const markInProgress = config.mark_in_progress !== false
+
+      if (!conversationId || !userId) {
+        throw new Error('Assign to user: conversation_id or user_id missing')
+      }
+
+      const patch: Record<string, unknown> = { assigned_to: userId }
+      if (markInProgress) patch.status = 'in_progress'
+
+      await supabase
+        .from('whatsapp_conversations')
+        .update(patch)
+        .eq('id', conversationId)
+
+      const { data: assignedProfile } = await supabase
+        .from('profiles')
+        .select('nome')
+        .eq('id', userId)
+        .maybeSingle()
+      const assignedName = String(assignedProfile?.nome || '').trim()
+
+      return {
+        success: true,
+        output: {
+          assigned_to: userId,
+          conversation_id: conversationId,
+          assigned_user_name: assignedName || null,
+          attendant_name: assignedName || null,
+          nome_atendente: assignedName || null,
+        },
+      }
+    }
+
+    case 'assign_round_robin': {
+      const workflowId = String(context.workflow_id || '')
+      const conversationId = String(context.conversation_id || context.entity_id || '')
+      const instanceId = String(context.instance_id || '')
+      const isGroup = Boolean(context.is_group)
+      const onlyUnassigned = config.only_unassigned !== false
+      const skipGroups = config.skip_groups !== false
+      const markInProgress = config.mark_in_progress !== false
+
+      if (!workflowId || !conversationId || !instanceId) {
+        throw new Error('Round robin: workflow_id, conversation_id or instance_id missing')
+      }
+      if (skipGroups && isGroup) {
+        return { success: true, output: { skipped: 'group_conversation' } }
+      }
+
+      let eligibleUserIds = normalizeUuidArray(config.eligible_user_ids)
+      if (eligibleUserIds.length === 0) {
+        const { data: links, error: linksError } = await supabase
+          .from('whatsapp_instance_users')
+          .select('user_id')
+          .eq('instance_id', instanceId)
+        if (linksError) throw linksError
+        eligibleUserIds = Array.from(new Set((links || []).map((item: any) => String(item.user_id)).filter(Boolean)))
+      }
+
+      if (eligibleUserIds.length === 0) {
+        return { success: true, output: { skipped: 'no_eligible_users' } }
+      }
+
+      const { data: pickedUserId, error: pickError } = await supabase.rpc('automation_pick_round_robin_user', {
+        p_workflow_id: workflowId,
+        p_instance_id: instanceId,
+        p_user_ids: eligibleUserIds,
+      })
+      if (pickError) throw pickError
+      if (!pickedUserId) {
+        return { success: true, output: { skipped: 'round_robin_no_pick' } }
+      }
+
+      const patch: Record<string, unknown> = { assigned_to: pickedUserId }
+      if (markInProgress) patch.status = 'in_progress'
+
+      let updateQuery = supabase
+        .from('whatsapp_conversations')
+        .update(patch)
+        .eq('id', conversationId)
+      if (onlyUnassigned) {
+        updateQuery = updateQuery.is('assigned_to', null)
+      }
+
+      const { data: updatedRows, error: updateError } = await updateQuery.select('id')
+      if (updateError) throw updateError
+      if (!updatedRows || updatedRows.length === 0) {
+        return { success: true, output: { skipped: 'already_assigned', picked_user_id: pickedUserId } }
+      }
+
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('nome')
+        .eq('id', pickedUserId)
+        .maybeSingle()
+      const assignedName = String(userProfile?.nome || '').trim()
+
+      if (config.create_system_message !== false) {
+        await supabase.from('whatsapp_messages').insert({
+          conversation_id: conversationId,
+          instance_id: instanceId,
+          from_me: true,
+          message_type: 'system',
+          content: `Atendimento distribuido automaticamente para ${assignedName || 'atendente'}.`,
+          status: 'delivered',
+        })
+      }
+
+      return {
+        success: true,
+        output: {
+          assigned_to: pickedUserId,
+          conversation_id: conversationId,
+          assigned_user_name: assignedName || null,
+          attendant_name: assignedName || null,
+          nome_atendente: assignedName || null,
+        },
+      }
+    }
+
+    case 'set_followup_flag': {
+      const templateContext = await enrichTemplateContext(supabase, context)
+      const conversationId = String(context.conversation_id || context.entity_id || '')
+      if (!conversationId) {
+        throw new Error('Follow-up flag: conversation_id missing')
+      }
+
+      const color = String(config.color || '#f59e0b')
+      const reason = resolveTemplate(String(config.reason || 'Conversa sem interacao recente'), templateContext)
+      const notifyAssignedUser = config.notify_assigned_user === true
+
+      const { data: updatedConversation, error: updateError } = await supabase
+        .from('whatsapp_conversations')
+        .update({
+          needs_followup: true,
+          followup_color: color,
+          followup_reason: reason,
+          followup_flagged_at: new Date().toISOString(),
+        })
+        .eq('id', conversationId)
+        .select('assigned_to')
+        .single()
+
+      if (updateError) throw updateError
+
+      if (notifyAssignedUser && updatedConversation?.assigned_to) {
+        await supabase.from('notificacoes').insert({
+          user_id: updatedConversation.assigned_to,
+          tipo: 'whatsapp_followup',
+          mensagem: reason,
+          link: '/ecommerce/whatsapp/atendimento',
+        })
+      }
+
+      return { success: true, output: { followup_flagged: true, conversation_id: conversationId } }
+    }
+
+    case 'keyword_auto_reply': {
+      if (context.from_me === true) {
+        return { success: true, output: { skipped: 'outbound_message' } }
+      }
+
+      const workflowId = String(context.workflow_id || '')
+      const executionId = String(context.execution_id || '')
+      const conversationId = String(context.conversation_id || context.entity_id || '')
+      const incomingText = String(context.message_text || context.content || '').trim()
+      const cooldownMinutes = Number(config.cooldown_minutes || 60)
+      const rules = Array.isArray(config.rules) ? config.rules : []
+
+      if (!workflowId || !conversationId || !incomingText || rules.length === 0) {
+        return { success: true, output: { skipped: 'missing_keyword_context' } }
+      }
+
+      if (Number.isFinite(cooldownMinutes) && cooldownMinutes > 0) {
+        const cooldownStart = new Date(Date.now() - cooldownMinutes * 60 * 1000).toISOString()
+        const { data: lastReply } = await supabase
+          .from('automation_whatsapp_reply_logs')
+          .select('id')
+          .eq('workflow_id', workflowId)
+          .eq('conversation_id', conversationId)
+          .gte('created_at', cooldownStart)
+          .limit(1)
+          .maybeSingle()
+        if (lastReply) {
+          return { success: true, output: { skipped: 'cooldown_active' } }
+        }
+      }
+
+      const caseSensitive = config.case_sensitive === true
+      const defaultMatchType = String(config.match_type || 'contains')
+      const matchedRule = (rules as Record<string, unknown>[]).find((rule) => {
+        const keyword = String(rule.keyword || '').trim()
+        if (!keyword) return false
+        const matchType = String(rule.match_type || defaultMatchType)
+        return matchKeyword(incomingText, keyword, matchType, caseSensitive)
+      })
+
+      if (!matchedRule) {
+        return { success: true, output: { skipped: 'no_keyword_match' } }
+      }
+
+      const possibleResponses = getKeywordRuleResponses(matchedRule)
+      if (possibleResponses.length === 0) {
+        return { success: true, output: { skipped: 'empty_keyword_response' } }
+      }
+
+      const pickedResponseTemplate = pickRandomItem(possibleResponses) || ''
+      const templateContext = await enrichTemplateContext(supabase, context)
+      const responseMessage = resolveTemplate(pickedResponseTemplate, templateContext)
+      if (!responseMessage) {
+        return { success: true, output: { skipped: 'empty_keyword_response' } }
+      }
+
+      const sendResult = await processAction(
+        supabase,
+        'send_whatsapp',
+        {
+          instance_id: context.instance_id,
+          remote_jid: context.remote_jid,
+          phone: context.contact_phone,
+          message: responseMessage,
+        },
+        context,
+        supabaseUrl,
+        supabaseServiceKey,
+      )
+
+      await supabase.from('automation_whatsapp_reply_logs').insert({
+        workflow_id: workflowId,
+        execution_id: executionId || null,
+        conversation_id: conversationId,
+        keyword: String(matchedRule.keyword || ''),
+      })
+
+      return {
+        success: true,
+        output: {
+          ...(sendResult.output || {}),
+          keyword_matched: String(matchedRule.keyword || ''),
+          keyword_response_variant: pickedResponseTemplate,
+          auto_replied: true,
+        },
       }
     }
 
@@ -756,29 +1023,241 @@ function resolveVariable(template: string, context: Record<string, unknown>): st
   })
 }
 
+function formatPhoneAsJid(rawPhone: string): string {
+  const cleaned = String(rawPhone || '').replace(/\D/g, '')
+  if (!cleaned) return ''
+  const normalized = cleaned.length >= 10 && cleaned.length <= 11 && !cleaned.startsWith('55')
+    ? `55${cleaned}`
+    : cleaned
+  return `${normalized}@s.whatsapp.net`
+}
+
+function normalizeUuidArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return Array.from(
+    new Set(
+      value
+        .map((item) => String(item || '').trim())
+        .filter((item) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item)),
+    ),
+  )
+}
+
+function matchKeyword(
+  input: string,
+  keyword: string,
+  matchType: string,
+  caseSensitive: boolean,
+): boolean {
+  const source = caseSensitive ? input : input.toLowerCase()
+  const target = caseSensitive ? keyword : keyword.toLowerCase()
+  if (!target) return false
+
+  switch (matchType) {
+    case 'exact':
+      return source.trim() === target.trim()
+    case 'starts_with':
+      return source.startsWith(target)
+    case 'ends_with':
+      return source.endsWith(target)
+    case 'contains':
+    default:
+      return source.includes(target)
+  }
+}
+
+function getKeywordRuleResponses(rule: Record<string, unknown>): string[] {
+  const responses: string[] = []
+  if (Array.isArray(rule.responses)) {
+    responses.push(...rule.responses.map((item) => String(item || '').trim()))
+  }
+  if (typeof rule.response === 'string') {
+    responses.push(String(rule.response || '').trim())
+  }
+  return Array.from(new Set(responses.filter(Boolean)))
+}
+
+function pickRandomItem<T>(items: T[]): T | null {
+  if (!Array.isArray(items) || items.length === 0) return null
+  const index = Math.floor(Math.random() * items.length)
+  return items[index]
+}
+
+async function enrichTemplateContext(
+  supabase: AnySupabaseClient,
+  context: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const conversationId = String(context.conversation_id || context.entity_id || '').trim()
+  let assignedId = String(context.assigned_to || context.assigned_user_id || '').trim()
+
+  if (!assignedId && conversationId) {
+    const { data: conversation } = await supabase
+      .from('whatsapp_conversations')
+      .select('assigned_to')
+      .eq('id', conversationId)
+      .maybeSingle()
+    const conversationAssignedId = String(conversation?.assigned_to || '').trim()
+    if (conversationAssignedId) {
+      assignedId = conversationAssignedId
+    }
+  }
+
+  let attendantName = ''
+  if (assignedId) {
+    const { data: attendant } = await supabase
+      .from('profiles')
+      .select('nome')
+      .eq('id', assignedId)
+      .maybeSingle()
+    attendantName = String(attendant?.nome || '').trim()
+  }
+
+  if (!attendantName) {
+    attendantName = String(context.nome_atendente || context.attendant_name || context.assigned_user_name || '').trim()
+  }
+
+  return {
+    ...context,
+    ...(assignedId ? { assigned_to: assignedId } : {}),
+    ...(attendantName
+      ? {
+          nome_atendente: attendantName,
+          attendant_name: attendantName,
+          assigned_user_name: attendantName,
+        }
+      : {}),
+  }
+}
+
+function normalizeTemplateKey(key: string): string {
+  return String(key || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+const TEMPLATE_KEY_ALIASES: Record<string, string> = {
+  saudacao: 'saudacao',
+  nome: 'nome',
+  nome_cliente: 'nome',
+  cliente_nome: 'nome',
+  nome_atendente: 'nome_atendente',
+  atendente: 'nome_atendente',
+  telefone: 'telefone',
+  contato: 'telefone',
+}
+
+function getSafeTimezone(value: unknown): string {
+  const candidate = String(value || '').trim()
+  const fallback = 'America/Sao_Paulo'
+  if (!candidate) return fallback
+  try {
+    new Intl.DateTimeFormat('pt-BR', { timeZone: candidate }).format(new Date())
+    return candidate
+  } catch {
+    return fallback
+  }
+}
+
+function getHourForTimezone(now: Date, timezone: string): number {
+  try {
+    const formatted = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: '2-digit',
+      hour12: false,
+    }).format(now)
+    const hour = Number(formatted)
+    return Number.isFinite(hour) ? hour : 0
+  } catch {
+    return now.getHours()
+  }
+}
+
+function formatDateForTimezone(now: Date, timezone: string): string {
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now)
+  } catch {
+    return now.toLocaleDateString('pt-BR')
+  }
+}
+
+function formatTimeForTimezone(now: Date, timezone: string): string {
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(now)
+  } catch {
+    return now.toLocaleTimeString('pt-BR')
+  }
+}
+
+function extractFirstName(value: unknown): string {
+  const fullName = String(value || '').trim()
+  if (!fullName) return ''
+  return fullName.split(/\s+/).filter(Boolean)[0] || ''
+}
+
 function resolveTemplate(template: string, context: Record<string, unknown>): string {
   if (!template) return ''
   
   // Adicionar variáveis de sistema
+  const timezone = getSafeTimezone(context.timezone || context.fuso_horario || Deno.env.get('AUTOMATION_TIMEZONE'))
   const now = new Date()
-  const hour = now.getHours()
+  const hour = getHourForTimezone(now, timezone)
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
+  const customerName = context.customer_name || context.nome || context.nome_cliente || context.contact_name || context.sender_name
   
   const enrichedContext: Record<string, unknown> = {
     ...context,
-    data_atual: now.toLocaleDateString('pt-BR'),
-    hora_atual: now.toLocaleTimeString('pt-BR'),
+    data_atual: formatDateForTimezone(now, timezone),
+    hora_atual: formatTimeForTimezone(now, timezone),
     saudacao: greeting,
     // Aliases comuns
-    nome: context.customer_name || context.nome || context.nome_cliente,
+    nome: extractFirstName(customerName),
+    nome_atendente: context.nome_atendente || context.attendant_name || context.assigned_user_name,
     numero_pedido: context.order_number || context.numero_pedido,
     email: context.customer_email || context.email,
     telefone: context.customer_phone || context.telefone || context.whatsapp
   }
 
-  return template.replace(/\{(\w+)\}/g, (match, key) => {
-    const value = enrichedContext[key as string]
-    return value !== undefined ? String(value) : match
+  const normalizedContext: Record<string, unknown> = {}
+  Object.entries(enrichedContext).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return
+    normalizedContext[normalizeTemplateKey(key)] = value
+  })
+
+  const resolveToken = (rawKey: string, originalToken: string): string => {
+    const directValue = enrichedContext[rawKey]
+    if (directValue !== undefined && directValue !== null && directValue !== '') {
+      return String(directValue)
+    }
+
+    const normalized = normalizeTemplateKey(rawKey)
+    const aliased = TEMPLATE_KEY_ALIASES[normalized] || normalized
+    const normalizedValue = normalizedContext[aliased] ?? normalizedContext[normalized]
+    if (normalizedValue !== undefined && normalizedValue !== null && normalizedValue !== '') {
+      return String(normalizedValue)
+    }
+
+    return originalToken
+  }
+
+  const withBraces = template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key) => {
+    return resolveToken(String(key), match)
+  })
+
+  return withBraces.replace(/\[([^\]]+)\]/g, (match, key) => {
+    return resolveToken(String(key), match)
   })
 }
 

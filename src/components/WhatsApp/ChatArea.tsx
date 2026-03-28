@@ -322,11 +322,6 @@ export default function ChatArea({
           URL.revokeObjectURL(currentPreviewUrl);
         }
 
-        // Marcar como lido ao responder (para conversas individuais)
-        if (!conversation.is_group && conversation.unread_count > 0) {
-          markAsRead.mutate(conversation.id);
-        }
-
         // Preparar dados de mídia se houver arquivo
         let mediaBase64: string | undefined;
         let mediaMimeType: string | undefined;
@@ -368,6 +363,11 @@ export default function ChatArea({
           quotedMessageId,
           senderName: currentUserProfile?.nome || 'Atendente',
         });
+
+        // Marcar como lido apenas após confirmar envio do atendente
+        if (!conversation.is_group && conversation.unread_count > 0) {
+          markAsRead.mutate(conversation.id);
+        }
       } catch (error: unknown) {
         toast.error('Erro ao enviar mensagem', { description: sanitizeError(error) });
       }
