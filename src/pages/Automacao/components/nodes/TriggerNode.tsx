@@ -44,6 +44,9 @@ export const TriggerNode = memo(({ data, selected }: NodeProps) => {
     if (subtype === 'whatsapp_new_lead' && config.only_unassigned !== false) {
       parts.push('Somente sem atendente');
     }
+    if (subtype === 'whatsapp_message' && config.only_unassigned === true) {
+      parts.push('Somente sem atendente');
+    }
     if (Array.isArray(config.instance_ids) && config.instance_ids.length > 0) {
       parts.push(`${config.instance_ids.length} instancia(s)`);
     }

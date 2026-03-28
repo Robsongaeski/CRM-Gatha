@@ -47,7 +47,7 @@ serve(async (req) => {
 
     for (const workflow of workflows || []) {
       const flowData = workflow.flow_data as {
-        nodes?: Array<{ type: string; data?: { subtype?: string; config?: Record<string, unknown> } }>
+        nodes?: Array<{ id: string; type: string; data?: { subtype?: string; config?: Record<string, unknown> } }>
       }
 
       const triggerNode = flowData?.nodes?.find((node) => node.type === 'trigger' && node.data?.subtype === trigger_type)
@@ -97,6 +97,7 @@ serve(async (req) => {
           workflow_id: workflow.id,
           flow_data: flowData,
           trigger_data: triggerData,
+          current_node_id: triggerNode.id,
         }),
       })
 

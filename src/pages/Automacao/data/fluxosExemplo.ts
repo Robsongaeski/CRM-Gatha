@@ -1211,6 +1211,106 @@ Precisa de ajuda? Responda este email!`
 };
 
 // ============================================
+// FLUXO 09: WhatsApp - Distribui Atendente Ecommerce
+// ============================================
+export const fluxoDistribuiAtendenteEcommerce: FluxoExemplo = {
+  id: 'exemplo-distribui-atendente-ecommerce',
+  nome: 'Distribui Atendente Ecommerce (Exemplo)',
+  descricao: 'Distribui conversas WhatsApp sem atendente usando round-robin. Funciona tanto no primeiro contato quanto em novas mensagens sem dono.',
+  tipo: 'whatsapp',
+  nodes: [
+    {
+      id: 'trigger-new-lead',
+      type: 'trigger',
+      position: { x: 220, y: 50 },
+      data: {
+        label: 'Novo Lead WhatsApp',
+        subtype: 'whatsapp_new_lead',
+        config: {
+          only_unassigned: true,
+          skip_groups: true,
+          instance_ids: [],
+        }
+      }
+    },
+    {
+      id: 'trigger-message',
+      type: 'trigger',
+      position: { x: 560, y: 50 },
+      data: {
+        label: 'Mensagem WhatsApp',
+        subtype: 'whatsapp_message',
+        config: {
+          only_unassigned: true,
+          skip_groups: true,
+          instance_ids: [],
+        }
+      }
+    },
+    {
+      id: 'delay-short',
+      type: 'control',
+      position: { x: 390, y: 190 },
+      data: {
+        label: 'Aguardar 1 minuto',
+        subtype: 'delay',
+        config: {
+          amount: 1,
+          unit: 'minutes'
+        }
+      }
+    },
+    {
+      id: 'condition-still-unassigned',
+      type: 'condition',
+      position: { x: 390, y: 320 },
+      data: {
+        label: 'Ainda sem atendente?',
+        subtype: 'field_equals',
+        config: {
+          field: 'assigned_to',
+          operator: 'is_empty'
+        }
+      }
+    },
+    {
+      id: 'action-distribute',
+      type: 'action',
+      position: { x: 220, y: 470 },
+      data: {
+        label: 'Distribuir Lead',
+        subtype: 'assign_round_robin',
+        config: {
+          eligible_user_ids: [],
+          only_unassigned: true,
+          skip_groups: true,
+          mark_in_progress: true,
+          create_system_message: true,
+        }
+      }
+    },
+    {
+      id: 'control-stop',
+      type: 'control',
+      position: { x: 560, y: 470 },
+      data: {
+        label: 'Encerrar Fluxo',
+        subtype: 'stop_flow',
+        config: {}
+      }
+    }
+  ],
+  edges: [
+    { id: 'e1', source: 'trigger-new-lead', target: 'delay-short', type: 'custom' },
+    { id: 'e2', source: 'trigger-message', target: 'delay-short', type: 'custom' },
+    { id: 'e3', source: 'delay-short', target: 'condition-still-unassigned', type: 'custom' },
+    { id: 'e4', source: 'condition-still-unassigned', target: 'action-distribute', sourceHandle: 'yes', type: 'custom' },
+    { id: 'e5', source: 'condition-still-unassigned', target: 'control-stop', sourceHandle: 'no', type: 'custom' },
+    { id: 'e6', source: 'action-distribute', target: 'control-stop', type: 'custom' }
+  ]
+};
+
+// ============================================
 // Lista de todos os fluxos de exemplo
 // ============================================
 export const fluxosExemplo: FluxoExemplo[] = [
@@ -1221,7 +1321,8 @@ export const fluxosExemplo: FluxoExemplo[] = [
   fluxoPedidoProducao,
   fluxoAtendimentoWhatsapp,
   fluxoPosVendaNPS,
-  fluxoPendentePagamento
+  fluxoPendentePagamento,
+  fluxoDistribuiAtendenteEcommerce
 ];
 
 export default fluxosExemplo;

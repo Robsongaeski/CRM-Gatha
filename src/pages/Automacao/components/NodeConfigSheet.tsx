@@ -275,15 +275,26 @@ function TriggerConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any)
 
           {subtype === 'whatsapp_message' && (
             <FormSection title="Filtros">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={config.skip_groups === true}
-                  onChange={(e) => onUpdate({ ...config, skip_groups: e.target.checked })}
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                Ignorar conversas em grupo
-              </label>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={config.only_unassigned === true}
+                    onChange={(e) => onUpdate({ ...config, only_unassigned: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  Somente conversas sem atendente
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={config.skip_groups === true}
+                    onChange={(e) => onUpdate({ ...config, skip_groups: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  Ignorar conversas em grupo
+                </label>
+              </div>
             </FormSection>
           )}
 
