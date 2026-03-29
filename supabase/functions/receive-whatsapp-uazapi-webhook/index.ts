@@ -60,6 +60,33 @@ function extractPhoneFromJid(jid: string): string {
   return jid.split("@")[0];
 }
 
+function extractPhoneFromUnknown(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+
+  if (raw.includes("@")) {
+    const fromJid = normalizePhone(extractPhoneFromJid(raw));
+    if (fromJid) return fromJid;
+  }
+
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+  return normalizePhone(digits);
+}
+
+function toBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    if (["true", "1", "yes", "y", "sim", "s"].includes(normalized)) return true;
+    if (["false", "0", "no", "n", "nao", "não"].includes(normalized)) return false;
+  }
+  return Boolean(value);
+}
+
 function isGroupJid(jid: string): boolean {
   return jid?.includes("@g.us") || false;
 }
@@ -1058,7 +1085,7 @@ serve(async (req) => {
         }
         const messageTimestampIso = (messageTimestamp || new Date()).toISOString();
 
-        const fromMe = Boolean(
+        const fromMe = toBoolean(
           pickFromMany(sources, [
             "key.fromMe",
             "fromMe",
@@ -1109,7 +1136,7 @@ serve(async (req) => {
           ? (rawChatJid || rawToJid || rawFromJid)
           : (rawChatJid || rawFromJid || rawToJid);
         let groupHint = Boolean(
-          pickFromMany(sources, ["isGroup", "group", "message.isGroup", "chat.wa_isGroup"]) ||
+          toBoolean(pickFromMany(sources, ["isGroup", "group", "message.isGroup", "chat.wa_isGroup"])) ||
             String(rawRemoteJid || "").includes("@g.us") ||
             String(rawChatJid || "").includes("@g.us") ||
             String(rawFromJid || "").includes("@g.us") ||
@@ -1125,6 +1152,23 @@ serve(async (req) => {
         let remoteJid = normalizeRemoteJid(rawRemoteJid, groupHint);
         const instancePhone = normalizePhone(String(instance?.numero_whatsapp || ""));
         const instanceJid = instancePhone ? normalizeRemoteJid(instancePhone) : "";
+
+        if (!groupHint && remoteJid.includes("@lid")) {
+          const lidAlternative = normalizeRemoteJid(
+            pickFromMany(sources, [
+              "key.remoteJidAlt",
+              "remoteJidAlt",
+              "message.remoteJidAlt",
+              "sender_pn",
+              "message.sender_pn",
+              "from",
+              "message.from",
+            ]),
+          );
+          if (lidAlternative.includes("@s.whatsapp.net")) {
+            remoteJid = lidAlternative;
+          }
+        }
 
         if (fromMe && !groupHint && instanceJid && remoteJid === instanceJid) {
           const toJid = normalizeRemoteJid(rawToJid);
@@ -1223,6 +1267,25 @@ serve(async (req) => {
           if (toJid.includes("@s.whatsapp.net")) {
             senderPhone = extractPhoneFromJid(toJid);
           }
+        }
+
+        if (!isGroup && !senderPhone) {
+          const fallbackCandidates = !fromMe
+            ? [
+                pickFromMany(sources, ["sender_pn", "message.sender_pn"]),
+                pickFromMany(sources, ["from", "message.from", "data.from"]),
+                pickFromMany(sources, ["remoteJidAlt", "key.remoteJidAlt"]),
+                rawFromJid,
+                rawChatJid,
+                remoteJid,
+              ]
+            : [
+                pickFromMany(sources, ["to", "message.to", "data.to"]),
+                rawToJid,
+                remoteJid,
+              ];
+
+          senderPhone = fallbackCandidates.map(extractPhoneFromUnknown).find(Boolean) || "";
         }
 
         if (isGroup) {
@@ -1686,6 +1749,9 @@ serve(async (req) => {
         }
 
         const normalizedPhone = normalizePhone(senderPhone);
+        const canonicalRemoteJid = (!isGroup && normalizedPhone)
+          ? `${normalizedPhone}@s.whatsapp.net`
+          : remoteJid;
         console.log("[UAZAPI WEBHOOK] contact resolved:", {
           instanceId: instance.id,
           isGroup,
@@ -1701,7 +1767,7 @@ serve(async (req) => {
           .from("whatsapp_conversations")
           .select("*")
           .eq("instance_id", instance.id)
-          .eq("remote_jid", remoteJid)
+          .eq("remote_jid", canonicalRemoteJid)
           .maybeSingle();
 
         let existingConversation = byJid;
@@ -1734,7 +1800,7 @@ serve(async (req) => {
             last_message_preview: isNewerThanConversation
               ? (contentText.substring(0, 100) || `[${messageType}]`)
               : conversation.last_message_preview,
-            remote_jid: conversation.remote_jid || remoteJid,
+            remote_jid: conversation.remote_jid || canonicalRemoteJid,
           };
 
           if (!fromMe && !isHistoryEvent) {
@@ -1759,6 +1825,9 @@ serve(async (req) => {
             if (!savedPhone.match(/^55\d{10,11}$/)) {
               updateData.contact_phone = normalizedPhone;
             }
+            if (String(conversation.remote_jid || "").includes("@lid")) {
+              updateData.remote_jid = canonicalRemoteJid;
+            }
           }
 
           if (!isGroup && !fromMe && !conversation.contact_photo_url) {
@@ -1775,7 +1844,7 @@ serve(async (req) => {
               const photoUrl = await fetchUazapiContactPhoto(
                 uazapiConfigCache.baseUrl,
                 uazapiInstanceTokenCache,
-                remoteJid,
+                canonicalRemoteJid,
                 normalizedPhone || senderPhone,
               );
               if (photoUrl) updateData.contact_photo_url = photoUrl;
@@ -1789,7 +1858,7 @@ serve(async (req) => {
           console.log("[UAZAPI WEBHOOK] conversation matched:", {
             source: conversationSource,
             conversationId: conversation.id,
-            remoteJid,
+            remoteJid: canonicalRemoteJid,
           });
         } else {
           let contactPhotoUrl: string | null = null;
@@ -1807,7 +1876,7 @@ serve(async (req) => {
               contactPhotoUrl = await fetchUazapiContactPhoto(
                 uazapiConfigCache.baseUrl,
                 uazapiInstanceTokenCache,
-                remoteJid,
+                canonicalRemoteJid,
                 normalizedPhone || senderPhone,
               );
             } catch (photoErr) {
@@ -1819,7 +1888,7 @@ serve(async (req) => {
             .from("whatsapp_conversations")
             .insert({
               instance_id: instance.id,
-              remote_jid: remoteJid,
+              remote_jid: canonicalRemoteJid,
               is_group: isGroup,
               contact_name: isGroup ? null : senderName || null,
               contact_phone: isGroup ? null : normalizedPhone || null,
@@ -1837,7 +1906,7 @@ serve(async (req) => {
           conversation = newConversation;
           console.log("[UAZAPI WEBHOOK] conversation created:", {
             conversationId: conversation.id,
-            remoteJid,
+            remoteJid: canonicalRemoteJid,
             isGroup,
           });
         }
