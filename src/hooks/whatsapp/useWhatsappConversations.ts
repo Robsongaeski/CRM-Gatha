@@ -7,6 +7,71 @@ import { ptBR } from 'date-fns/locale';
 
 const DEFAULT_CONVERSATION_LIST_LIMIT = 1000;
 const CONVERSATION_SEARCH_LIMIT = 2000;
+
+function normalizeSearchText(value: string | null | undefined): string {
+  if (!value) return '';
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function onlyDigits(value: string | null | undefined): string {
+  if (!value) return '';
+  return value.replace(/\D/g, '');
+}
+
+function getPhoneSearchVariants(value: string | null | undefined): string[] {
+  const rawDigits = onlyDigits(value);
+  if (!rawDigits) return [];
+
+  const variants = new Set<string>();
+  variants.add(rawDigits);
+
+  let nationalDigits = rawDigits;
+  if (nationalDigits.startsWith('55') && nationalDigits.length > 11) {
+    nationalDigits = nationalDigits.slice(2);
+    variants.add(nationalDigits);
+  }
+
+  if (nationalDigits.length === 11 && nationalDigits[2] === '9') {
+    variants.add(`${nationalDigits.slice(0, 2)}${nationalDigits.slice(3)}`);
+  }
+
+  if (nationalDigits.length === 10) {
+    variants.add(`${nationalDigits.slice(0, 2)}9${nationalDigits.slice(2)}`);
+  }
+
+  if (nationalDigits.length >= 8) {
+    variants.add(nationalDigits.slice(-8));
+  }
+
+  if (nationalDigits.length >= 9) {
+    variants.add(nationalDigits.slice(-9));
+  }
+
+  return Array.from(variants).filter(Boolean);
+}
+
+function matchesPhoneSearch(
+  searchValue: string,
+  ...candidatePhones: Array<string | null | undefined>
+): boolean {
+  const searchVariants = getPhoneSearchVariants(searchValue);
+  if (searchVariants.length === 0) return false;
+
+  return candidatePhones.some((candidate) => {
+    const candidateVariants = getPhoneSearchVariants(candidate);
+    if (candidateVariants.length === 0) return false;
+
+    return candidateVariants.some((candidateVariant) =>
+      searchVariants.some((searchVariant) =>
+        candidateVariant.includes(searchVariant) || searchVariant.includes(candidateVariant)
+      )
+    );
+  });
+}
 export interface WhatsappConversation {
   id: string;
   instance_id: string;
@@ -93,11 +158,14 @@ export function useWhatsappConversations(
         `)
         .order('last_message_at', { ascending: false });
 
+      const searchTerm = filters.search.trim();
+      const hasSearch = searchTerm.length > 0;
+
       // Filtro de atribuição
-      if (filters.assignment === 'mine' && user) {
+      if (!hasSearch && filters.assignment === 'mine' && user) {
         // "mine" mostra APENAS minhas conversas + grupos
         query = query.or(`assigned_to.eq.${user.id},is_group.eq.true`);
-      } else if (filters.assignment === 'mine_and_new' && user) {
+      } else if (!hasSearch && filters.assignment === 'mine_and_new' && user) {
         // "mine_and_new" mostra minhas + sem atribuição (novas) + grupos
         query = query.or(`assigned_to.eq.${user.id},assigned_to.is.null,is_group.eq.true`);
       }
@@ -121,23 +189,87 @@ export function useWhatsappConversations(
         query = query.in('instance_id', allowedInstanceIds);
       }
 
-      const fetchLimit = filters.search
+      if (hasSearch) {
+        const serverSearchTerm = searchTerm
+          .replace(/[(),'"]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        const searchClauses = new Set<string>();
+
+        if (serverSearchTerm) {
+          searchClauses.add(`contact_name.ilike.%${serverSearchTerm}%`);
+          searchClauses.add(`group_name.ilike.%${serverSearchTerm}%`);
+          searchClauses.add(`last_message_preview.ilike.%${serverSearchTerm}%`);
+        }
+
+        const phoneVariants = getPhoneSearchVariants(searchTerm).filter((variant) => variant.length >= 4);
+        phoneVariants.forEach((variant) => {
+          searchClauses.add(`contact_phone.like.%${variant}%`);
+          searchClauses.add(`remote_jid.like.%${variant}%`);
+        });
+
+        if (serverSearchTerm) {
+          const { data: matchedClientes } = await supabase
+            .from('clientes')
+            .select('id')
+            .ilike('nome_razao_social', `%${serverSearchTerm}%`)
+            .limit(100);
+
+          const clienteIds = (matchedClientes || [])
+            .map((cliente) => cliente.id)
+            .filter(Boolean);
+
+          if (clienteIds.length > 0) {
+            searchClauses.add(`cliente_id.in.(${clienteIds.join(',')})`);
+          }
+        }
+
+        if (searchClauses.size > 0) {
+          query = query.or(Array.from(searchClauses).join(','));
+        }
+      }
+
+      const fetchLimit = hasSearch
         ? (options?.searchLimit ?? CONVERSATION_SEARCH_LIMIT)
         : (options?.limit ?? DEFAULT_CONVERSATION_LIST_LIMIT);
       const { data, error } = await query.limit(fetchLimit);
       if (error) throw error;
 
-      // Busca client-side para nome/telefone/preview
-      let results = data as WhatsappConversation[];
-      if (filters.search) {
-        const searchLower = filters.search.toLowerCase();
-        results = results.filter(conv => 
-          conv.contact_name?.toLowerCase().includes(searchLower) ||
-          conv.contact_phone?.includes(filters.search) ||
-          conv.group_name?.toLowerCase().includes(searchLower) ||
-          conv.last_message_preview?.toLowerCase().includes(searchLower) ||
-          conv.cliente?.nome_razao_social?.toLowerCase().includes(searchLower)
+      // Busca client-side final (normalizacao e consistencia de filtros)
+      let results = (data || []) as WhatsappConversation[];
+
+      if (filters.assignment === 'mine' && user) {
+        results = results.filter((conv) =>
+          conv.is_group || conv.assigned_to === user.id
         );
+      } else if (filters.assignment === 'mine_and_new' && user) {
+        results = results.filter((conv) =>
+          conv.is_group || conv.assigned_to === user.id || !conv.assigned_to
+        );
+      }
+
+      if (hasSearch) {
+        const normalizedSearch = normalizeSearchText(searchTerm);
+
+        results = results.filter((conv) => {
+          const matchesText =
+            normalizedSearch.length > 0 &&
+            (
+              normalizeSearchText(conv.contact_name).includes(normalizedSearch) ||
+              normalizeSearchText(conv.group_name).includes(normalizedSearch) ||
+              normalizeSearchText(conv.last_message_preview).includes(normalizedSearch) ||
+              normalizeSearchText(conv.cliente?.nome_razao_social).includes(normalizedSearch)
+            );
+
+          const matchesPhone = matchesPhoneSearch(
+            searchTerm,
+            conv.contact_phone,
+            conv.remote_jid,
+          );
+
+          return matchesText || matchesPhone;
+        });
       }
 
       return results;

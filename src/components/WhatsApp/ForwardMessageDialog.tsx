@@ -28,9 +28,9 @@ export default function ForwardMessageDialog({ open, onOpenChange, message }: Fo
 
   const { data: conversations = [], isLoading } = useWhatsappConversations({
     assignment: 'all',
-    status: 'active',
+    status: 'all',
     search: search
-  });
+  }, undefined, { searchLimit: 5000 });
 
   const sendMessage = useSendWhatsappMessage();
 

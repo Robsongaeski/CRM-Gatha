@@ -57,7 +57,7 @@ export default function WhatsAppAtendimento() {
   const { data: conversations = [], isLoading: loadingConversations } = useWhatsappConversations(
     filters,
     allowedInstanceIds.length > 0 ? allowedInstanceIds : undefined,
-    { limit: 100, searchLimit: 2000 },
+    { limit: 100, searchLimit: 5000 },
   );
   
   const groupedConversations = useGroupedConversations(conversations);
