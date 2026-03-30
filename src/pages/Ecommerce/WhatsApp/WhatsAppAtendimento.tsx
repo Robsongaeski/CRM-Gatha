@@ -61,6 +61,58 @@ export default function WhatsAppAtendimento() {
   );
   
   const groupedConversations = useGroupedConversations(conversations);
+
+  const buildTemporaryGroup = useCallback((conv: WhatsappConversation): GroupedConversation => {
+    const contactPhone = conv.contact_phone || conv.remote_jid?.replace('@s.whatsapp.net', '') || '';
+    const groupKey = contactPhone.slice(-8);
+
+    return {
+      groupKey,
+      mainName: conv.contact_name || contactPhone,
+      photoUrl: conv.contact_photo_url || null,
+      isGroup: conv.is_group,
+      conversations: [conv],
+      lastMessageAt: conv.last_message_at || new Date().toISOString(),
+      lastMessagePreview: conv.last_message_preview || null,
+      totalUnread: conv.unread_count || 0,
+      cliente: conv.cliente,
+      assignedUser: conv.assigned_user,
+      instances: conv.instance ? [{ id: conv.instance.id, nome: conv.instance.nome, status: conv.instance.status }] : [],
+    };
+  }, []);
+
+  const findConversationInCache = useCallback((conversationId: string): WhatsappConversation | null => {
+    const cachedQueries = queryClient.getQueriesData<WhatsappConversation[]>({
+      queryKey: ['whatsapp-conversations'],
+    });
+
+    for (const [, cachedConversations] of cachedQueries) {
+      const conversation = cachedConversations?.find((c) => c.id === conversationId);
+      if (conversation) return conversation;
+    }
+
+    return null;
+  }, [queryClient]);
+
+  const getConversationById = useCallback(async (conversationId: string): Promise<WhatsappConversation | null> => {
+    const fromCache = findConversationInCache(conversationId);
+    if (fromCache) return fromCache;
+
+    const { data, error } = await supabase
+      .from('whatsapp_conversations')
+      .select(`
+        *,
+        instance:whatsapp_instances!left(id, nome, numero_whatsapp, status),
+        assigned_user:profiles!whatsapp_conversations_assigned_to_fkey(id, nome),
+        finished_user:profiles!whatsapp_conversations_finished_by_fkey(id, nome),
+        cliente:clientes!left(id, nome_razao_social)
+      `)
+      .eq('id', conversationId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return (data as WhatsappConversation | null) ?? null;
+  }, [findConversationInCache]);
   
   // Normaliza telefone para formato com código de país
   const normalizePhone = useCallback((phone: string) => {
@@ -156,30 +208,12 @@ export default function WhatsAppAtendimento() {
       if (existingConversationId) {
         toast.info('Abrindo conversa existente');
         
-        await queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'] });
+        await queryClient.refetchQueries({ queryKey: ['whatsapp-conversations'] });
         
-        const updatedConversations = queryClient.getQueryData<WhatsappConversation[]>(['whatsapp-conversations']);
-        const conv = updatedConversations?.find(c => c.id === existingConversationId);
+        const conv = await getConversationById(existingConversationId);
         
         if (conv) {
-          const contactPhone = conv.contact_phone || conv.remote_jid?.replace('@s.whatsapp.net', '') || '';
-          const groupKey = contactPhone.slice(-8);
-          
-          const tempGroup: GroupedConversation = {
-            groupKey,
-            mainName: conv.contact_name || contactPhone,
-            photoUrl: conv.contact_photo_url || null,
-            isGroup: conv.is_group,
-            conversations: [conv],
-            lastMessageAt: conv.last_message_at || new Date().toISOString(),
-            lastMessagePreview: conv.last_message_preview || null,
-            totalUnread: conv.unread_count || 0,
-            cliente: conv.cliente,
-            assignedUser: conv.assigned_user,
-            instances: conv.instance ? [{ id: conv.instance.id, nome: conv.instance.nome, status: conv.instance.status }] : [],
-          };
-          
-          setSelectedGroup(tempGroup);
+          setSelectedGroup(buildTemporaryGroup(conv));
           setActiveInstanceId(existingConversationId);
         }
         
@@ -208,30 +242,12 @@ export default function WhatsAppAtendimento() {
 
       toast.success('Nova conversa criada', { description: `Conversa com ${contactName}` });
       
-      await queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'] });
+      await queryClient.refetchQueries({ queryKey: ['whatsapp-conversations'] });
       
-      const updatedConversations = queryClient.getQueryData<WhatsappConversation[]>(['whatsapp-conversations']);
-      const conv = updatedConversations?.find(c => c.id === newConv.id);
+      const conv = await getConversationById(newConv.id);
       
       if (conv) {
-        const contactPhone = conv.contact_phone || conv.remote_jid?.replace('@s.whatsapp.net', '') || '';
-        const groupKey = contactPhone.slice(-8);
-        
-        const tempGroup: GroupedConversation = {
-          groupKey,
-          mainName: conv.contact_name || contactPhone,
-          photoUrl: conv.contact_photo_url || null,
-          isGroup: conv.is_group,
-          conversations: [conv],
-          lastMessageAt: conv.last_message_at || new Date().toISOString(),
-          lastMessagePreview: conv.last_message_preview || null,
-          totalUnread: conv.unread_count || 0,
-          cliente: conv.cliente,
-          assignedUser: conv.assigned_user,
-          instances: conv.instance ? [{ id: conv.instance.id, nome: conv.instance.nome, status: conv.instance.status }] : [],
-        };
-        
-        setSelectedGroup(tempGroup);
+        setSelectedGroup(buildTemporaryGroup(conv));
         setActiveInstanceId(newConv.id);
       }
       
@@ -243,7 +259,7 @@ export default function WhatsAppAtendimento() {
     } finally {
       setCreatingConversation(false);
     }
-  }, [queryClient]);
+  }, [buildTemporaryGroup, getConversationById, queryClient]);
 
   // Handler do dialog de seleção
   const handleDialogConfirm = useCallback((instanceId: string) => {
@@ -259,40 +275,14 @@ export default function WhatsAppAtendimento() {
   
   // Callback quando uma conversa é aberta via dialog (nova ou existente)
   const handleConversationOpened = useCallback(async (conversationId: string, _instanceId: string) => {
-    // Primeiro, atualiza os dados e aguarda o refetch
-    await queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'] });
-    
-    // Busca os dados atualizados do cache
-    const updatedConversations = queryClient.getQueryData<WhatsappConversation[]>(['whatsapp-conversations']);
-    
-    if (updatedConversations) {
-      // Encontra a conversa recém-criada
-      const newConversation = updatedConversations.find(c => c.id === conversationId);
-      
-      if (newConversation) {
-        // Cria um grupo temporário para esta conversa (será atualizado pelo useEffect quando groupedConversations mudar)
-        const contactPhone = newConversation.contact_phone || newConversation.remote_jid?.replace('@s.whatsapp.net', '') || '';
-        const groupKey = contactPhone.slice(-8);
-        
-        const tempGroup: GroupedConversation = {
-          groupKey,
-          mainName: newConversation.contact_name || contactPhone,
-          photoUrl: newConversation.contact_photo_url || null,
-          isGroup: newConversation.is_group,
-          conversations: [newConversation],
-          lastMessageAt: newConversation.last_message_at || new Date().toISOString(),
-          lastMessagePreview: newConversation.last_message_preview || null,
-          totalUnread: newConversation.unread_count || 0,
-          cliente: newConversation.cliente,
-          assignedUser: newConversation.assigned_user,
-          instances: newConversation.instance ? [{ id: newConversation.instance.id, nome: newConversation.instance.nome, status: newConversation.instance.status }] : [],
-        };
-        
-        setSelectedGroup(tempGroup);
-        setActiveInstanceId(conversationId);
-      }
-    }
-  }, [queryClient]);
+    await queryClient.refetchQueries({ queryKey: ['whatsapp-conversations'] });
+
+    const conversation = await getConversationById(conversationId);
+    if (!conversation) return;
+
+    setSelectedGroup(buildTemporaryGroup(conversation));
+    setActiveInstanceId(conversationId);
+  }, [buildTemporaryGroup, getConversationById, queryClient]);
 
   // Instâncias para o filtro (todas, não só conectadas)
   const allInstances = userInstances;
