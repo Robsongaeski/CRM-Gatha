@@ -140,6 +140,7 @@ export default function WhatsAppAtendimento() {
     const checkExistingAndPrompt = async () => {
       const normalizedPhone = normalizePhone(telefone);
       const remoteJid = `${normalizedPhone}@s.whatsapp.net`;
+      const legacyRemoteJid = `${normalizedPhone}@c.us`;
       const instanceIds = userInstances.map(i => i.id);
       
       try {
@@ -147,7 +148,7 @@ export default function WhatsAppAtendimento() {
         const { data: existingConversations } = await supabase
           .from('whatsapp_conversations')
           .select('id, instance_id, contact_phone, remote_jid')
-          .or(`contact_phone.eq.${normalizedPhone},remote_jid.eq.${remoteJid}`)
+          .or(`contact_phone.eq.${normalizedPhone},remote_jid.eq.${remoteJid},remote_jid.eq.${legacyRemoteJid}`)
           .in('instance_id', instanceIds)
           .order('updated_at', { ascending: false });
 

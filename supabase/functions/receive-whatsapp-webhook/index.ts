@@ -92,7 +92,9 @@ function normalizePhone(phone: string): string {
 // Extrai telefone do JID
 function extractPhoneFromJid(jid: string): string {
   if (!jid) return '';
-  return jid.split('@')[0];
+  const localPart = jid.split('@')[0] || '';
+  const withoutDevice = localPart.split(':')[0] || '';
+  return withoutDevice.replace(/\D/g, '');
 }
 
 // Verifica se é grupo
@@ -103,6 +105,22 @@ function isGroupJid(jid: string): boolean {
 // Verifica se é Linked ID (não é telefone real)
 function isLinkedId(jid: string): boolean {
   return jid?.includes('@lid') || false;
+}
+
+function canonicalizeRemoteJid(remoteJid: string, isGroup: boolean, senderPhone: string): string {
+  if (!remoteJid) return '';
+  if (isGroup) return remoteJid;
+
+  const normalizedPhone = normalizePhone(senderPhone || extractPhoneFromJid(remoteJid));
+  if (normalizedPhone) {
+    return `${normalizedPhone}@s.whatsapp.net`;
+  }
+
+  if (remoteJid.includes('@c.us')) {
+    return remoteJid.replace('@c.us', '@s.whatsapp.net');
+  }
+
+  return remoteJid;
 }
 
 // Verifica magic bytes para validar imagem
@@ -477,7 +495,8 @@ serve(async (req) => {
 
     // Extrair dados da mensagem - key pode estar em diferentes lugares
     const key = data.key || {};
-    const remoteJid = key.remoteJid || data.remoteJid || data.from;
+    const rawRemoteJid = key.remoteJid || data.remoteJid || data.from;
+    const remoteJid = typeof rawRemoteJid === 'string' ? rawRemoteJid : '';
     const fromMe = key.fromMe || data.fromMe || false;
     const externalMessageId = key.id || data.messageId;
     const message = data.message || {};
@@ -540,9 +559,12 @@ serve(async (req) => {
         console.log('remoteJid é @lid mas sem remoteJidAlt válido - telefone não extraído');
         senderPhone = '';
       }
-    } else if (remoteJid?.includes('@s.whatsapp.net')) {
+    } else if (!isGroup && remoteJid && remoteJid.includes('@') && !remoteJid.includes('@broadcast')) {
       senderPhone = extractPhoneFromJid(remoteJid);
     }
+
+    const normalizedSenderPhone = normalizePhone(senderPhone);
+    const canonicalRemoteJid = canonicalizeRemoteJid(remoteJid, isGroup, senderPhone);
 
     // Para grupos, extrair participante
     if (isGroup && (key.participant || key.participantAlt)) {
@@ -770,23 +792,32 @@ serve(async (req) => {
     }
 
     // Buscar ou criar conversa
-    // Primeiro buscar por remote_jid exato, depois por contact_phone (para tratar @lid)
+    // Priorizar remote_jid canônico, depois remote_jid bruto e por fim contact_phone.
     let conversation;
     let existingConversation = null;
     
-    // Busca 1: pelo remote_jid exato
-    const { data: byJid } = await supabase
+    // Busca 1: pelo remote_jid canônico
+    const { data: byCanonicalJid } = await supabase
       .from('whatsapp_conversations')
       .select('*')
       .eq('instance_id', instance.id)
-      .eq('remote_jid', remoteJid)
+      .eq('remote_jid', canonicalRemoteJid)
       .maybeSingle();
     
-    existingConversation = byJid;
+    existingConversation = byCanonicalJid;
+
+    if (!existingConversation && remoteJid && remoteJid !== canonicalRemoteJid) {
+      const { data: byRawJid } = await supabase
+        .from('whatsapp_conversations')
+        .select('*')
+        .eq('instance_id', instance.id)
+        .eq('remote_jid', remoteJid)
+        .maybeSingle();
+      existingConversation = byRawJid;
+    }
     
     // Busca 2: Se não achou e temos um telefone válido (não é grupo), buscar pelo contact_phone
-    // Isso resolve o problema de @lid criando conversas duplicadas
-    const normalizedPhone = normalizePhone(senderPhone);
+    const normalizedPhone = normalizedSenderPhone;
     if (!existingConversation && !isGroup && normalizedPhone) {
       const { data: byPhone } = await supabase
         .from('whatsapp_conversations')
@@ -816,6 +847,10 @@ serve(async (req) => {
           ? (content?.substring(0, 100) || `[${messageType}]`)
           : conversation.last_message_preview
       };
+
+      if (!isGroup && canonicalRemoteJid && conversation.remote_jid !== canonicalRemoteJid) {
+        updateData.remote_jid = canonicalRemoteJid;
+      }
       
       // Incrementar unread apenas se não for mensagem própria
       if (!fromMe) {
@@ -852,14 +887,14 @@ serve(async (req) => {
       }
       
       // IMPORTANTE: Atualizar telefone se temos um número real e o salvo é inválido
-      if (!isGroup && senderPhone && senderPhone.match(/^55\d{10,11}$/)) {
+      if (!isGroup && normalizedPhone) {
         const savedPhone = conversation.contact_phone || '';
         // Se o telefone salvo não parece um número brasileiro válido, atualizar
         // Também atualizar se o telefone salvo é igual ao número da instância (erro anterior)
         const instancePhone = extractPhoneFromJid(instance.instance_name || '');
         if (!savedPhone.match(/^55\d{10,11}$/) || savedPhone.includes(instancePhone)) {
-          updateData.contact_phone = senderPhone;
-          console.log('Atualizando telefone de', savedPhone, 'para', senderPhone);
+          updateData.contact_phone = normalizedPhone;
+          console.log('Atualizando telefone de', savedPhone, 'para', normalizedPhone);
         }
       }
 
@@ -963,12 +998,12 @@ serve(async (req) => {
         .from('whatsapp_conversations')
         .insert({
           instance_id: instance.id,
-          remote_jid: remoteJid,
+          remote_jid: canonicalRemoteJid || remoteJid,
           is_group: isGroup,
           group_name: groupName,
           group_photo_url: groupPhotoUrl,
           contact_name: isGroup ? null : contactName,
-          contact_phone: isGroup ? null : normalizePhone(senderPhone),
+          contact_phone: isGroup ? null : normalizedPhone,
           contact_photo_url: isGroup ? null : contactPhotoUrl,
           status: 'pending',
           unread_count: fromMe ? 0 : 1,

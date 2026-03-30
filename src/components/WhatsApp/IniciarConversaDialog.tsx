@@ -73,6 +73,7 @@ export default function IniciarConversaDialog({
       const normalizedPhone = normalizePhone(telefone);
       const contactName = nome.trim() || normalizedPhone;
       const remoteJid = `${normalizedPhone}@s.whatsapp.net`;
+      const legacyRemoteJid = `${normalizedPhone}@c.us`;
 
       // Buscar conversa existente pelo telefone normalizado (em QUALQUER instância)
       // Prioriza instâncias que o usuário tem acesso
@@ -81,7 +82,7 @@ export default function IniciarConversaDialog({
       const { data: existingConversations } = await supabase
         .from('whatsapp_conversations')
         .select('id, instance_id, contact_phone, remote_jid')
-        .or(`contact_phone.eq.${normalizedPhone},remote_jid.eq.${remoteJid}`)
+        .or(`contact_phone.eq.${normalizedPhone},remote_jid.eq.${remoteJid},remote_jid.eq.${legacyRemoteJid}`)
         .in('instance_id', instanceIds)
         .order('updated_at', { ascending: false });
 
