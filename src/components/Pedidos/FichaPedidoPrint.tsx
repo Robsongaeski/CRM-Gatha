@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
 import { Calendar } from 'lucide-react';
 import { parseDateString } from '@/lib/formatters';
+import { parsePedidoObservacoes } from '@/lib/pedidoObservacoes';
 
 interface FichaPedidoPrintProps {
   pedido: any;
@@ -13,18 +14,40 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
     .filter((p: any) => p.status === 'aprovado' && !p.estornado)
     .reduce((sum: number, p: any) => sum + Number(p.valor), 0);
   const valorPendente = Math.round((valorTotal - valorPago) * 100) / 100;
+  const observacoesGerais = parsePedidoObservacoes(pedido.observacao);
+  const temImagemAprovada = Boolean(pedido.imagem_aprovada && pedido.imagem_aprovacao_url);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
   };
 
+  const formatObservacaoData = (dateValue: string | null) => {
+    if (!dateValue) return null;
+    const parsed = new Date(dateValue);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return format(parsed, 'dd/MM/yyyy HH:mm');
+  };
+
   return (
     <div className="ficha-pedido bg-white text-black p-4 max-w-[210mm] mx-auto text-[12px]">
       <style>{`
+        .obs-image-grid {
+          display: grid;
+          grid-template-columns: 1.6fr 1fr;
+          align-items: start;
+        }
+        @media (max-width: 900px) {
+          .obs-image-grid {
+            grid-template-columns: 1fr;
+          }
+        }
         @media print {
           @page { 
             size: A4;
             margin: 8mm;
+          }
+          .obs-image-grid {
+            grid-template-columns: 1.6fr 1fr !important;
           }
           body { 
             margin: 0;
@@ -80,26 +103,43 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
         </div>
       </div>
 
-      {/* Observações Gerais - Antes dos Itens */}
-      {pedido.observacao && (
-        <div className="mb-3 p-2 bg-orange-50 border-2 border-orange-300 text-[11px] rounded">
-          <span className="font-bold uppercase text-orange-800">Observações Gerais: </span>
-          <span className="text-gray-900 font-medium whitespace-pre-line">{pedido.observacao}</span>
-        </div>
-      )}
-
-      {/* Imagem Principal Aprovada */}
-      {pedido.imagem_aprovada && pedido.imagem_aprovacao_url && (
+      {(observacoesGerais.length > 0 || temImagemAprovada) && (
         <div className="mb-3 page-break">
-          <h2 className="text-[11px] font-bold text-gray-800 border-b-2 border-gray-400 pb-1 mb-2 uppercase">
-            Imagem Aprovada
-          </h2>
-          <div className="flex justify-center">
-            <img
-              src={pedido.imagem_aprovacao_url}
-              alt="Imagem aprovada do pedido"
-              className="max-w-[280px] max-h-[280px] object-contain border-2 border-green-500 rounded"
-            />
+          <div className={observacoesGerais.length > 0 && temImagemAprovada ? 'obs-image-grid gap-3' : 'space-y-3'}>
+            {observacoesGerais.length > 0 && (
+              <div className="p-2 bg-orange-50 border-2 border-orange-300 text-[11px] rounded">
+                <h2 className="font-bold uppercase text-orange-800 border-b border-orange-300 pb-1 mb-2">
+                  Observacoes Gerais
+                </h2>
+                <div className="space-y-2">
+                  {observacoesGerais.map((obs, index) => (
+                    <div key={index} className="bg-white border border-orange-200 rounded px-2 py-1.5">
+                      {formatObservacaoData(obs.data) && (
+                        <p className="text-[10px] font-semibold text-orange-900 mb-1">
+                          {formatObservacaoData(obs.data)}
+                        </p>
+                      )}
+                      <p className="text-gray-900 font-medium whitespace-pre-line">{obs.texto}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {temImagemAprovada && (
+              <div>
+                <h2 className="text-[11px] font-bold text-gray-800 border-b-2 border-gray-400 pb-1 mb-2 uppercase">
+                  Imagem Aprovada
+                </h2>
+                <div className="flex justify-center">
+                  <img
+                    src={pedido.imagem_aprovacao_url}
+                    alt="Imagem aprovada do pedido"
+                    className="max-w-full max-h-[260px] object-contain border-2 border-green-500 rounded"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

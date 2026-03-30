@@ -24,6 +24,7 @@ import { toast } from '@/hooks/use-toast';
 import { FichaPedidoPrint } from '@/components/Pedidos/FichaPedidoPrint';
 import { createRoot } from 'react-dom/client';
 import { parseDateString } from '@/lib/formatters';
+import { parsePedidoObservacoes } from '@/lib/pedidoObservacoes';
 
 const statusPedidoLabels = {
   rascunho: 'Rascunho',
@@ -120,6 +121,14 @@ export default function PedidoDetalhes() {
   const valorPago = pagamentos
     .filter((p: any) => p.status === 'aprovado' && !p.estornado)
     .reduce((sum: number, p: any) => sum + Number(p.valor), 0);
+  const observacoesGerais = parsePedidoObservacoes(pedido.observacao);
+
+  const formatObservacaoData = (dateValue: string | null) => {
+    if (!dateValue) return null;
+    const parsed = new Date(dateValue);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return format(parsed, 'dd/MM/yyyy HH:mm', { locale: ptBR });
+  };
   
   // Calcular valor pendente (aguardando aprovação)
   const valorPendente = pagamentos
@@ -596,7 +605,7 @@ export default function PedidoDetalhes() {
       </Card>
 
       {/* Observações */}
-      {pedido.observacao && (
+      {observacoesGerais.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -605,7 +614,18 @@ export default function PedidoDetalhes() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">{pedido.observacao}</p>
+            <div className="space-y-3">
+              {observacoesGerais.map((obs, index) => (
+                <div key={index} className="rounded-lg border bg-muted/20 px-3 py-2">
+                  {formatObservacaoData(obs.data) && (
+                    <p className="text-xs font-medium text-muted-foreground mb-1">
+                      {formatObservacaoData(obs.data)}
+                    </p>
+                  )}
+                  <p className="text-sm text-muted-foreground whitespace-pre-line">{obs.texto}</p>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}
