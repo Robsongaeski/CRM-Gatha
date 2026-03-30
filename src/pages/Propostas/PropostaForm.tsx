@@ -185,6 +185,12 @@ export default function PropostaForm() {
     enabled: isAdmin,
   });
 
+  const vendedorAtualNaoListado = Boolean(
+    isAdmin &&
+    proposta?.vendedor_id &&
+    !vendedores.some((vendedor) => vendedor.id === proposta.vendedor_id)
+  );
+
   const form = useForm<PropostaFormValues>({
     resolver: zodResolver(propostaSchema),
     defaultValues: {
@@ -498,6 +504,11 @@ export default function PropostaForm() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
+                            {vendedorAtualNaoListado && proposta?.vendedor_id && (
+                              <SelectItem value={proposta.vendedor_id}>
+                                {proposta?.vendedor?.nome || 'Vendedor atual (inativo ou sem perfil vendedor)'}
+                              </SelectItem>
+                            )}
                             {vendedores.map((vendedor) => (
                               <SelectItem key={vendedor.id} value={vendedor.id}>
                                 {vendedor.nome}
