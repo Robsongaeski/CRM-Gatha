@@ -204,17 +204,41 @@ async function sendViaUazapi(
     data._httpStatus = response.status;
     return data;
   } else if (['image', 'video', 'audio', 'document'].includes(messageType)) {
-    const payload: any = { number, phone: number, type: messageType, caption: content || '' };
+    const payload: any = {
+      number,
+      phone: number,
+      type: messageType,
+      text: content || '',
+      caption: content || '',
+    };
+
     if (mediaUrl) {
+      payload.file = mediaUrl;
       payload.media = mediaUrl;
       payload.url = mediaUrl;
     } else if (mediaBase64) {
+      payload.file = mediaBase64;
       payload.media = mediaBase64;
       payload.base64 = mediaBase64;
       payload.mimetype = mediaMimeType;
       payload.fileName = mediaFilename;
       payload.docName = mediaFilename;
     }
+
+    if (mediaMimeType) {
+      payload.mimeType = mediaMimeType;
+      payload.mimetype = payload.mimetype || mediaMimeType;
+    }
+
+    if (mediaFilename) {
+      payload.fileName = payload.fileName || mediaFilename;
+      payload.docName = payload.docName || mediaFilename;
+    }
+
+    if (!payload.file) {
+      throw new Error('Arquivo de mídia ausente para envio (campo file).');
+    }
+
     const { response, data } = await uazapiRequest(uazapiUrl, '/send/media', {
       method: 'POST',
       token: instanceToken,

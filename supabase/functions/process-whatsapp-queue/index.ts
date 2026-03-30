@@ -185,14 +185,20 @@ serve(async (req) => {
               number,
               phone: number,
               type: msg.message_type || "image",
+              text: msg.content || "",
               caption: msg.content || "",
             };
             if (msg.media_base64) {
+              mediaPayload.file = msg.media_base64;
               mediaPayload.media = msg.media_base64;
               mediaPayload.base64 = msg.media_base64;
             } else if (msg.media_url) {
+              mediaPayload.file = msg.media_url;
               mediaPayload.media = msg.media_url;
               mediaPayload.url = msg.media_url;
+            }
+            if (!mediaPayload.file) {
+              throw new Error("Arquivo de mídia ausente para envio (campo file).");
             }
             const sent = await uazapiRequest(uazCfg.baseUrl, "/send/media", {
               method: "POST",
