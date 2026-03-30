@@ -35,17 +35,17 @@ export default function WhatsAppDashboard() {
     assignment: 'all', 
     status: 'all', 
     search: '' 
-  });
+  }, instanceIds);
   const { data: unreadConversations = [] } = useWhatsappConversations({ 
     assignment: 'all', 
     status: 'unread', 
     search: '' 
-  });
+  }, instanceIds);
   const { data: finishedConversations = [] } = useWhatsappConversations({ 
     assignment: 'all', 
     status: 'finished', 
     search: '' 
-  });
+  }, instanceIds);
   
   // Dashboard filtrado por instâncias do usuário
   const { data: dashboardMetrics, isLoading: isLoadingMetrics } = useWhatsappDashboard(

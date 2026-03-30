@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Search, Send, User, Users, Loader2 } from 'lucide-react';
 import { useWhatsappConversations, WhatsappConversation } from '@/hooks/whatsapp/useWhatsappConversations';
 import { useSendWhatsappMessage } from '@/hooks/whatsapp/useWhatsappMessages';
-import { useAuth } from '@/hooks/useAuth';
+import { useUserInstances } from '@/hooks/whatsapp/useWhatsappInstanceUsers';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { toast } from 'sonner';
@@ -22,15 +22,16 @@ interface ForwardMessageDialogProps {
 }
 
 export default function ForwardMessageDialog({ open, onOpenChange, message }: ForwardMessageDialogProps) {
-  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [isForwarding, setIsForwarding] = useState<string | null>(null);
+  const { data: userInstances = [] } = useUserInstances();
+  const allowedInstanceIds = userInstances.map((instance) => instance.id);
 
   const { data: conversations = [], isLoading } = useWhatsappConversations({
     assignment: 'all',
     status: 'all',
     search: search
-  }, undefined, { searchLimit: 5000 });
+  }, allowedInstanceIds, { searchLimit: 5000 });
 
   const sendMessage = useSendWhatsappMessage();
 

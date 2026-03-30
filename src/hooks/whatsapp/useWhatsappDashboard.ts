@@ -29,13 +29,29 @@ export function useWhatsappDashboard(allowedInstanceIds?: string[]) {
   return useQuery({
     queryKey: ['whatsapp-dashboard-metrics', allowedInstanceIds],
     queryFn: async (): Promise<DashboardMetrics> => {
+      const hasInstanceFilter = Array.isArray(allowedInstanceIds);
+      const filteredInstanceIds = hasInstanceFilter
+        ? Array.from(new Set((allowedInstanceIds || []).filter(Boolean)))
+        : [];
+
+      if (hasInstanceFilter && filteredInstanceIds.length === 0) {
+        return {
+          totalConversas: 0,
+          conversasHoje: 0,
+          conversasSemana: 0,
+          finalizadasHoje: 0,
+          finalizadasSemana: 0,
+          tempoMedioGeralMinutos: null,
+          atendenteRanking: [],
+        };
+      }
       // Buscar conversas com campos mínimos necessários
       let query = supabase
         .from('whatsapp_conversations')
         .select('id, status, assigned_to, unread_count, last_message_at, created_at, instance_id');
       
-      if (allowedInstanceIds && allowedInstanceIds.length > 0) {
-        query = query.in('instance_id', allowedInstanceIds);
+      if (hasInstanceFilter) {
+        query = query.in('instance_id', filteredInstanceIds);
       }
       
       const { data: atendenteData, error: atendenteError } = await query;

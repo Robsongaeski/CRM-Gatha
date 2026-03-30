@@ -145,6 +145,15 @@ export function useWhatsappConversations(
       options?.searchLimit ?? null,
     ],
     queryFn: async () => {
+      const hasInstanceFilter = Array.isArray(allowedInstanceIds);
+      const filteredInstanceIds = hasInstanceFilter
+        ? Array.from(new Set((allowedInstanceIds || []).filter(Boolean)))
+        : [];
+
+      // Evita vazar conversas quando o usuário não possui instâncias vinculadas.
+      if (hasInstanceFilter && filteredInstanceIds.length === 0) {
+        return [] as WhatsappConversation[];
+      }
       // Usar left join para manter conversas mesmo se instância foi removida
       // Hint necessário pois profiles tem 2 FK (assigned_to e finished_by)
       let query = supabase
@@ -182,11 +191,14 @@ export function useWhatsappConversations(
 
       // Filtro de instância (do filtro UI)
       if (filters.instanceId) {
+        if (hasInstanceFilter && !filteredInstanceIds.includes(filters.instanceId)) {
+          return [] as WhatsappConversation[];
+        }
         query = query.eq('instance_id', filters.instanceId);
       }
       // Filtro de instâncias permitidas (baseado em vínculos do usuário)
-      else if (allowedInstanceIds && allowedInstanceIds.length > 0) {
-        query = query.in('instance_id', allowedInstanceIds);
+      else if (hasInstanceFilter) {
+        query = query.in('instance_id', filteredInstanceIds);
       }
 
       if (hasSearch) {

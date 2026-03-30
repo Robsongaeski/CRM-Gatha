@@ -32,18 +32,18 @@ export default function Dashboard() {
     assignment: 'all', 
     status: 'all', 
     search: '' 
-  }, allowedInstanceIds.length > 0 ? allowedInstanceIds : undefined);
+  }, allowedInstanceIds);
   const { data: unreadConversations = [] } = useWhatsappConversations({ 
     assignment: 'all', 
     status: 'unread', 
     search: '' 
-  }, allowedInstanceIds.length > 0 ? allowedInstanceIds : undefined);
+  }, allowedInstanceIds);
   const { data: finishedConversations = [] } = useWhatsappConversations({ 
     assignment: 'all', 
     status: 'finished', 
     search: '' 
-  }, allowedInstanceIds.length > 0 ? allowedInstanceIds : undefined);
-  const { data: dashboardMetrics, isLoading: isLoadingMetrics } = useWhatsappDashboard();
+  }, allowedInstanceIds);
+  const { data: dashboardMetrics, isLoading: isLoadingMetrics } = useWhatsappDashboard(allowedInstanceIds);
 
   const connectedInstances = instances.filter(i => i.status === 'connected').length;
   const totalUnread = unreadConversations.reduce((acc, c) => acc + (c.unread_count || 0), 0);
