@@ -26,6 +26,7 @@ import {
 import { useUserRole } from '@/hooks/useUserRole';
 import { usePermissions } from '@/hooks/usePermissions';
 import { usePedidosAprovacaoPendentes } from '@/hooks/usePedidosAprovacao';
+import { usePedidosAlteracoesPendentes } from '@/hooks/usePedidosAlteracoes';
 import { usePagamentosPendentes } from '@/hooks/usePagamentos';
 import { useRetornosCount } from '@/hooks/useRetornosPendentes';
 import { useTarefasCount } from '@/hooks/useTarefas';
@@ -195,6 +196,7 @@ export function AppSidebar() {
   const { isAdmin, isVendedor, isAtendente, isFinanceiro, isRH } = useUserRole();
   const { can } = usePermissions();
   const { data: pedidosPendentes = [] } = usePedidosAprovacaoPendentes();
+  const { data: alteracoesPendentes = [] } = usePedidosAlteracoesPendentes();
   const { data: pagamentosPendentes = [] } = usePagamentosPendentes();
   const retornosCount = useRetornosCount();
   const { data: tarefasCount } = useTarefasCount();
@@ -225,7 +227,14 @@ export function AppSidebar() {
   const showTarefas = can('tarefas.visualizar') || can('tarefas.criar') || isAdmin;
   const showAutomacao = isAdmin || can('automacao.visualizar');
   const showRH = isAdmin || isRH || can('rh.colaboradores.visualizar');
-  const showAdmin = isAdmin;
+  const showAdmin = isAdmin || can('aprovacoes.aprovar') || can('pedidos.alteracoes.aprovar');
+  const filteredAdminItems = adminItems.filter((item) => {
+    if (isAdmin) return true;
+    if (item.url === '/admin/aprovar-pedidos') {
+      return can('aprovacoes.aprovar') || can('pedidos.alteracoes.aprovar');
+    }
+    return false;
+  });
 
   const filteredPcpItems = pcpItems.filter(item => {
     if (isAdmin) return true;
@@ -476,7 +485,13 @@ export function AppSidebar() {
               <CollapsibleContent>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {adminItems.map((item) => renderMenuItem(item, item.showBadge ? pedidosPendentes.length : undefined, 'destructive'))}
+                    {filteredAdminItems.map((item) =>
+                      renderMenuItem(
+                        item,
+                        item.showBadge ? (pedidosPendentes.length + alteracoesPendentes.length) : undefined,
+                        'destructive'
+                      )
+                    )}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </CollapsibleContent>

@@ -141,7 +141,7 @@ const App = () => (
             <Route path="/produtos/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin']} allowedPermissions={['produtos.editar']}><AppLayout><ProdutoForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/propostas" element={<ProtectedRoute><AppLayout><PropostasLista /></AppLayout></ProtectedRoute>} />
             <Route path="/propostas/nova" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['propostas.criar']}><AppLayout><PropostaForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
-            <Route path="/propostas/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['propostas.editar']}><AppLayout><PropostaForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/propostas/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['propostas.editar', 'propostas.editar_todos', 'propostas.editar_todas']}><AppLayout><PropostaForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/propostas/:id" element={<ProtectedRoute><AppLayout><PropostaDetalhes /></AppLayout></ProtectedRoute>} />
             <Route path="/propostas/:id/orcamento" element={<ProtectedRoute><PropostaOrcamento /></ProtectedRoute>} />
             <Route path="/comissoes" element={<ProtectedRoute><AppLayout><MinhasComissoes /></AppLayout></ProtectedRoute>} />
@@ -151,7 +151,7 @@ const App = () => (
             <Route path="/leads/:id" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['leads.visualizar']}><AppLayout><LeadDetalhes /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/pedidos" element={<ProtectedRoute><AppLayout><PedidosLista /></AppLayout></ProtectedRoute>} />
             <Route path="/pedidos/novo" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['pedidos.criar']}><AppLayout><PedidoForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
-            <Route path="/pedidos/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['pedidos.editar']}><AppLayout><PedidoForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/pedidos/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['pedidos.editar', 'pedidos.editar_todos', 'pedidos.alteracoes.solicitar']}><AppLayout><PedidoForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/pedidos/:id" element={<ProtectedRoute><AppLayout><PedidoDetalhes /></AppLayout></ProtectedRoute>} />
             <Route path="/entrega-pedidos" element={<ProtectedRoute><AppLayout><EntregaPedidos /></AppLayout></ProtectedRoute>} />
             <Route path="/vendas/grades-prova" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['grades_prova.visualizar']}><AppLayout><GradesProva /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
@@ -166,7 +166,7 @@ const App = () => (
             <Route path="/admin/perfis/editar/:id" element={<ProtectedRoute requireAdmin><AppLayout><PerfilForm /></AppLayout></ProtectedRoute>} />
             <Route path="/admin/regras-comissao" element={<ProtectedRoute requireAdmin><AppLayout><RegrasComissao /></AppLayout></ProtectedRoute>} />
             <Route path="/admin/relatorio-comissoes" element={<ProtectedRoute requireAdmin><AppLayout><RelatorioComissoes /></AppLayout></ProtectedRoute>} />
-            <Route path="/admin/aprovar-pedidos" element={<ProtectedRoute requireAdmin><AppLayout><AprovarPedidos /></AppLayout></ProtectedRoute>} />
+            <Route path="/admin/aprovar-pedidos" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin']} allowedPermissions={['aprovacoes.aprovar', 'pedidos.alteracoes.aprovar']}><AppLayout><AprovarPedidos /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/admin/segmentos" element={<ProtectedRoute requireAdmin><AppLayout><SegmentosLista /></AppLayout></ProtectedRoute>} />
             <Route path="/admin/segmentos/novo" element={<ProtectedRoute requireAdmin><AppLayout><SegmentoForm /></AppLayout></ProtectedRoute>} />
             <Route path="/admin/segmentos/editar/:id" element={<ProtectedRoute requireAdmin><AppLayout><SegmentoForm /></AppLayout></ProtectedRoute>} />

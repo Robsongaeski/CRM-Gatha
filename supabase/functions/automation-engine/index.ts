@@ -379,34 +379,79 @@ async function processAction(
         throw new Error('WhatsApp: remoteJid, message or instance_id missing')
       }
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/send-whatsapp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseServiceKey}`,
+      const splitMessagesEnabled = toBoolean(config.split_messages)
+      const splitDelaySecondsRaw = Number(config.split_delay_seconds ?? 2)
+      const splitDelaySeconds = Number.isFinite(splitDelaySecondsRaw)
+        ? Math.min(30, Math.max(0, splitDelaySecondsRaw))
+        : 2
+
+      // Mantem compatibilidade: mesmo sem flag, separadores explicitos (|| ou linha em branco) viram mensagens em sequencia.
+      const shouldSplitBySeparator = hasSplitSeparator(message)
+      const shouldSplit = splitMessagesEnabled || shouldSplitBySeparator
+      const messagesToSend = shouldSplit ? splitAutoReplyMessage(message) : [message]
+
+      if (messagesToSend.length === 0) {
+        throw new Error('WhatsApp: empty message after split')
+      }
+
+      const sentMessages: string[] = []
+      let lastSendResult: Record<string, unknown> = {}
+
+      for (let index = 0; index < messagesToSend.length; index++) {
+        const messagePart = String(messagesToSend[index] || '').trim()
+        if (!messagePart) continue
+
+        const response = await fetch(`${supabaseUrl}/functions/v1/send-whatsapp`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({
+            instanceId,
+            remoteJid,
+            content: messagePart,
+            messageType: 'text',
+            conversationId: conversationId || undefined,
+            senderName: 'Automacao',
+            keepUnread: true,
+          }),
+        })
+
+        if (!response.ok) {
+          const error = await response.text()
+          throw new Error(`WhatsApp send failed: ${error}`)
+        }
+
+        const sendResult = await response.json().catch(() => ({}))
+        if (sendResult && sendResult.success === false) {
+          throw new Error(`WhatsApp send failed: ${sendResult.error || 'unknown error'}`)
+        }
+
+        sentMessages.push(messagePart)
+        lastSendResult = { ...lastSendResult, ...(sendResult || {}) }
+
+        if (index < messagesToSend.length - 1 && splitDelaySeconds > 0) {
+          await waitMs(splitDelaySeconds * 1000)
+        }
+      }
+
+      if (sentMessages.length === 0) {
+        throw new Error('WhatsApp: empty message after split')
+      }
+
+      return {
+        success: true,
+        output: {
+          whatsapp_sent: true,
+          message_sent: sentMessages[sentMessages.length - 1],
+          messages_sent: sentMessages,
+          messages_sent_count: sentMessages.length,
+          message_sequence_enabled: shouldSplit,
+          remote_jid: remoteJid,
+          ...lastSendResult,
         },
-        body: JSON.stringify({
-          instanceId,
-          remoteJid,
-          content: message,
-          messageType: 'text',
-          conversationId: conversationId || undefined,
-          senderName: 'Automacao',
-          keepUnread: true,
-        }),
-      })
-
-      if (!response.ok) {
-        const error = await response.text()
-        throw new Error(`WhatsApp send failed: ${error}`)
       }
-
-      const sendResult = await response.json().catch(() => ({}))
-      if (sendResult && sendResult.success === false) {
-        throw new Error(`WhatsApp send failed: ${sendResult.error || 'unknown error'}`)
-      }
-
-      return { success: true, output: { whatsapp_sent: true, message_sent: message, remote_jid: remoteJid } }
     }
 
     case 'send_email': {
@@ -735,7 +780,7 @@ async function processAction(
         return { success: true, output: { skipped: 'empty_keyword_response' } }
       }
 
-      const splitMessages = config.split_messages === true
+      const splitMessages = toBoolean(config.split_messages) || hasSplitSeparator(responseMessage)
       const splitDelaySecondsRaw = Number(config.split_delay_seconds ?? 2)
       const splitDelaySeconds = Number.isFinite(splitDelaySecondsRaw)
         ? Math.min(30, Math.max(0, splitDelaySecondsRaw))
@@ -1138,6 +1183,23 @@ function splitAutoReplyMessage(message: string): string[] {
     .filter(Boolean)
 
   return byBlankLine.length > 1 ? byBlankLine : [normalized]
+}
+
+function hasSplitSeparator(message: string): boolean {
+  const normalized = String(message || '').replace(/\r\n/g, '\n')
+  if (!normalized.trim()) return false
+  if (normalized.includes('||')) return true
+  return /\n\s*\n+/.test(normalized)
+}
+
+function toBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value === 1
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    return ['1', 'true', 'yes', 'sim', 'on'].includes(normalized)
+  }
+  return false
 }
 
 function waitMs(ms: number): Promise<void> {

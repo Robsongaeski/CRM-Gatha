@@ -287,45 +287,59 @@ export const useUpdatePedido = (id: string) => {
 
   return useMutation({
     mutationFn: async (formData: PedidoFormData) => {
-      // Validar permissão de edição
+      // Validar permissao de edicao
       const { data: userResponse } = await supabase.auth.getUser();
-      if (!userResponse.user) throw new Error('Usuário não autenticado');
+      if (!userResponse.user) throw new Error('Usuario nao autenticado');
 
-      // Tenta usar a RPC principal; se não existir, aplica fallback robusto
-      let podeEditar = false;
-      const permRes = await supabase.rpc('pode_editar_pedido' as any, {
-        p_pedido_id: id,
-        p_usuario_id: userResponse.user.id,
-      });
+      const isMasterAdmin = userResponse.user.email?.toLowerCase() === 'robsongaeski@gmail.com';
+
+      // Tenta usar a RPC principal; se nao existir, aplica fallback robusto
+      let podeEditar = isMasterAdmin;
+      const permRes = isMasterAdmin
+        ? ({ data: true, error: null } as any)
+        : await supabase.rpc('pode_editar_pedido' as any, {
+            p_pedido_id: id,
+            p_usuario_id: userResponse.user.id,
+          });
 
       if (permRes.error) {
         // Fallback robusto para QUALQUER erro na RPC
         console.warn('RPC pode_editar_pedido falhou, aplicando fallback:', permRes.error);
-        
+
         // 1) Admin pode sempre editar
         try {
           const { data: isAdmin, error: adminError } = await supabase.rpc('is_admin' as any, {
             _user_id: userResponse.user.id,
           });
-          
+
           if (!adminError && isAdmin) {
             podeEditar = true;
           } else {
-            // 2) Não-admin: verificar se tem pagamento aprovado
-            const { data: pagamentosAprovados, error: pagError } = await supabase
-              .from('pagamentos')
-              .select('id')
-              .eq('pedido_id', id)
-              .eq('status', 'aprovado')
-              .eq('estornado', false)
-              .limit(1);
-            
-            if (pagError) {
-              console.error('Erro ao verificar pagamentos:', pagError);
-              podeEditar = false;
+            // 1.5) Permissao granular de edicao total
+            const { data: podeEditarTodos, error: permError } = await supabase.rpc('has_permission' as any, {
+              _user_id: userResponse.user.id,
+              _permission_id: 'pedidos.editar_todos',
+            });
+
+            if (!permError && podeEditarTodos) {
+              podeEditar = true;
             } else {
-              // Pode editar se NÃO tiver pagamento aprovado
-              podeEditar = !pagamentosAprovados || pagamentosAprovados.length === 0;
+              // 2) Nao-admin: verificar se tem pagamento aprovado
+              const { data: pagamentosAprovados, error: pagError } = await supabase
+                .from('pagamentos')
+                .select('id')
+                .eq('pedido_id', id)
+                .eq('status', 'aprovado')
+                .eq('estornado', false)
+                .limit(1);
+
+              if (pagError) {
+                console.error('Erro ao verificar pagamentos:', pagError);
+                podeEditar = false;
+              } else {
+                // Pode editar se NAO tiver pagamento aprovado
+                podeEditar = !pagamentosAprovados || pagamentosAprovados.length === 0;
+              }
             }
           }
         } catch (e) {
@@ -337,19 +351,29 @@ export const useUpdatePedido = (id: string) => {
       }
 
       if (!podeEditar) {
-        throw new Error('Este pedido possui pagamentos aprovados e não pode ser editado. Apenas administradores podem editar pedidos com pagamentos.');
+        throw new Error('Este pedido possui pagamentos aprovados e nao pode ser editado. Apenas administradores podem editar pedidos com pagamentos.');
       }
 
       const { itens, ...pedidoData } = formData;
+
+      // Preservar vendedor atual para evitar limpeza indevida ao salvar
+      const { data: pedidoMeta, error: pedidoMetaError } = await supabase
+        .from('pedidos')
+        .select('vendedor_id')
+        .eq('id', id)
+        .single();
+
+      if (pedidoMetaError) throw pedidoMetaError;
 
       // Corrigir datas: enviar com T12:00:00 para evitar shift de timezone
       const pedidoPayload = {
         ...pedidoData,
         data_pedido: pedidoData.data_pedido ? `${pedidoData.data_pedido}T12:00:00` : undefined,
         data_entrega: pedidoData.data_entrega ? `${pedidoData.data_entrega}T12:00:00` : undefined,
+        vendedor_id: pedidoMeta?.vendedor_id,
       };
 
-      // Atualizar o pedido (triggers SQL registrarão mudanças automaticamente)
+      // Atualizar o pedido (triggers SQL registram mudancas automaticamente)
       const { error: pedidoError } = await supabase
         .from('pedidos')
         .update(pedidoPayload)
@@ -357,7 +381,7 @@ export const useUpdatePedido = (id: string) => {
 
       if (pedidoError) throw pedidoError;
 
-      // Sincronizar itens usando ID do item (não produto_id) para suportar múltiplos itens do mesmo produto
+      // Sincronizar itens usando ID do item (nao produto_id) para suportar multiplos itens do mesmo produto
       const { data: itensAntigos, error: itensAntigosError } = await supabase
         .from('pedido_itens')
         .select('id, produto_id, quantidade, valor_unitario, observacoes, tipo_estampa_id, foto_modelo_url')
@@ -366,18 +390,16 @@ export const useUpdatePedido = (id: string) => {
       if (itensAntigosError) throw itensAntigosError;
 
       // Mapear itens antigos por ID
-      const antigoPorId = new Map<string, any>(
-        (itensAntigos || []).map((i: any) => [i.id, i])
-      );
+      const antigoPorId = new Map<string, any>((itensAntigos || []).map((i: any) => [i.id, i]));
 
-      // Separar itens existentes (têm id) e novos (não têm id)
-      const itensExistentes = (itens || []).filter(i => i.id && antigoPorId.has(i.id));
-      const itensNovos = (itens || []).filter(i => !i.id);
-      
-      // IDs dos itens que continuam no formulário
-      const idsNoFormulario = new Set(itensExistentes.map(i => i.id!));
-      
-      // Itens a remover: estão no banco mas não no formulário
+      // Separar itens existentes (tem id) e novos (nao tem id)
+      const itensExistentes = (itens || []).filter((i) => i.id && antigoPorId.has(i.id));
+      const itensNovos = (itens || []).filter((i) => !i.id);
+
+      // IDs dos itens que continuam no formulario
+      const idsNoFormulario = new Set(itensExistentes.map((i) => i.id!));
+
+      // Itens a remover: estao no banco mas nao no formulario
       const idsParaRemover = (itensAntigos || [])
         .filter((i: any) => !idsNoFormulario.has(i.id))
         .map((i: any) => i.id);
@@ -401,59 +423,39 @@ export const useUpdatePedido = (id: string) => {
           .eq('id', item.id);
 
         // Recriar grades
-        await supabase
-          .from('pedido_item_grades')
-          .delete()
-          .eq('pedido_item_id', item.id);
+        await supabase.from('pedido_item_grades').delete().eq('pedido_item_id', item.id);
 
         if (item.grades && item.grades.length > 0) {
-          await supabase
-            .from('pedido_item_grades')
-            .insert(
-              item.grades.map((grade) => ({
-                pedido_item_id: item.id,
-                tamanho_codigo: grade.codigo,
-                tamanho_nome: grade.nome,
-                quantidade: grade.quantidade,
-              }))
-            );
+          await supabase.from('pedido_item_grades').insert(
+            item.grades.map((grade) => ({
+              pedido_item_id: item.id,
+              tamanho_codigo: grade.codigo,
+              tamanho_nome: grade.nome,
+              quantidade: grade.quantidade,
+            }))
+          );
         }
 
         // Recriar detalhes
-        await supabase
-          .from('pedido_item_detalhes')
-          .delete()
-          .eq('pedido_item_id', item.id);
+        await supabase.from('pedido_item_detalhes').delete().eq('pedido_item_id', item.id);
 
         if (item.detalhes && item.detalhes.length > 0) {
-          await supabase
-            .from('pedido_item_detalhes')
-            .insert(
-              item.detalhes.map((detalhe) => ({
-                pedido_item_id: item.id,
-                tipo_detalhe: detalhe.tipo_detalhe,
-                valor: detalhe.valor,
-              }))
-            );
+          await supabase.from('pedido_item_detalhes').insert(
+            item.detalhes.map((detalhe) => ({
+              pedido_item_id: item.id,
+              tipo_detalhe: detalhe.tipo_detalhe,
+              valor: detalhe.valor,
+            }))
+          );
         }
       }
 
-      // Remover itens que não estão mais no formulário
+      // Remover itens que nao estao mais no formulario
       if (idsParaRemover.length > 0) {
-        await supabase
-          .from('pedido_item_grades')
-          .delete()
-          .in('pedido_item_id', idsParaRemover);
+        await supabase.from('pedido_item_grades').delete().in('pedido_item_id', idsParaRemover);
+        await supabase.from('pedido_item_detalhes').delete().in('pedido_item_id', idsParaRemover);
 
-        await supabase
-          .from('pedido_item_detalhes')
-          .delete()
-          .in('pedido_item_id', idsParaRemover);
-
-        const { error: deleteError } = await supabase
-          .from('pedido_itens')
-          .delete()
-          .in('id', idsParaRemover);
+        const { error: deleteError } = await supabase.from('pedido_itens').delete().in('id', idsParaRemover);
         if (deleteError) throw deleteError;
       }
 
@@ -479,38 +481,34 @@ export const useUpdatePedido = (id: string) => {
         for (let i = 0; i < itensNovos.length; i++) {
           const item = itensNovos[i];
           const itemData = novosItensData?.[i];
-          
+
           if (itemData) {
             if (item.grades && item.grades.length > 0) {
-              await supabase
-                .from('pedido_item_grades')
-                .insert(
-                  item.grades.map((grade) => ({
-                    pedido_item_id: itemData.id,
-                    tamanho_codigo: grade.codigo,
-                    tamanho_nome: grade.nome,
-                    quantidade: grade.quantidade,
-                  }))
-                );
+              await supabase.from('pedido_item_grades').insert(
+                item.grades.map((grade) => ({
+                  pedido_item_id: itemData.id,
+                  tamanho_codigo: grade.codigo,
+                  tamanho_nome: grade.nome,
+                  quantidade: grade.quantidade,
+                }))
+              );
             }
 
             if (item.detalhes && item.detalhes.length > 0) {
-              await supabase
-                .from('pedido_item_detalhes')
-                .insert(
-                  item.detalhes.map((detalhe) => ({
-                    pedido_item_id: itemData.id,
-                    tipo_detalhe: detalhe.tipo_detalhe,
-                    valor: detalhe.valor,
-                  }))
-                );
+              await supabase.from('pedido_item_detalhes').insert(
+                item.detalhes.map((detalhe) => ({
+                  pedido_item_id: itemData.id,
+                  tipo_detalhe: detalhe.tipo_detalhe,
+                  valor: detalhe.valor,
+                }))
+              );
             }
           }
         }
       }
 
-      // ===== VERIFICAÇÃO AUTOMÁTICA DE PREÇOS APÓS EDIÇÃO =====
-      // Buscar se o pedido tinha flag de aprovação
+      // ===== VERIFICACAO AUTOMATICA DE PRECOS APOS EDICAO =====
+      // Buscar se o pedido tinha flag de aprovacao
       const { data: pedidoAtual } = await supabase
         .from('pedidos')
         .select('requer_aprovacao_preco')
@@ -518,9 +516,9 @@ export const useUpdatePedido = (id: string) => {
         .single();
 
       if (pedidoAtual?.requer_aprovacao_preco) {
-        // Verificar se todos os preços estão dentro da faixa agora
+        // Verificar se todos os precos estao dentro da faixa agora
         let todosOk = true;
-        
+
         for (const item of itens || []) {
           const { data: faixaData } = await supabase.rpc('buscar_faixa_preco', {
             p_produto_id: item.produto_id,
@@ -539,14 +537,11 @@ export const useUpdatePedido = (id: string) => {
           }
         }
 
-        // Se todos os preços estão OK, remover flag e aprovar automaticamente
+        // Se todos os precos estao OK, remover flag e aprovar automaticamente
         if (todosOk) {
-          await supabase
-            .from('pedidos')
-            .update({ requer_aprovacao_preco: false })
-            .eq('id', id);
+          await supabase.from('pedidos').update({ requer_aprovacao_preco: false }).eq('id', id);
 
-          // Buscar solicitação pendente e aprovar automaticamente
+          // Buscar solicitacao pendente e aprovar automaticamente
           const { data: solicitacaoPendente } = await supabase
             .from('pedidos_aprovacao')
             .select('id')
@@ -559,13 +554,13 @@ export const useUpdatePedido = (id: string) => {
               .from('pedidos_aprovacao')
               .update({
                 status: 'aprovado',
-                observacao_admin: 'Aprovado automaticamente após correção dos preços pelo vendedor.',
+                observacao_admin: 'Aprovado automaticamente apos correcao dos precos pelo vendedor.',
                 analisado_por: userResponse.user.id,
                 data_analise: new Date().toISOString(),
               })
               .eq('id', solicitacaoPendente.id);
 
-            // Adicionar observação no pedido
+            // Adicionar observacao no pedido
             const { data: pedidoObs } = await supabase
               .from('pedidos')
               .select('observacao')
@@ -573,19 +568,17 @@ export const useUpdatePedido = (id: string) => {
               .single();
 
             const obsAtual = pedidoObs?.observacao || '';
-            const novaObs = obsAtual 
-              ? `${obsAtual}\n\nPreços corrigidos pelo vendedor. Aprovação automática concedida.`
-              : 'Preços corrigidos pelo vendedor. Aprovação automática concedida.';
+            const novaObs = obsAtual
+              ? `${obsAtual}\n\nPrecos corrigidos pelo vendedor. Aprovacao automatica concedida.`
+              : 'Precos corrigidos pelo vendedor. Aprovacao automatica concedida.';
 
-            await supabase
-              .from('pedidos')
-              .update({ observacao: novaObs })
-              .eq('id', id);
+            await supabase.from('pedidos').update({ observacao: novaObs }).eq('id', id);
           }
 
           toast({
-            title: 'Preços corrigidos! ✅',
-            description: 'Todos os preços estão dentro da faixa permitida. A solicitação de aprovação foi removida automaticamente.',
+            title: 'Precos corrigidos!',
+            description:
+              'Todos os precos estao dentro da faixa permitida. A solicitacao de aprovacao foi removida automaticamente.',
           });
         }
       }
@@ -652,3 +645,4 @@ export const useDeletePedido = () => {
     },
   });
 };
+

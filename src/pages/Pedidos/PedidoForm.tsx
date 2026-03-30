@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useLocation, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -31,6 +31,11 @@ import { useAuth } from '@/hooks/useAuth';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useCreateSolicitacaoAprovacao } from '@/hooks/usePedidosAprovacao';
 import { usePodeEditarPedido } from '@/hooks/usePodeEditarPedido';
+import { useUserRole } from '@/hooks/useUserRole';
+import {
+  useCreateSolicitacaoAlteracaoPedido,
+  usePedidoAlteracaoPendente,
+} from '@/hooks/usePedidosAlteracoes';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { formatCurrency, parseDateString, extractDateOnly } from '@/lib/formatters';
@@ -77,6 +82,47 @@ const pedidoSchema = pedidoSchemaBase.refine((data) => {
   return data.itens.length > 0 && data.itens.every(item => item.produto_id && item.produto_id.length > 0);
 }, { message: 'Adicione pelo menos um item com produto', path: ['itens'] });
 
+const MASTER_ADMIN_EMAIL = 'robsongaeski@gmail.com';
+
+const pedidoToSnapshot = (pedido: any): PedidoFormData => ({
+  data_pedido: extractDateOnly(pedido.data_pedido) || '',
+  cliente_id: pedido.cliente_id,
+  data_entrega: extractDateOnly(pedido.data_entrega) || undefined,
+  observacao: pedido.observacao || '',
+  caminho_arquivos: pedido.caminho_arquivos || '',
+  status: pedido.status,
+  itens: (pedido.itens || []).map((item: any) => ({
+    id: item.id,
+    produto_id: item.produto_id,
+    quantidade: item.quantidade,
+    valor_unitario: Number(item.valor_unitario),
+    observacoes: item.observacoes || '',
+    foto_modelo_url: item.foto_modelo_url || '',
+    tipo_estampa_id: item.tipo_estampa_id || '',
+    grades: (item.grades || []).map((g: any) => ({
+      codigo: g.tamanho_codigo,
+      nome: g.tamanho_nome,
+      quantidade: g.quantidade,
+    })),
+    detalhes: (item.detalhes || []).map((d: any) => ({
+      tipo_detalhe: d.tipo_detalhe || '',
+      valor: d.valor || '',
+    })),
+  })),
+});
+
+const getCamposAlterados = (anterior: PedidoFormData, novo: PedidoFormData) => {
+  const campos: string[] = [];
+  if ((anterior.data_pedido || '') !== (novo.data_pedido || '')) campos.push('data_pedido');
+  if ((anterior.cliente_id || '') !== (novo.cliente_id || '')) campos.push('cliente_id');
+  if ((anterior.data_entrega || '') !== (novo.data_entrega || '')) campos.push('data_entrega');
+  if ((anterior.observacao || '') !== (novo.observacao || '')) campos.push('observacao');
+  if ((anterior.caminho_arquivos || '') !== (novo.caminho_arquivos || '')) campos.push('caminho_arquivos');
+  if (anterior.status !== novo.status) campos.push('status');
+  if (JSON.stringify(anterior.itens || []) !== JSON.stringify(novo.itens || [])) campos.push('itens');
+  return campos;
+};
+
 export default function PedidoForm() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -85,7 +131,8 @@ export default function PedidoForm() {
   const duplicarDeId = searchParams.get('duplicarDe');
   const isEditing = id !== undefined && id !== 'novo';
   const { user } = useAuth();
-  const { can } = usePermissions();
+  const { can, canAny } = usePermissions();
+  const { isAdmin: isRoleAdmin } = useUserRole();
   const [itemsAbaixoMinimo, setItemsAbaixoMinimo] = useState<number[]>([]);
   const [faixasPreco, setFaixasPreco] = useState<Record<number, any>>({});
   const [validandoPrecos, setValidandoPrecos] = useState(false);
@@ -93,7 +140,10 @@ export default function PedidoForm() {
 
   // Verificar permissões específicas
   const podeAlterarStatus = can('pedidos.alterar_status');
-  const podeEditarPedidoCompleto = can('pedidos.editar');
+  const isMasterAdmin = user?.email?.toLowerCase() === MASTER_ADMIN_EMAIL;
+  const isAdmin = isRoleAdmin || isMasterAdmin;
+  const podeEditarPedidoCompleto = isAdmin || canAny('pedidos.editar', 'pedidos.editar_todos');
+  const podeSolicitarAlteracaoFechado = isAdmin || can('pedidos.alteracoes.solicitar');
   const podeApenasAlterarStatus = podeAlterarStatus && !podeEditarPedidoCompleto;
 
   const { data: pedido } = usePedido(isEditing ? id : undefined);
@@ -104,20 +154,37 @@ export default function PedidoForm() {
   const createPedido = useCreatePedido();
   const updatePedido = useUpdatePedido(id || '');
   const createSolicitacao = useCreateSolicitacaoAprovacao();
+  const createSolicitacaoAlteracao = useCreateSolicitacaoAlteracaoPedido();
+  const { data: solicitacaoAlteracaoPendente } = usePedidoAlteracaoPendente(isEditing ? id : undefined);
 
   const pedidoEmRascunho = isEditing && pedido?.status === 'rascunho';
-  const bloqueioPorPagamento = isEditing && !pedidoEmRascunho && podeEditar === false;
+  const pedidoFechado = isEditing && ['entregue', 'cancelado'].includes(pedido?.status || '');
+  const fluxoSolicitacaoPedidoFechado =
+    isEditing && pedidoFechado && !podeEditarPedidoCompleto && podeSolicitarAlteracaoFechado;
+  const bloqueioPedidoFechado =
+    isEditing && pedidoFechado && !podeEditarPedidoCompleto && !podeSolicitarAlteracaoFechado;
+  const bloqueioPorPagamento = isEditing && !pedidoEmRascunho && !fluxoSolicitacaoPedidoFechado && podeEditar === false;
   const podeEditarRascunho = pedidoEmRascunho && podeAlterarStatus;
 
   // Determinar modo de edição baseado em permissões + pagamentos
   const modoEdicao = {
-    completo: isEditing && !bloqueioPorPagamento && (podeEditarPedidoCompleto || podeEditarRascunho),
-    apenasStatus: isEditing && !bloqueioPorPagamento && podeApenasAlterarStatus && !pedidoEmRascunho,
-    bloqueado: bloqueioPorPagamento,
+    completo:
+      isEditing &&
+      !bloqueioPorPagamento &&
+      !bloqueioPedidoFechado &&
+      (podeEditarPedidoCompleto || podeEditarRascunho || fluxoSolicitacaoPedidoFechado),
+    apenasStatus:
+      isEditing &&
+      !bloqueioPorPagamento &&
+      !bloqueioPedidoFechado &&
+      !fluxoSolicitacaoPedidoFechado &&
+      podeApenasAlterarStatus &&
+      !pedidoEmRascunho,
+    bloqueado: bloqueioPorPagamento || bloqueioPedidoFechado,
   };
 
-  // Campos desabilitados se modo "apenas status"
-  const camposDesabilitados = modoEdicao.apenasStatus;
+  // Campos desabilitados se modo "apenas status" ou bloqueado
+  const camposDesabilitados = modoEdicao.apenasStatus || modoEdicao.bloqueado;
 
   const { data: clientes } = useQuery({
     queryKey: ['clientes'],
@@ -296,7 +363,9 @@ export default function PedidoForm() {
       if (modoEdicao.bloqueado) {
         toast({
           title: 'Operação não permitida',
-          description: 'Este pedido possui pagamentos aprovados e não pode ser editado.',
+          description: bloqueioPedidoFechado
+            ? 'Este pedido está fechado e você não possui permissão para editar ou solicitar alteração.'
+            : 'Este pedido possui pagamentos aprovados e não pode ser editado.',
           variant: 'destructive',
         });
         return;
@@ -366,6 +435,55 @@ export default function PedidoForm() {
         return;
       }
 
+      const formData: PedidoFormData = {
+        data_pedido: data.data_pedido,
+        cliente_id: data.cliente_id,
+        data_entrega: data.data_entrega || undefined,
+        observacao: data.observacao,
+        caminho_arquivos: data.caminho_arquivos,
+        // Se era rascunho e está salvando normalmente, ativar para em_producao
+        status: data.status === 'rascunho' ? 'em_producao' : data.status,
+        itens: data.itens.map(item => ({
+          id: item.id,
+          produto_id: item.produto_id,
+          quantidade: item.quantidade,
+          valor_unitario: item.valor_unitario,
+          observacoes: item.observacoes,
+          foto_modelo_url: item.foto_modelo_url,
+          tipo_estampa_id: item.tipo_estampa_id,
+          grades: item.grades?.filter(g => g.codigo && g.nome && g.quantidade) as PedidoItemGrade[] | undefined,
+          detalhes: item.detalhes?.filter(d => d.tipo_detalhe && d.valor) as DetalheItem[] | undefined,
+        })),
+      };
+
+      if (fluxoSolicitacaoPedidoFechado && isEditing && pedido) {
+        if (!user) {
+          throw new Error('Usuário não autenticado para solicitar alteração.');
+        }
+
+        const dadosAnteriores = pedidoToSnapshot(pedido);
+        const camposAlterados = getCamposAlterados(dadosAnteriores, formData);
+        const motivoSolicitacao = camposAlterados.length
+          ? `Alteração solicitada em pedido fechado. Campos alterados: ${camposAlterados.join(', ')}.`
+          : 'Alteração solicitada em pedido fechado.';
+
+        await createSolicitacaoAlteracao.mutateAsync({
+          pedido_id: id!,
+          solicitado_por: user.id,
+          motivo_solicitacao: motivoSolicitacao,
+          observacao_solicitante: data.observacao || null,
+          dados_anteriores: dadosAnteriores,
+          dados_propostos: formData,
+        });
+
+        toast({
+          title: 'Solicitação enviada!',
+          description: 'A alteração foi enviada para aprovação. O pedido será atualizado após liberação.',
+        });
+        navigate('/pedidos');
+        return;
+      }
+
       // GARANTIR que todas as faixas foram buscadas antes de validar
       const itens = data.itens;
       const faixasPromises = itens.map(async (item, index) => {
@@ -408,27 +526,6 @@ export default function PedidoForm() {
 
       setItemsAbaixoMinimo(problemas);
       const requerAprovacao = problemas.length > 0;
-    
-    const formData: PedidoFormData = {
-      data_pedido: data.data_pedido,
-      cliente_id: data.cliente_id,
-      data_entrega: data.data_entrega || undefined,
-      observacao: data.observacao,
-      caminho_arquivos: data.caminho_arquivos,
-      // Se era rascunho e está salvando normalmente, ativar para em_producao
-      status: data.status === 'rascunho' ? 'em_producao' : data.status,
-      itens: data.itens.map(item => ({
-        id: item.id,
-        produto_id: item.produto_id,
-        quantidade: item.quantidade,
-        valor_unitario: item.valor_unitario,
-        observacoes: item.observacoes,
-        foto_modelo_url: item.foto_modelo_url,
-        tipo_estampa_id: item.tipo_estampa_id,
-        grades: item.grades?.filter(g => g.codigo && g.nome && g.quantidade) as PedidoItemGrade[] | undefined,
-        detalhes: item.detalhes?.filter(d => d.tipo_detalhe && d.valor) as DetalheItem[] | undefined,
-      })),
-    };
 
     let pedidoId: string;
     
@@ -682,40 +779,72 @@ export default function PedidoForm() {
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            <strong>⚠️ Atenção:</strong> Este pedido possui pagamentos aprovados e não pode ser editado. 
-            Apenas administradores podem modificar pedidos com pagamentos aprovados.
+            {bloqueioPedidoFechado ? (
+              <>
+                <strong>Atencao:</strong> Este pedido esta fechado e voce nao possui permissao para editar nem solicitar alteracao.
+              </>
+            ) : (
+              <>
+                <strong>Atencao:</strong> Este pedido possui pagamentos aprovados e nao pode ser editado.
+                Apenas administradores podem modificar pedidos com pagamentos aprovados.
+              </>
+            )}
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Alerta de Modo de Edição Limitado */}
+      {isEditing && fluxoSolicitacaoPedidoFechado && (
+        <Alert className="border-amber-500 bg-amber-50">
+          <AlertTriangle className="h-4 w-4 text-amber-700" />
+          <AlertDescription className="text-amber-900">
+            <strong>Pedido fechado com edicao por aprovacao</strong>
+            <p className="mt-1 text-sm">
+              Voce pode editar os dados e salvar para enviar uma solicitacao.
+              A alteracao so sera aplicada apos aprovacao.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {isEditing && solicitacaoAlteracaoPendente && (
+        <Alert className="border-primary bg-primary/5">
+          <AlertDescription>
+            <strong>Solicitacao pendente para este pedido</strong>
+            <p className="mt-1 text-sm">
+              Existe uma solicitacao de alteracao aguardando analise desde{' '}
+              {new Date(solicitacaoAlteracaoPendente.data_solicitacao).toLocaleString('pt-BR')}.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Alerta de Modo de Edicao Limitado */}
       {modoEdicao.apenasStatus && (
         <Alert className="border-blue-500 bg-blue-50">
           <AlertTriangle className="h-4 w-4 text-blue-600" />
           <AlertDescription>
-            <strong>ℹ️ Modo de Edição Limitado</strong>
+            <strong>Modo de Edicao Limitado</strong>
             <p className="mt-1 text-sm">
-              Você tem permissão apenas para <strong>alterar o status deste pedido</strong>. 
-              Os demais campos estão bloqueados para edição.
+              Voce tem permissao apenas para <strong>alterar o status deste pedido</strong>.
+              Os demais campos estao bloqueados para edicao.
             </p>
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Alerta de Pedido Aguardando Aprovação */}
+      {/* Alerta de Pedido Aguardando Aprovacao */}
       {isEditing && pedido?.requer_aprovacao_preco && (
         <Alert variant="destructive" className="border-warning bg-warning/10">
           <AlertTriangle className="h-5 w-5 text-warning" />
           <AlertDescription className="text-warning">
-            <strong>⚠️ Este pedido está aguardando aprovação administrativa</strong>
+            <strong>Este pedido esta aguardando aprovacao administrativa</strong>
             <p className="mt-2 text-sm text-muted-foreground">
-              Há itens com preços abaixo do mínimo permitido. Você pode editar os valores para corrigir.
-              Se todos os itens ficarem dentro da faixa permitida, a solicitação de aprovação será removida automaticamente.
+              Ha itens com precos abaixo do minimo permitido. Voce pode editar os valores para corrigir.
+              Se todos os itens ficarem dentro da faixa permitida, a solicitacao de aprovacao sera removida automaticamente.
             </p>
           </AlertDescription>
         </Alert>
       )}
-
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           {/* Cabeçalho do Pedido */}
@@ -783,7 +912,7 @@ export default function PedidoForm() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Status do Pedido</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value} disabled={modoEdicao.bloqueado}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue />
@@ -1093,7 +1222,7 @@ export default function PedidoForm() {
             <Alert variant="destructive" className="border-warning bg-warning/10">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                <strong>⚠️ Atenção:</strong> {itemsAbaixoMinimo.length} item(ns) com preço abaixo do mínimo.
+                <strong>Atenção:</strong> {itemsAbaixoMinimo.length} item(ns) com preço abaixo do mínimo.
                 Este pedido será enviado para aprovação do administrador.
               </AlertDescription>
             </Alert>
@@ -1103,7 +1232,7 @@ export default function PedidoForm() {
             <Card className="border-blue-200 bg-blue-50">
               <CardContent className="p-4">
                 <p className="text-sm text-blue-900">
-                  <strong>ℹ️ Informação:</strong> Após criar o pedido, você poderá registrar os pagamentos 
+                  <strong>Informação:</strong> Após criar o pedido, você poderá registrar os pagamentos 
                   acessando os detalhes do pedido.
                 </p>
               </CardContent>
@@ -1114,16 +1243,18 @@ export default function PedidoForm() {
             <Button type="button" variant="outline" onClick={() => navigate('/pedidos')}>
               Cancelar
             </Button>
-            <Button 
-              type="button"
-              variant="secondary"
-              disabled={
-                createPedido.isPending || 
-                updatePedido.isPending || 
-                salvandoRascunho ||
-                validandoPrecos
-              }
-              onClick={async () => {
+            {!fluxoSolicitacaoPedidoFechado && (
+              <Button 
+                type="button"
+                variant="secondary"
+                disabled={
+                  createPedido.isPending || 
+                  updatePedido.isPending || 
+                  salvandoRascunho ||
+                  validandoPrecos ||
+                  modoEdicao.bloqueado
+                }
+                onClick={async () => {
                 setSalvandoRascunho(true);
                 try {
                   const data = form.getValues();
@@ -1168,10 +1299,11 @@ export default function PedidoForm() {
                 } finally {
                   setSalvandoRascunho(false);
                 }
-              }}
-            >
-              {salvandoRascunho ? 'Salvando...' : 'Salvar como Rascunho'}
-            </Button>
+                }}
+              >
+                {salvandoRascunho ? 'Salvando...' : 'Salvar como Rascunho'}
+              </Button>
+            )}
             <Button 
               type="submit" 
               disabled={
@@ -1184,6 +1316,7 @@ export default function PedidoForm() {
             >
               {validandoPrecos ? 'Validando preços...' : 
                createPedido.isPending || updatePedido.isPending ? 'Salvando...' : 
+               fluxoSolicitacaoPedidoFechado ? 'Enviar para Aprovação' :
                (isEditing && pedido?.status === 'rascunho' ? 'Ativar Pedido' : 'Salvar Pedido')}
             </Button>
           </div>

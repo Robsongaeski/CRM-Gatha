@@ -66,7 +66,7 @@ export default function PedidoDetalhes() {
   const { id } = useParams();
   const { isAdmin, isVendedor, isPcp } = useUserRole();
   const { can } = usePermissions();
-  const podeEditar = isAdmin || isVendedor || isPcp || can('pedidos.editar');
+  const podeEditar = isAdmin || isVendedor || isPcp || can('pedidos.editar') || can('pedidos.editar_todos');
   const { data: pedido, isLoading } = usePedido(id);
   const { data: pagamentos = [] } = usePagamentos(id);
   const { data: historico = [] } = usePedidoHistorico(id);
@@ -679,6 +679,9 @@ export default function PedidoDetalhes() {
                         {item.tipo_alteracao === 'edicao' && 'Edição'}
                         {item.tipo_alteracao === 'status' && 'Status'}
                         {item.tipo_alteracao === 'exclusao' && 'Exclusão'}
+                        {item.tipo_alteracao === 'solicitacao_edicao' && 'Solicitação de Edição'}
+                        {item.tipo_alteracao === 'edicao_aprovada' && 'Edição Aprovada'}
+                        {item.tipo_alteracao === 'edicao_rejeitada' && 'Edição Rejeitada'}
                       </Badge>
                     </div>
                     <div className="flex items-center gap-2 mb-2">

@@ -4,6 +4,8 @@ import { useAuth } from './useAuth';
 
 export function useUserRole() {
   const { user, loading: authLoading } = useAuth();
+  const masterAdminEmail = 'robsongaeski@gmail.com';
+  const isMasterAdmin = user?.email?.toLowerCase() === masterAdminEmail;
 
   // Buscar roles do sistema ANTIGO (user_roles)
   const { data: oldRoles = [], isLoading: loadingOldRoles } = useQuery({
@@ -55,7 +57,7 @@ export function useUserRole() {
   const isLoading = authLoading || loadingOldRoles || loadingNewProfiles;
 
   // Verificações de role que funcionam com ambos os sistemas
-  const isAdmin = allRoles.includes('admin') || allRoles.includes('administrador');
+  const isAdmin = isMasterAdmin || allRoles.includes('admin') || allRoles.includes('administrador');
   const isVendedor = allRoles.includes('vendedor');
   const isFinanceiro = allRoles.includes('financeiro');
   const isAtendente = allRoles.includes('atendente');

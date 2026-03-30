@@ -11,6 +11,8 @@ interface UserPermission {
 
 export function usePermissions() {
   const { user, loading: authLoading } = useAuth();
+  const masterAdminEmail = 'robsongaeski@gmail.com';
+  const isMasterAdmin = user?.email?.toLowerCase() === masterAdminEmail;
 
   const { data: permissions = [], isLoading: queryLoading } = useQuery({
     queryKey: ['user-permissions', user?.id],
@@ -34,7 +36,7 @@ export function usePermissions() {
 
   // Verifica se o usuário tem uma permissão específica
   const can = (permissionCode: string): boolean => {
-    return permissionCodes.includes(permissionCode);
+    return isMasterAdmin || permissionCodes.includes(permissionCode);
   };
 
   // Verifica se o usuário tem qualquer uma das permissões listadas
@@ -48,7 +50,9 @@ export function usePermissions() {
   };
 
   // Helpers de compatibilidade com sistema antigo (baseado em roles)
-  const isAdmin = can('usuarios.visualizar') && can('usuarios.editar');
+  const isAdmin =
+    isMasterAdmin ||
+    (can('usuarios.visualizar') && can('usuarios.editar'));
   const isVendedor = can('pedidos.criar') || can('propostas.criar');
   const isFinanceiro = can('pagamentos.aprovar') || can('pagamentos.visualizar');
   const isAtendente = can('atendimento.registrar_pedido');

@@ -286,6 +286,24 @@ serve(async (req) => {
     } = body;
     const preserveUnread = keepUnread === true || keep_unread === true;
 
+    const clearFollowupFlagIfNeeded = async (id?: string) => {
+      if (!id || preserveUnread) return;
+      try {
+        await supabase
+          .from('whatsapp_conversations')
+          .update({
+            needs_followup: false,
+            followup_reason: null,
+            followup_color: null,
+            followup_flagged_at: null,
+          })
+          .eq('id', id)
+          .eq('needs_followup', true);
+      } catch (clearError) {
+        console.error('Falha ao limpar marcador de retorno da conversa:', clearError);
+      }
+    };
+
     console.log('Enviando mensagem:', { instanceId, remoteJid, messageType });
 
     // Buscar instancia
@@ -401,6 +419,7 @@ serve(async (req) => {
             conversationPatch.unread_count = 0;
           }
           await supabase.from('whatsapp_conversations').update(conversationPatch).eq('id', conversationId);
+          await clearFollowupFlagIfNeeded(conversationId);
         }
 
         return new Response(JSON.stringify({ success: true, queued: true, message: 'Mensagem adicionada a fila (instancia offline)' }), {
@@ -478,6 +497,7 @@ serve(async (req) => {
           conversationPatch.unread_count = 0;
         }
         await supabase.from('whatsapp_conversations').update(conversationPatch).eq('id', conversationId);
+        await clearFollowupFlagIfNeeded(conversationId);
       }
 
       return new Response(JSON.stringify({ success: true, message: savedMessage, uazapiResponse }), {
@@ -541,6 +561,7 @@ serve(async (req) => {
           conversationPatch.unread_count = 0;
         }
         await supabase.from('whatsapp_conversations').update(conversationPatch).eq('id', conversationId);
+        await clearFollowupFlagIfNeeded(conversationId);
       }
 
       return new Response(JSON.stringify({
@@ -694,6 +715,7 @@ serve(async (req) => {
         conversationPatch.unread_count = 0;
       }
       await supabase.from('whatsapp_conversations').update(conversationPatch).eq('id', conversationId);
+      await clearFollowupFlagIfNeeded(conversationId);
     }
 
     return new Response(JSON.stringify({ success: true, message: savedMessage, evolutionResponse }), {

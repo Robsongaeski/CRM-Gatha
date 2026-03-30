@@ -49,7 +49,7 @@ export default function PropostasLista() {
   const { isAdmin, isVendedor } = useUserRole();
   const { can } = usePermissions();
   const podeCriar = isAdmin || isVendedor || can('propostas.criar');
-  const podeEditar = isAdmin || isVendedor || can('propostas.editar');
+  const podeEditar = isAdmin || isVendedor || can('propostas.editar') || can('propostas.editar_todos') || can('propostas.editar_todas');
   const [statusFilter, setStatusFilter] = useState<StatusProposta | 'all'>('all');
   const [search, setSearch] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);

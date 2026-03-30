@@ -246,9 +246,9 @@ export default function PropostaForm() {
   }, [proposta, isEditing]);
   
   // Verificar permissões (APÓS todos os hooks)
-  const podeEditarProposta = can('propostas.editar');
+  const podeEditarProposta = can('propostas.editar') || can('propostas.editar_todos') || can('propostas.editar_todas');
   const podeCriarProposta = can('propostas.criar');
-  const podeEditarTodasPropostas = can('propostas.editar_todos');
+  const podeEditarTodasPropostas = can('propostas.editar_todos') || can('propostas.editar_todas');
   
   // Verificar se é própria proposta ou tem permissão admin
   const isPropriaPropostaOuAdmin = !isEditing || 

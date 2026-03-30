@@ -94,7 +94,7 @@ export default function PedidosLista() {
   const { isAdmin, isVendedor } = useUserRole();
   const { can } = usePermissions();
   const podeCriar = can('pedidos.criar');
-  const podeEditar = isAdmin || isVendedor || can('pedidos.editar');
+  const podeEditar = isAdmin || isVendedor || can('pedidos.editar') || can('pedidos.editar_todos');
   const { user } = useAuth();
   const deletePedido = useDeletePedido();
   const [mostrarFiltrosAvancados, setMostrarFiltrosAvancados] = useState(false);

@@ -39,7 +39,7 @@ export default function PropostaDetalhes() {
   const { can } = usePermissions();
   
   // Permissão para editar proposta
-  const podeEditar = isAdmin || isVendedor || can('propostas.editar');
+  const podeEditar = isAdmin || isVendedor || can('propostas.editar') || can('propostas.editar_todos') || can('propostas.editar_todas');
 
   // Buscar histórico de alterações
   const { data: historico } = useQuery({

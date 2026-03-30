@@ -165,6 +165,14 @@ export function useUpdateProposta(id: string) {
 
   return useMutation({
     mutationFn: async (data: PropostaFormData) => {
+      const { data: propostaAtual, error: propostaAtualError } = await supabase
+        .from('propostas')
+        .select('vendedor_id')
+        .eq('id', id)
+        .single();
+
+      if (propostaAtualError) throw propostaAtualError;
+
       // Atualizar proposta
       const updateData: Record<string, any> = {
         cliente_id: data.cliente_id,
@@ -177,12 +185,8 @@ export function useUpdateProposta(id: string) {
         descricao_criacao: data.descricao_criacao || null,
         etapa_aprovacao_id: data.etapa_aprovacao_id || null,
         imagem_referencia_url: data.imagem_referencia_url || null,
+        vendedor_id: data.vendedor_id || propostaAtual?.vendedor_id || null,
       };
-
-      // Incluir vendedor_id se foi especificado
-      if (data.vendedor_id) {
-        updateData.vendedor_id = data.vendedor_id;
-      }
 
       const { error: propostaError } = await supabase
         .from('propostas')

@@ -4,11 +4,13 @@ import { useAuth } from './useAuth';
 
 export const usePodeEditarPedido = (pedidoId?: string) => {
   const { user } = useAuth();
+  const isMasterAdmin = user?.email?.toLowerCase() === 'robsongaeski@gmail.com';
   
   return useQuery({
     queryKey: ['pode-editar-pedido', pedidoId, user?.id],
     queryFn: async () => {
       if (!pedidoId || !user) return false;
+      if (isMasterAdmin) return true;
       
       const { data, error } = await supabase
         .rpc('pode_editar_pedido' as any, {
@@ -29,6 +31,18 @@ export const usePodeEditarPedido = (pedidoId?: string) => {
           if (!adminError && isAdmin) return true;
         } catch (e) {
           console.error('Erro ao verificar admin:', e);
+        }
+
+        // 1.5) Permissao granular de edicao total
+        try {
+          const { data: podeEditarTodos, error: permError } = await supabase.rpc('has_permission' as any, {
+            _user_id: user.id,
+            _permission_id: 'pedidos.editar_todos',
+          });
+
+          if (!permError && podeEditarTodos) return true;
+        } catch (e) {
+          console.error('Erro ao verificar permissao pedidos.editar_todos:', e);
         }
         
         // 2) Verificar se existe pagamento aprovado

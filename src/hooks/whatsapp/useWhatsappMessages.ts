@@ -125,6 +125,43 @@ export function useWhatsappMessages(conversationId: string | null) {
 export function useSendWhatsappMessage() {
   const queryClient = useQueryClient();
 
+  const clearConversationFollowup = async (conversationId: string) => {
+    const { error } = await supabase
+      .from('whatsapp_conversations')
+      .update({
+        needs_followup: false,
+        followup_reason: null,
+        followup_color: null,
+        followup_flagged_at: null,
+      })
+      .eq('id', conversationId)
+      .eq('needs_followup', true);
+
+    if (error) {
+      // Nao interrompe o envio da mensagem se a limpeza do retorno falhar.
+      console.warn('[useSendWhatsappMessage] Falha ao limpar follow-up da conversa:', error);
+      return;
+    }
+
+    queryClient.setQueriesData(
+      { queryKey: ['whatsapp-conversations'], exact: false },
+      (old: Array<Record<string, unknown>> | undefined) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((conversation) =>
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                needs_followup: false,
+                followup_reason: null,
+                followup_color: null,
+                followup_flagged_at: null,
+              }
+            : conversation,
+        );
+      },
+    );
+  };
+
   return useMutation<SendWhatsappResponse, Error, SendWhatsappParams, SendMutationContext>({
     mutationFn: async (params) => {
       const { data, error } = await supabase.functions.invoke('send-whatsapp', {
@@ -189,7 +226,7 @@ export function useSendWhatsappMessage() {
 
       return { tempMessageId };
     },
-    onSuccess: (data, variables, context) => {
+    onSuccess: async (data, variables, context) => {
       const finalStatus = data.queued ? 'queued' : 'sent';
       const savedMessage = data.message;
 
@@ -214,6 +251,9 @@ export function useSendWhatsappMessage() {
       );
 
       queryClient.invalidateQueries({ queryKey: ['whatsapp-messages', variables.conversationId] });
+
+      await clearConversationFollowup(variables.conversationId);
+
       queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'] });
 
       if (data.queued) {
