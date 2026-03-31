@@ -1,7 +1,7 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ArrowLeft, DollarSign, Package, User, Calendar, FileText, AlertTriangle, Printer, Pencil } from 'lucide-react';
+import { ArrowLeft, DollarSign, Package, User, Calendar, FileText, AlertTriangle, Printer, Pencil, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -179,6 +179,21 @@ export default function PedidoDetalhes() {
         }, 500);
       }
     }, 1000);
+  };
+
+  const handleCopyCaminhoArquivos = async () => {
+    const caminho = (pedido as any)?.caminho_arquivos;
+    if (!caminho) return;
+    try {
+      await navigator.clipboard.writeText(caminho);
+      toast({ title: 'Caminho copiado' });
+    } catch {
+      toast({
+        title: 'Não foi possível copiar o caminho',
+        description: 'Copie manualmente o texto exibido no campo.',
+        variant: 'destructive',
+      });
+    }
   };
 
   return (
@@ -373,6 +388,30 @@ export default function PedidoDetalhes() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Caminho dos Arquivos/Logos
+            </CardTitle>
+            {Boolean((pedido as any).caminho_arquivos) && (
+              <Button variant="outline" size="sm" onClick={handleCopyCaminhoArquivos}>
+                <Copy className="h-4 w-4 mr-2" />
+                Copiar caminho
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {(pedido as any).caminho_arquivos ? (
+            <p className="font-mono text-sm break-all">{(pedido as any).caminho_arquivos}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Não informado</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Resumo Financeiro */}
       <Card>

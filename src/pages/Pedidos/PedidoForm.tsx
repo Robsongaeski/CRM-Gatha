@@ -919,6 +919,9 @@ export default function PedidoForm() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
+                          {(field.value === 'rascunho' || pedido?.status === 'rascunho') && (
+                            <SelectItem value="rascunho">Rascunho</SelectItem>
+                          )}
                           <SelectItem value="em_producao">Em Produção</SelectItem>
                           <SelectItem value="pronto">Pronto</SelectItem>
                           <SelectItem value="entregue">Entregue</SelectItem>

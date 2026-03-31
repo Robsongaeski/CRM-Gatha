@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { usePropostas, useDeleteProposta, StatusProposta } from '@/hooks/usePropostas';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { usePropostas, useDeleteProposta, useUpdatePropostaStatus, StatusProposta } from '@/hooks/usePropostas';
 import { useUserRole } from '@/hooks/useUserRole';
 import { usePermissions } from '@/hooks/usePermissions';
 import { Button } from '@/components/ui/button';
@@ -32,7 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Eye, Pencil, Trash2, Bell } from 'lucide-react';
+import { Plus, Eye, Pencil, Trash2, Bell, CheckCircle } from 'lucide-react';
 import { format, isBefore, isToday } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -44,20 +44,58 @@ const statusConfig = {
   perdida: { label: 'Perdida', variant: 'destructive' as const },
 };
 
+const statusOptions: Array<{ value: StatusProposta; label: string }> = [
+  { value: 'pendente', label: 'Pendente' },
+  { value: 'enviada', label: 'Enviada' },
+  { value: 'follow_up', label: 'Follow-up' },
+  { value: 'ganha', label: 'Ganha' },
+  { value: 'perdida', label: 'Perdida' },
+];
+
 export default function PropostasLista() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { isAdmin, isVendedor } = useUserRole();
   const { can } = usePermissions();
   const podeCriar = isAdmin || isVendedor || can('propostas.criar');
   const podeEditar = isAdmin || isVendedor || can('propostas.editar') || can('propostas.editar_todos') || can('propostas.editar_todas');
-  const [statusFilter, setStatusFilter] = useState<StatusProposta | 'all'>('all');
-  const [search, setSearch] = useState('');
+  const podeConverterPedido = isAdmin || isVendedor || can('pedidos.criar');
+  const statusParam = searchParams.get('status');
+  const statusFilter: StatusProposta | 'all' =
+    statusParam && statusOptions.some((option) => option.value === statusParam)
+      ? (statusParam as StatusProposta)
+      : 'all';
+  const search = searchParams.get('search') || '';
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
 
   const { data: propostas = [], isLoading } = usePropostas(
     statusFilter !== 'all' ? { status: statusFilter } : undefined
   );
   const deleteMutation = useDeleteProposta();
+  const updateStatusMutation = useUpdatePropostaStatus();
+
+  const updateFilters = (changes: {
+    status?: StatusProposta | 'all' | null;
+    search?: string | null;
+  }) => {
+    const next = new URLSearchParams(searchParams);
+
+    if (changes.status !== undefined) {
+      if (!changes.status || changes.status === 'all') next.delete('status');
+      else next.set('status', changes.status);
+    }
+
+    if (changes.search !== undefined) {
+      const value = (changes.search || '').trim();
+      if (!value) next.delete('search');
+      else next.set('search', value);
+    }
+
+    setSearchParams(next, { replace: true });
+  };
+
+  const returnTo = `/propostas${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
 
   const filteredPropostas = propostas.filter((proposta: any) => {
     const searchLower = search.toLowerCase();
@@ -92,6 +130,15 @@ export default function PropostasLista() {
     if (deleteId) {
       await deleteMutation.mutateAsync(deleteId);
       setDeleteId(null);
+    }
+  };
+
+  const handleStatusChange = async (propostaId: string, nextStatus: StatusProposta) => {
+    setUpdatingStatusId(propostaId);
+    try {
+      await updateStatusMutation.mutateAsync({ id: propostaId, status: nextStatus });
+    } finally {
+      setUpdatingStatusId(null);
     }
   };
 
@@ -185,23 +232,23 @@ export default function PropostasLista() {
             <Input
               placeholder="Buscar por cliente, vendedor ou telefone..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => updateFilters({ search: e.target.value })}
               className="flex-1"
             />
             <Select
               value={statusFilter}
-              onValueChange={(value) => setStatusFilter(value as StatusProposta | 'all')}
+              onValueChange={(value) => updateFilters({ status: value as StatusProposta | 'all' })}
             >
               <SelectTrigger className="w-full sm:w-[200px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos os Status</SelectItem>
-                <SelectItem value="pendente">Pendente</SelectItem>
-                <SelectItem value="enviada">Enviada</SelectItem>
-                <SelectItem value="follow_up">Follow-up</SelectItem>
-                <SelectItem value="ganha">Ganha</SelectItem>
-                <SelectItem value="perdida">Perdida</SelectItem>
+                {statusOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -237,7 +284,26 @@ export default function PropostasLista() {
                         </TableCell>
                         <TableCell>{formatCurrency(proposta.valor_total)}</TableCell>
                         <TableCell>
-                          <Badge variant={config.variant}>{config.label}</Badge>
+                          {podeEditar ? (
+                            <Select
+                              value={proposta.status}
+                              onValueChange={(value) => handleStatusChange(proposta.id, value as StatusProposta)}
+                              disabled={updateStatusMutation.isPending && updatingStatusId === proposta.id}
+                            >
+                              <SelectTrigger className="h-8 w-[140px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {statusOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge variant={config.variant}>{config.label}</Badge>
+                          )}
                         </TableCell>
                         <TableCell>
                           {proposta.data_follow_up ? (
@@ -269,7 +335,11 @@ export default function PropostasLista() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => navigate(`/propostas/${proposta.id}`)}
+                              onClick={() =>
+                                navigate(
+                                  `/propostas/${proposta.id}?returnTo=${encodeURIComponent(returnTo)}`
+                                )
+                              }
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
@@ -277,9 +347,23 @@ export default function PropostasLista() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => navigate(`/propostas/editar/${proposta.id}`)}
+                                onClick={() =>
+                                  navigate(
+                                    `/propostas/editar/${proposta.id}?returnTo=${encodeURIComponent(returnTo)}`
+                                  )
+                                }
                               >
                                 <Pencil className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {podeConverterPedido && proposta.status === 'ganha' && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Converter em pedido"
+                                onClick={() => navigate(`/pedidos/novo?propostaId=${proposta.id}`)}
+                              >
+                                <CheckCircle className="h-4 w-4" />
                               </Button>
                             )}
                             {isAdmin && (

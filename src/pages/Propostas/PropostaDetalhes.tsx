@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useProposta } from '@/hooks/usePropostas';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -34,6 +34,8 @@ const statusConfig = {
 export default function PropostaDetalhes() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnTo = searchParams.get('returnTo') || '/propostas';
   const { data: proposta, isLoading } = useProposta(id);
   const { isAdmin, isVendedor } = useUserRole();
   const { can } = usePermissions();
@@ -183,7 +185,7 @@ export default function PropostaDetalhes() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/propostas')}>
+          <Button variant="ghost" size="icon" onClick={() => navigate(returnTo)}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -198,7 +200,12 @@ export default function PropostaDetalhes() {
             Visualizar Orçamento
           </Button>
           {podeEditar && (
-            <Button variant="outline" onClick={() => navigate(`/propostas/editar/${id}`)}>
+            <Button
+              variant="outline"
+              onClick={() =>
+                navigate(`/propostas/editar/${id}?returnTo=${encodeURIComponent(returnTo)}`)
+              }
+            >
               <Pencil className="h-4 w-4 mr-2" />
               Editar
             </Button>

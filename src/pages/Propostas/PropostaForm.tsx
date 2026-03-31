@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -96,6 +96,8 @@ type PropostaFormValues = z.infer<typeof propostaSchema>;
 export default function PropostaForm() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnTo = searchParams.get('returnTo') || '/propostas';
   const isEditing = id !== undefined && id !== 'nova';
   const { user } = useAuth();
   const { can } = usePermissions();
@@ -274,7 +276,7 @@ export default function PropostaForm() {
             <p className="text-center text-muted-foreground">
               Você não tem permissão para editar propostas.
             </p>
-            <Button onClick={() => navigate('/propostas')} className="mt-4">
+            <Button onClick={() => navigate(returnTo)} className="mt-4">
               Voltar
             </Button>
           </CardContent>
@@ -292,7 +294,7 @@ export default function PropostaForm() {
             <p className="text-center text-muted-foreground">
               Você não tem permissão para criar propostas.
             </p>
-            <Button onClick={() => navigate('/propostas')} className="mt-4">
+            <Button onClick={() => navigate(returnTo)} className="mt-4">
               Voltar
             </Button>
           </CardContent>
@@ -310,7 +312,7 @@ export default function PropostaForm() {
             <p className="text-center text-muted-foreground">
               Você não tem permissão para editar propostas de outros vendedores.
             </p>
-            <Button onClick={() => navigate('/propostas')} className="mt-4">
+            <Button onClick={() => navigate(returnTo)} className="mt-4">
               Voltar
             </Button>
           </CardContent>
@@ -354,7 +356,7 @@ export default function PropostaForm() {
     } else {
       await createMutation.mutateAsync(formData);
     }
-    navigate('/propostas');
+    navigate(returnTo);
   };
 
   const buscarFaixaPreco = async (produtoId: string, quantidade: number, index: number) => {
@@ -1056,7 +1058,7 @@ export default function PropostaForm() {
           </Card>
 
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => navigate('/propostas')}>
+            <Button type="button" variant="outline" onClick={() => navigate(returnTo)}>
               Cancelar
             </Button>
             <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>

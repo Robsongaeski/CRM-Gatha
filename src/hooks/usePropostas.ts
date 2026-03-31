@@ -295,3 +295,40 @@ export function useDeleteProposta() {
     },
   });
 }
+
+export function useUpdatePropostaStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      status,
+    }: {
+      id: string;
+      status: StatusProposta;
+    }) => {
+      const updateData: Record<string, unknown> = { status };
+
+      const { error } = await supabase
+        .from('propostas')
+        .update(updateData)
+        .eq('id', id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['propostas'] });
+      toast({
+        title: 'Sucesso',
+        description: 'Status da proposta atualizado',
+      });
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: 'Erro ao atualizar status',
+        description: sanitizeError(error),
+        variant: 'destructive',
+      });
+    },
+  });
+}
