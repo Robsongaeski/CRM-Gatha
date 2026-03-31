@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from '@/hooks/use-toast';
 import { sanitizeError } from '@/lib/errorHandling';
+import { getCurrentMonthStart, getNextMonthStart } from '@/lib/monthUtils';
 
 export interface Comissao {
   id: string;
@@ -98,10 +99,8 @@ export function useDashboardComissao(vendedorIdParam?: string, mesCompetencia?: 
     queryFn: async () => {
       if (!vendedorId) return null;
 
-      const mesAtual = mesCompetencia || (new Date().toISOString().slice(0, 7) + '-01');
-      const primeiroDiaMes = new Date(mesAtual);
-      const ultimoDiaMes = new Date(primeiroDiaMes);
-      ultimoDiaMes.setMonth(ultimoDiaMes.getMonth() + 1);
+      const mesAtual = mesCompetencia || getCurrentMonthStart();
+      const proximoMes = getNextMonthStart(mesAtual);
 
       // 1. Buscar total vendido no mês (todos os pedidos não cancelados)
       const { data: pedidos, error: pedidosError } = await supabase
@@ -110,7 +109,7 @@ export function useDashboardComissao(vendedorIdParam?: string, mesCompetencia?: 
         .eq('vendedor_id', vendedorId)
         .neq('status', 'cancelado')
         .gte('data_pedido', mesAtual)
-        .lt('data_pedido', ultimoDiaMes.toISOString());
+        .lt('data_pedido', proximoMes);
 
       if (pedidosError) throw pedidosError;
 

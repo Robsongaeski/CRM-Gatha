@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
+import { getCurrentMonthStart, getNextMonthStart, getPreviousMonthStart } from '@/lib/monthUtils';
 
 export interface DashboardVendedorData {
   // Métricas Gerais
@@ -50,15 +51,10 @@ export function useDashboardVendedor(vendedorIdParam?: string) {
     queryFn: async () => {
       if (!vendedorId) return null;
 
-      const mesAtual = new Date().toISOString().slice(0, 7) + '-01';
-      const mesAnterior = new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().slice(0, 7) + '-01';
-      const primeiroDiaMesAtual = new Date(mesAtual);
-      const ultimoDiaMesAtual = new Date(primeiroDiaMesAtual);
-      ultimoDiaMesAtual.setMonth(ultimoDiaMesAtual.getMonth() + 1);
-      
-      const primeiroDiaMesAnterior = new Date(mesAnterior);
-      const ultimoDiaMesAnterior = new Date(primeiroDiaMesAnterior);
-      ultimoDiaMesAnterior.setMonth(ultimoDiaMesAnterior.getMonth() + 1);
+      const mesAtual = getCurrentMonthStart();
+      const mesAnterior = getPreviousMonthStart();
+      const proximoMesAtual = getNextMonthStart(mesAtual);
+      const proximoMesAnterior = getNextMonthStart(mesAnterior);
 
       // 1. Buscar todos os pedidos do mês atual (excluir cancelados e aguardando aprovação)
       const { data: pedidosMesAtual } = await supabase
@@ -66,9 +62,8 @@ export function useDashboardVendedor(vendedorIdParam?: string) {
         .select('*')
         .eq('vendedor_id', vendedorId)
         .neq('status', 'cancelado')
-        .or('requer_aprovacao_preco.is.null,requer_aprovacao_preco.eq.false')
         .gte('data_pedido', mesAtual)
-        .lt('data_pedido', ultimoDiaMesAtual.toISOString());
+        .lt('data_pedido', proximoMesAtual);
 
       // 2. Buscar pedidos do mês anterior para comparação
       const { data: pedidosMesAnterior } = await supabase
@@ -76,9 +71,8 @@ export function useDashboardVendedor(vendedorIdParam?: string) {
         .select('valor_total')
         .eq('vendedor_id', vendedorId)
         .neq('status', 'cancelado')
-        .or('requer_aprovacao_preco.is.null,requer_aprovacao_preco.eq.false')
         .gte('data_pedido', mesAnterior)
-        .lt('data_pedido', ultimoDiaMesAnterior.toISOString());
+        .lt('data_pedido', proximoMesAnterior);
 
       // 3. Buscar comissões do mês
       const { data: comissoes } = await supabase
