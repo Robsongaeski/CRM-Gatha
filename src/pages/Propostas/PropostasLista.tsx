@@ -33,7 +33,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Plus, Eye, Pencil, Trash2, Bell, CheckCircle, X } from 'lucide-react';
-import { format, isBefore, isToday } from 'date-fns';
+import { endOfMonth, format, isBefore, isToday, isWithinInterval, startOfMonth } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 
 const statusConfig = {
@@ -99,9 +100,7 @@ export default function PropostasLista() {
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
-  const { data: propostas = [], isLoading } = usePropostas(
-    statusFilter !== 'all' ? { status: statusFilter } : undefined
-  );
+  const { data: propostas = [], isLoading } = usePropostas();
   const deleteMutation = useDeleteProposta();
   const updateStatusMutation = useUpdatePropostaStatus();
 
@@ -129,10 +128,14 @@ export default function PropostasLista() {
 
   const filteredPropostas = propostas.filter((proposta: any) => {
     const searchLower = search.toLowerCase();
+    const statusMatch = statusFilter === 'all' || proposta.status === statusFilter;
     return (
-      proposta.cliente?.nome_razao_social?.toLowerCase().includes(searchLower) ||
-      proposta.cliente?.telefone?.toLowerCase().includes(searchLower) ||
-      proposta.vendedor?.nome?.toLowerCase().includes(searchLower)
+      statusMatch &&
+      (
+        proposta.cliente?.nome_razao_social?.toLowerCase().includes(searchLower) ||
+        proposta.cliente?.telefone?.toLowerCase().includes(searchLower) ||
+        proposta.vendedor?.nome?.toLowerCase().includes(searchLower)
+      )
     );
   });
   const totalPages = Math.max(1, Math.ceil(filteredPropostas.length / ITENS_POR_PAGINA));
@@ -222,14 +225,25 @@ export default function PropostasLista() {
   };
 
   const temFiltrosAtivos = statusFilter !== 'all' || search.trim().length > 0;
+  const agora = new Date();
+  const inicioMesAtual = startOfMonth(agora);
+  const fimMesAtual = endOfMonth(agora);
+  const propostasMesAtual = propostas.filter((proposta: any) => {
+    if (!proposta.created_at) return false;
+    return isWithinInterval(new Date(proposta.created_at), {
+      start: inicioMesAtual,
+      end: fimMesAtual,
+    });
+  });
+  const mesAtualLabel = format(agora, "MMMM 'de' yyyy", { locale: ptBR });
 
   const stats = {
-    total: propostas.length,
-    ganhas: propostas.filter((p: any) => p.status === 'ganha').length,
-    valorTotal: propostas
+    total: propostasMesAtual.length,
+    ganhas: propostasMesAtual.filter((p: any) => p.status === 'ganha').length,
+    valorTotal: propostasMesAtual
       .filter((p: any) => p.status !== 'perdida')
       .reduce((sum: number, p: any) => sum + parseFloat(p.valor_total || 0), 0),
-    lembretesHoje: propostas.filter(
+    lembretesHoje: propostasMesAtual.filter(
       (p: any) => p.data_follow_up && isToday(new Date(p.data_follow_up))
     ).length,
   };
@@ -248,7 +262,10 @@ export default function PropostasLista() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Propostas</h1>
+        <div>
+          <h1 className="text-3xl font-bold">Propostas</h1>
+          <p className="text-sm text-muted-foreground capitalize">Resumo do mês: {mesAtualLabel}</p>
+        </div>
         {podeCriar && (
           <Button onClick={() => navigate('/propostas/nova')}>
             <Plus className="h-4 w-4 mr-2" />
@@ -261,7 +278,7 @@ export default function PropostasLista() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total de Propostas
+              Total de Propostas do Mês
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -272,7 +289,7 @@ export default function PropostasLista() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Propostas Ganhas
+              Propostas Ganhas no Mês
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -287,7 +304,7 @@ export default function PropostasLista() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Valor em Negociação
+              Valor em Negociação no Mês
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -308,47 +325,49 @@ export default function PropostasLista() {
       </div>
 
       <Card>
-        <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <CardTitle>Lista de Propostas</CardTitle>
-            {temFiltrosAtivos && (
-              <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-muted-foreground">
-                <X className="h-4 w-4 mr-2" />
-                Limpar Filtros
-              </Button>
-            )}
-          </div>
-          <div className="flex flex-col sm:flex-row gap-4 mt-4">
-            <Input
-              placeholder="Buscar por cliente, vendedor ou telefone..."
-              value={search}
-              onChange={(e) => updateFilters({ search: e.target.value })}
-              className="flex-1"
-            />
-            <Select
-              value={statusFilter}
-              onValueChange={(value) => updateFilters({ status: value as StatusProposta | 'all' })}
-            >
-              <SelectTrigger className="w-full sm:w-[200px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos os Status</SelectItem>
-                {statusOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {filteredPropostas.length > 0 && (
-            <div className="mt-4 border-t pt-4">
-              {renderPagination()}
-            </div>
-          )}
+        <CardHeader>
+          <CardTitle>Lista de Propostas</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="sticky top-2 z-20 mb-4 rounded-md border bg-background/95 p-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Input
+                  placeholder="Buscar por cliente, vendedor ou telefone..."
+                  value={search}
+                  onChange={(e) => updateFilters({ search: e.target.value })}
+                  className="flex-1"
+                />
+                <Select
+                  value={statusFilter}
+                  onValueChange={(value) => updateFilters({ status: value as StatusProposta | 'all' })}
+                >
+                  <SelectTrigger className="w-full sm:w-[200px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os Status</SelectItem>
+                    {statusOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {temFiltrosAtivos && (
+                  <Button variant="ghost" size="sm" onClick={limparFiltros} className="w-full sm:w-auto">
+                    <X className="h-4 w-4 mr-2" />
+                    Limpar Filtros
+                  </Button>
+                )}
+              </div>
+              {filteredPropostas.length > 0 && (
+                <div className="border-t pt-3">
+                  {renderPagination()}
+                </div>
+              )}
+            </div>
+          </div>
           {filteredPropostas.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-muted-foreground">Nenhuma proposta encontrada</p>
