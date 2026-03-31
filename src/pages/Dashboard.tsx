@@ -139,6 +139,21 @@ export default function Dashboard() {
   const formatPercentage = (value: number) => 
     `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
 
+  const comissaoConfirmada = dashboardComissao.data
+    ? dashboardComissao.data.comissoes
+        .filter(c => c.status === 'pendente' || c.status === 'paga')
+        .reduce((sum, c) => sum + Number(c.valor_comissao), 0)
+    : 0;
+
+  const comissaoPrevista = dashboardComissao.data
+    ? dashboardComissao.data.comissoes
+        .filter(c => c.status === 'prevista')
+        .reduce((sum, c) => sum + Number(c.valor_comissao), 0)
+    : 0;
+
+  const percentualFaixaAtual = Number(dashboardComissao.data?.faixa_atual?.percentual || 0);
+  const comissaoTeoricaMes = (dashboardVendedor.data?.total_vendas_mes || 0) * (percentualFaixaAtual / 100);
+
   if (!isVendedor && !isAdmin) {
     return (
       <div className="space-y-6">
@@ -310,28 +325,29 @@ export default function Dashboard() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Comissão Total</CardTitle>
+                <CardTitle className="text-sm font-medium">Comissões</CardTitle>
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-purple-600">
                   {formatCurrency(dashboardVendedor.data.total_comissao_mes)}
                 </div>
+                <p className="text-xs text-muted-foreground">competência do mês (real)</p>
                 <div className="flex items-center gap-2 mt-2">
                   <span className="text-xs text-green-600 font-medium">
-                    {dashboardComissao.data && formatCurrency(
-                      dashboardComissao.data.comissoes
-                        .filter(c => c.status === 'pendente' || c.status === 'paga')
-                        .reduce((sum, c) => sum + Number(c.valor_comissao), 0)
-                    )} confirmada
+                    {formatCurrency(comissaoConfirmada)} confirmada
                   </span>
                   <span className="text-xs text-orange-600 font-medium">
-                    {dashboardComissao.data && formatCurrency(
-                      dashboardComissao.data.comissoes
-                        .filter(c => c.status === 'prevista')
-                        .reduce((sum, c) => sum + Number(c.valor_comissao), 0)
-                    )} prevista
+                    {formatCurrency(comissaoPrevista)} prevista
                   </span>
+                </div>
+                <div className="mt-3 border-t pt-3">
+                  <p className="text-xs text-muted-foreground">
+                    teórica sobre vendas do mês ({percentualFaixaAtual}%)
+                  </p>
+                  <p className="text-lg font-semibold text-blue-700">
+                    {formatCurrency(comissaoTeoricaMes)}
+                  </p>
                 </div>
               </CardContent>
             </Card>
