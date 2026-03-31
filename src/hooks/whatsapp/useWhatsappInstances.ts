@@ -27,6 +27,36 @@ export interface WhatsappInstance {
   import_history_days?: number | null;
 }
 
+function getErrorMessage(error: unknown) {
+  if (!error) return '';
+  if (typeof error === 'string') return error;
+  if (typeof error === 'object' && 'message' in error) {
+    return String((error as { message?: unknown }).message ?? '');
+  }
+  return String(error);
+}
+
+function isMissingColumnError(error: unknown, columns: string[]) {
+  const message = getErrorMessage(error).toLowerCase();
+  if (!message) return false;
+  const mentionsColumn = columns.some((column) => message.includes(column.toLowerCase()));
+  if (!mentionsColumn) return false;
+  return message.includes('schema cache') || message.includes('does not exist') || message.includes('column');
+}
+
+function buildHistoryInsertPayload(data: { import_history_enabled?: boolean; import_history_days?: number }) {
+  const importHistoryEnabled = data.import_history_enabled === true;
+  const payload: Record<string, unknown> = {
+    import_history_enabled: importHistoryEnabled,
+  };
+
+  if (importHistoryEnabled) {
+    payload.import_history_days = data.import_history_days ?? 7;
+  }
+
+  return payload;
+}
+
 function invalidateInstanceQueries(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ['whatsapp-instances'] });
   queryClient.invalidateQueries({ queryKey: ['whatsapp-user-instances'] });
@@ -69,17 +99,33 @@ export function useCreateWhatsappInstance() {
       if (!evolutionResult.success) throw new Error(evolutionResult.error);
 
       // Salvar no banco
-      const { data: instance, error } = await supabase
+      const insertPayload: Record<string, unknown> = {
+        nome: data.nome,
+        instance_name: data.instance_name,
+        status: 'disconnected',
+        ...buildHistoryInsertPayload(data),
+      };
+
+      let { data: instance, error } = await supabase
         .from('whatsapp_instances')
-        .insert({
-          nome: data.nome,
-          instance_name: data.instance_name,
-          status: 'disconnected',
-          import_history_enabled: data.import_history_enabled ?? false,
-          import_history_days: data.import_history_days ?? 7,
-        })
+        .insert(insertPayload)
         .select()
         .single();
+
+      if (error && isMissingColumnError(error, ['import_history_enabled', 'import_history_days'])) {
+        const fallbackPayload = {
+          nome: data.nome,
+          instance_name: data.instance_name,
+          status: 'disconnected' as const,
+        };
+        const retry = await supabase
+          .from('whatsapp_instances')
+          .insert(fallbackPayload)
+          .select()
+          .single();
+        instance = retry.data;
+        error = retry.error;
+      }
 
       if (error) throw error;
 
@@ -131,8 +177,7 @@ export function useCreateUazapiInstance() {
         instance_name: data.instance_name,
         status: 'disconnected',
         api_type: 'uazapi',
-        import_history_enabled: data.import_history_enabled ?? false,
-        import_history_days: data.import_history_days ?? 7,
+        ...buildHistoryInsertPayload(data),
       };
 
       if (uazapiResult.instanceToken) insertPayload.uazapi_instance_token = uazapiResult.instanceToken;
@@ -144,14 +189,48 @@ export function useCreateUazapiInstance() {
         .select()
         .single();
 
-      if (error && /uazapi_instance_token|uazapi_instance_external_id/i.test(error.message || '')) {
+      if (error && /uazapi_instance_token|uazapi_instance_external_id/i.test(getErrorMessage(error))) {
         const fallbackPayload = {
           nome: data.nome,
           instance_name: data.instance_name,
           status: 'disconnected' as const,
           api_type: 'uazapi' as const,
-          import_history_enabled: data.import_history_enabled ?? false,
-          import_history_days: data.import_history_days ?? 7,
+          ...buildHistoryInsertPayload(data),
+        };
+        const retry = await supabase
+          .from('whatsapp_instances')
+          .insert(fallbackPayload)
+          .select()
+          .single();
+        instance = retry.data;
+        error = retry.error;
+      }
+
+      if (error && isMissingColumnError(error, ['import_history_enabled', 'import_history_days'])) {
+        const fallbackPayload: Record<string, unknown> = {
+          nome: data.nome,
+          instance_name: data.instance_name,
+          status: 'disconnected',
+          api_type: 'uazapi',
+        };
+        if (uazapiResult.instanceToken) fallbackPayload.uazapi_instance_token = uazapiResult.instanceToken;
+        if (uazapiResult.instanceExternalId) fallbackPayload.uazapi_instance_external_id = uazapiResult.instanceExternalId;
+
+        const retry = await supabase
+          .from('whatsapp_instances')
+          .insert(fallbackPayload)
+          .select()
+          .single();
+        instance = retry.data;
+        error = retry.error;
+      }
+
+      if (error && /uazapi_instance_token|uazapi_instance_external_id/i.test(getErrorMessage(error))) {
+        const fallbackPayload = {
+          nome: data.nome,
+          instance_name: data.instance_name,
+          status: 'disconnected' as const,
+          api_type: 'uazapi' as const,
         };
         const retry = await supabase
           .from('whatsapp_instances')
