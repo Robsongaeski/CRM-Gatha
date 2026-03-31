@@ -251,6 +251,34 @@ export default function PedidosLista() {
   const paginatedPedidos = listaPedidos.slice(startIndex, startIndex + ITENS_POR_PAGINA);
   const inicioItem = listaPedidos.length === 0 ? 0 : startIndex + 1;
   const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, listaPedidos.length);
+  const renderPagination = () => (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-muted-foreground">
+        Mostrando {inicioItem}-{fimItem} de {listaPedidos.length} pedidos
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+          disabled={safeCurrentPage === 1}
+        >
+          Anterior
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          Pagina {safeCurrentPage} de {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+          disabled={safeCurrentPage === totalPages}
+        >
+          Proxima
+        </Button>
+      </div>
+    </div>
+  );
 
   useEffect(() => {
     setCurrentPage(1);
@@ -510,6 +538,11 @@ export default function PedidosLista() {
               </div>
             </CollapsibleContent>
           </Collapsible>
+          {listaPedidos.length > 0 && (
+            <div className="border-t pt-4">
+              {renderPagination()}
+            </div>
+          )}
 
           {/* Tabela */}
           <Table>
@@ -727,31 +760,8 @@ export default function PedidosLista() {
             </TableBody>
           </Table>
           {listaPedidos.length > 0 && (
-            <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-muted-foreground">
-                Mostrando {inicioItem}-{fimItem} de {listaPedidos.length} pedidos
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                  disabled={safeCurrentPage === 1}
-                >
-                  Anterior
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  Pagina {safeCurrentPage} de {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-                  disabled={safeCurrentPage === totalPages}
-                >
-                  Proxima
-                </Button>
-              </div>
+            <div className="pt-2">
+              {renderPagination()}
             </div>
           )}
         </CardContent>

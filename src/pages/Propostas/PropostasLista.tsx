@@ -53,11 +53,11 @@ const statusOptions: Array<{ value: StatusProposta; label: string }> = [
 ];
 
 const statusSelectStyles: Record<StatusProposta, string> = {
-  pendente: 'border-slate-300 bg-slate-50 text-slate-700',
-  enviada: 'border-amber-300 bg-amber-50 text-amber-800',
-  follow_up: 'border-indigo-300 bg-indigo-50 text-indigo-800',
-  ganha: 'border-emerald-300 bg-emerald-50 text-emerald-800',
-  perdida: 'border-rose-300 bg-rose-50 text-rose-800',
+  pendente: 'text-slate-700',
+  enviada: 'text-amber-800',
+  follow_up: 'text-indigo-800',
+  ganha: 'text-emerald-800',
+  perdida: 'text-rose-800',
 };
 
 const statusBadgeStyles: Record<StatusProposta, string> = {
@@ -66,6 +66,17 @@ const statusBadgeStyles: Record<StatusProposta, string> = {
   follow_up: 'bg-indigo-500 text-white',
   ganha: 'bg-emerald-600 text-white',
   perdida: 'bg-rose-600 text-white',
+};
+
+const statusSelectInlineStyles: Record<
+  StatusProposta,
+  { backgroundColor: string; borderColor: string; color: string }
+> = {
+  pendente: { backgroundColor: '#f8fafc', borderColor: '#cbd5e1', color: '#334155' },
+  enviada: { backgroundColor: '#fffbeb', borderColor: '#fcd34d', color: '#92400e' },
+  follow_up: { backgroundColor: '#eef2ff', borderColor: '#a5b4fc', color: '#3730a3' },
+  ganha: { backgroundColor: '#ecfdf5', borderColor: '#6ee7b7', color: '#065f46' },
+  perdida: { backgroundColor: '#fff1f2', borderColor: '#fda4af', color: '#9f1239' },
 };
 
 const ITENS_POR_PAGINA = 15;
@@ -130,6 +141,35 @@ export default function PropostasLista() {
   const paginatedPropostas = filteredPropostas.slice(startIndex, startIndex + ITENS_POR_PAGINA);
   const inicioItem = filteredPropostas.length === 0 ? 0 : startIndex + 1;
   const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, filteredPropostas.length);
+
+  const renderPagination = () => (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-muted-foreground">
+        Mostrando {inicioItem}-{fimItem} de {filteredPropostas.length} propostas
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+          disabled={safeCurrentPage === 1}
+        >
+          Anterior
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          Pagina {safeCurrentPage} de {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+          disabled={safeCurrentPage === totalPages}
+        >
+          Proxima
+        </Button>
+      </div>
+    </div>
+  );
 
   useEffect(() => {
     setCurrentPage(1);
@@ -302,6 +342,11 @@ export default function PropostasLista() {
               </SelectContent>
             </Select>
           </div>
+          {filteredPropostas.length > 0 && (
+            <div className="mt-4 border-t pt-4">
+              {renderPagination()}
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {filteredPropostas.length === 0 ? (
@@ -345,6 +390,7 @@ export default function PropostasLista() {
                                   'h-8 w-[140px] font-medium',
                                   statusSelectStyles[proposta.status as StatusProposta]
                                 )}
+                                style={statusSelectInlineStyles[proposta.status as StatusProposta]}
                               >
                                 <SelectValue />
                               </SelectTrigger>
@@ -442,31 +488,8 @@ export default function PropostasLista() {
             </div>
           )}
           {filteredPropostas.length > 0 && (
-            <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-muted-foreground">
-                Mostrando {inicioItem}-{fimItem} de {filteredPropostas.length} propostas
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                  disabled={safeCurrentPage === 1}
-                >
-                  Anterior
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  Pagina {safeCurrentPage} de {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-                  disabled={safeCurrentPage === totalPages}
-                >
-                  Proxima
-                </Button>
-              </div>
+            <div className="pt-4">
+              {renderPagination()}
             </div>
           )}
         </CardContent>

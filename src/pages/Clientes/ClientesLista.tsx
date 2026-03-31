@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, Search } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserRole } from '@/hooks/useUserRole';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -28,6 +28,8 @@ export default function ClientesLista() {
   const podeEditar = isAdmin || isVendedor || can('clientes.editar');
   const [search, setSearch] = useState('');
   const [segmentoFilter, setSegmentoFilter] = useState<string>('todos');
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITENS_POR_PAGINA = 15;
   const { data: segmentos = [] } = useSegmentos();
 
   const { data: clientes = [], isLoading } = useQuery({
@@ -76,6 +78,52 @@ export default function ClientesLista() {
     },
   });
 
+  const totalPages = Math.max(1, Math.ceil(clientes.length / ITENS_POR_PAGINA));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * ITENS_POR_PAGINA;
+  const paginatedClientes = clientes.slice(startIndex, startIndex + ITENS_POR_PAGINA);
+  const inicioItem = clientes.length === 0 ? 0 : startIndex + 1;
+  const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, clientes.length);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, segmentoFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const renderPagination = () => (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-muted-foreground">
+        Mostrando {inicioItem}-{fimItem} de {clientes.length} clientes
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+          disabled={safeCurrentPage === 1}
+        >
+          Anterior
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          Pagina {safeCurrentPage} de {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+          disabled={safeCurrentPage === totalPages}
+        >
+          Proxima
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -118,6 +166,11 @@ export default function ClientesLista() {
               </SelectContent>
             </Select>
           </div>
+          {!isLoading && clientes.length > 0 && (
+            <div className="mt-4 border-t pt-4">
+              {renderPagination()}
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -137,7 +190,7 @@ export default function ClientesLista() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {clientes.map((cliente) => (
+                {paginatedClientes.map((cliente) => (
                   <TableRow key={cliente.id}>
                     <TableCell className="font-medium">
                       {cliente.responsavel && (
@@ -174,6 +227,11 @@ export default function ClientesLista() {
                 ))}
               </TableBody>
             </Table>
+          )}
+          {!isLoading && clientes.length > 0 && (
+            <div className="pt-4">
+              {renderPagination()}
+            </div>
           )}
         </CardContent>
       </Card>
