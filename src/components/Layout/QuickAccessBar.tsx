@@ -31,7 +31,7 @@ export function QuickAccessBar() {
 
   return (
     <>
-      <div className="flex flex-col h-full w-12 bg-sidebar border-r border-sidebar-border shrink-0">
+      <div className="flex h-screen max-h-[100dvh] flex-col self-start w-12 bg-sidebar border-r border-sidebar-border shrink-0 overflow-hidden">
         {/* Lista de atalhos */}
         <div className="flex-1 flex flex-col items-center py-2 gap-1 overflow-y-auto">
           {shortcuts.map((shortcut) => {

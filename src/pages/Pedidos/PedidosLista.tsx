@@ -49,6 +49,7 @@ import { ptBR } from 'date-fns/locale';
 import { formatCurrency, parseDateString } from '@/lib/formatters';
 
 const FILTROS_STORAGE_KEY = 'pedidos-filtros';
+const ITENS_POR_PAGINA = 15;
 
 const statusColors: Record<StatusPedido, string> = {
   rascunho: 'bg-gray-400',
@@ -111,6 +112,7 @@ export default function PedidosLista() {
   const [buscaFilter, setBuscaFilter] = useState(filtrosSalvos?.buscaFilter || '');
   const [dataInicioFilter, setDataInicioFilter] = useState(filtrosSalvos?.dataInicioFilter || '');
   const [dataFimFilter, setDataFimFilter] = useState(filtrosSalvos?.dataFimFilter || '');
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Salvar filtros quando mudarem
   useEffect(() => {
@@ -242,6 +244,23 @@ export default function PedidosLista() {
   };
 
   const { data: pedidos, isLoading } = usePedidos(Object.keys(filtros).length > 0 ? filtros : undefined);
+  const listaPedidos = pedidos || [];
+  const totalPages = Math.max(1, Math.ceil(listaPedidos.length / ITENS_POR_PAGINA));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * ITENS_POR_PAGINA;
+  const paginatedPedidos = listaPedidos.slice(startIndex, startIndex + ITENS_POR_PAGINA);
+  const inicioItem = listaPedidos.length === 0 ? 0 : startIndex + 1;
+  const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, listaPedidos.length);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, statusPagamentoFilter, vendedorFilter, clienteFilter, buscaFilter, dataInicioFilter, dataFimFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // Verificar permissões de edição para cada pedido
   const { data: permissoesEdicao } = useQuery({
@@ -510,7 +529,7 @@ export default function PedidosLista() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pedidos?.map((pedido: any) => {
+              {paginatedPedidos.map((pedido: any) => {
                 const valorPendente = calcularValorPendente(pedido.id, Number(pedido.valor_total));
                 // Priorizar imagem aprovada, senão pegar primeira foto disponível dos itens
                 const primeiraFoto = (pedido.imagem_aprovada && pedido.imagem_aprovacao_url) 
@@ -698,7 +717,7 @@ export default function PedidosLista() {
                   </TableRow>
                 );
               })}
-              {!pedidos?.length && (
+              {!listaPedidos.length && (
                 <TableRow>
                   <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                     Nenhum pedido encontrado
@@ -707,6 +726,34 @@ export default function PedidosLista() {
               )}
             </TableBody>
           </Table>
+          {listaPedidos.length > 0 && (
+            <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                Mostrando {inicioItem}-{fimItem} de {listaPedidos.length} pedidos
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                  disabled={safeCurrentPage === 1}
+                >
+                  Anterior
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Pagina {safeCurrentPage} de {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                  disabled={safeCurrentPage === totalPages}
+                >
+                  Proxima
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

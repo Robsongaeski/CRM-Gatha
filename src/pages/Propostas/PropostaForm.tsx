@@ -197,7 +197,7 @@ export default function PropostaForm() {
     resolver: zodResolver(propostaSchema),
     defaultValues: {
       cliente_id: '',
-      status: 'pendente',
+      status: 'enviada',
       observacoes: '',
       data_follow_up: null,
       motivo_perda: '',

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { usePropostas, useDeleteProposta, useUpdatePropostaStatus, StatusProposta } from '@/hooks/usePropostas';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -32,7 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Eye, Pencil, Trash2, Bell, CheckCircle } from 'lucide-react';
+import { Plus, Eye, Pencil, Trash2, Bell, CheckCircle, X } from 'lucide-react';
 import { format, isBefore, isToday } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -52,6 +52,24 @@ const statusOptions: Array<{ value: StatusProposta; label: string }> = [
   { value: 'perdida', label: 'Perdida' },
 ];
 
+const statusSelectStyles: Record<StatusProposta, string> = {
+  pendente: 'border-slate-300 bg-slate-50 text-slate-700',
+  enviada: 'border-amber-300 bg-amber-50 text-amber-800',
+  follow_up: 'border-indigo-300 bg-indigo-50 text-indigo-800',
+  ganha: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+  perdida: 'border-rose-300 bg-rose-50 text-rose-800',
+};
+
+const statusBadgeStyles: Record<StatusProposta, string> = {
+  pendente: 'bg-slate-500 text-white',
+  enviada: 'bg-amber-500 text-white',
+  follow_up: 'bg-indigo-500 text-white',
+  ganha: 'bg-emerald-600 text-white',
+  perdida: 'bg-rose-600 text-white',
+};
+
+const ITENS_POR_PAGINA = 15;
+
 export default function PropostasLista() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -68,6 +86,7 @@ export default function PropostasLista() {
   const search = searchParams.get('search') || '';
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const { data: propostas = [], isLoading } = usePropostas(
     statusFilter !== 'all' ? { status: statusFilter } : undefined
@@ -105,6 +124,22 @@ export default function PropostasLista() {
       proposta.vendedor?.nome?.toLowerCase().includes(searchLower)
     );
   });
+  const totalPages = Math.max(1, Math.ceil(filteredPropostas.length / ITENS_POR_PAGINA));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * ITENS_POR_PAGINA;
+  const paginatedPropostas = filteredPropostas.slice(startIndex, startIndex + ITENS_POR_PAGINA);
+  const inicioItem = filteredPropostas.length === 0 ? 0 : startIndex + 1;
+  const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, filteredPropostas.length);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const formatCurrency = (value: number | string) => {
     const numValue = typeof value === 'string' ? parseFloat(value) : value;
@@ -141,6 +176,12 @@ export default function PropostasLista() {
       setUpdatingStatusId(null);
     }
   };
+
+  const limparFiltros = () => {
+    updateFilters({ search: '', status: 'all' });
+  };
+
+  const temFiltrosAtivos = statusFilter !== 'all' || search.trim().length > 0;
 
   const stats = {
     total: propostas.length,
@@ -227,8 +268,17 @@ export default function PropostasLista() {
       </div>
 
       <Card>
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row gap-4">
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between">
+            <CardTitle>Lista de Propostas</CardTitle>
+            {temFiltrosAtivos && (
+              <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-muted-foreground">
+                <X className="h-4 w-4 mr-2" />
+                Limpar Filtros
+              </Button>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row gap-4 mt-4">
             <Input
               placeholder="Buscar por cliente, vendedor ou telefone..."
               value={search}
@@ -273,7 +323,7 @@ export default function PropostasLista() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredPropostas.map((proposta: any) => {
+                  {paginatedPropostas.map((proposta: any) => {
                     const followUpStatus = getFollowUpStatus(proposta.data_follow_up);
                     const config = statusConfig[proposta.status as StatusProposta];
 
@@ -290,7 +340,12 @@ export default function PropostasLista() {
                               onValueChange={(value) => handleStatusChange(proposta.id, value as StatusProposta)}
                               disabled={updateStatusMutation.isPending && updatingStatusId === proposta.id}
                             >
-                              <SelectTrigger className="h-8 w-[140px]">
+                              <SelectTrigger
+                                className={cn(
+                                  'h-8 w-[140px] font-medium',
+                                  statusSelectStyles[proposta.status as StatusProposta]
+                                )}
+                              >
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -302,7 +357,9 @@ export default function PropostasLista() {
                               </SelectContent>
                             </Select>
                           ) : (
-                            <Badge variant={config.variant}>{config.label}</Badge>
+                            <Badge className={statusBadgeStyles[proposta.status as StatusProposta]}>
+                              {config.label}
+                            </Badge>
                           )}
                         </TableCell>
                         <TableCell>
@@ -382,6 +439,34 @@ export default function PropostasLista() {
                   })}
                 </TableBody>
               </Table>
+            </div>
+          )}
+          {filteredPropostas.length > 0 && (
+            <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                Mostrando {inicioItem}-{fimItem} de {filteredPropostas.length} propostas
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                  disabled={safeCurrentPage === 1}
+                >
+                  Anterior
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Pagina {safeCurrentPage} de {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                  disabled={safeCurrentPage === totalPages}
+                >
+                  Proxima
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
