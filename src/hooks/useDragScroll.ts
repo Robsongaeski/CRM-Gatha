@@ -20,17 +20,16 @@ export function useDragScroll() {
     const element = ref.current;
     if (!element) return;
 
-    // Shift + mouse wheel para scroll horizontal
     const handleWheel = (e: WheelEvent) => {
-      if (e.shiftKey) {
-        e.preventDefault();
-        element.scrollLeft += e.deltaY;
-      }
+      if (!e.shiftKey) return;
+      e.preventDefault();
+      element.scrollLeft += e.deltaY;
     };
 
     let isDragging = false;
     let startX = 0;
     let startScrollLeft = 0;
+    let activePointerId: number | null = null;
 
     const isInteractiveElement = (target: EventTarget | null): boolean => {
       if (!target || !(target instanceof HTMLElement)) return false;
@@ -39,50 +38,68 @@ export function useDragScroll() {
 
     const resetDragState = () => {
       isDragging = false;
-      element.style.cursor = '';
-      element.style.userSelect = '';
+      activePointerId = null;
+      element.style.cursor = 'grab';
+      document.body.style.userSelect = '';
     };
 
-    const handleMouseDown = (e: MouseEvent) => {
-      // Somente botao esquerdo
-      if (e.button !== 0) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
 
-      // Nao iniciar arraste se clicar em card/botao/input etc
-      if (isInteractiveElement(e.target)) return;
+      // Apenas eventos dentro do container do kanban
+      if (!element.contains(target)) return;
+
+      // Bloqueia drag do fundo quando clica em card/controle
+      if (isInteractiveElement(target)) return;
+
+      // Mouse: apenas botao esquerdo. Touch/caneta entram direto.
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
 
       isDragging = true;
-      startX = e.pageX;
+      activePointerId = e.pointerId;
+      startX = e.clientX;
       startScrollLeft = element.scrollLeft;
       element.style.cursor = 'grabbing';
-      element.style.userSelect = 'none';
+      document.body.style.userSelect = 'none';
       e.preventDefault();
     };
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       if (!isDragging) return;
-      const deltaX = e.pageX - startX;
+      if (activePointerId !== null && e.pointerId !== activePointerId) return;
+
+      const deltaX = e.clientX - startX;
       element.scrollLeft = startScrollLeft - deltaX;
       e.preventDefault();
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = (e: PointerEvent) => {
+      if (!isDragging) return;
+      if (activePointerId !== null && e.pointerId !== activePointerId) return;
+      resetDragState();
+    };
+
+    const handlePointerCancel = () => {
       if (!isDragging) return;
       resetDragState();
     };
 
-    // Avisa visualmente que a area pode ser arrastada
     element.style.cursor = 'grab';
-
     element.addEventListener('wheel', handleWheel, { passive: false });
-    element.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+
+    // Captura global para funcionar mesmo quando algum filho intercepta/bloqueia bubbling
+    window.addEventListener('pointerdown', handlePointerDown, { capture: true });
+    window.addEventListener('pointermove', handlePointerMove, { capture: true });
+    window.addEventListener('pointerup', handlePointerUp, { capture: true });
+    window.addEventListener('pointercancel', handlePointerCancel, { capture: true });
 
     return () => {
       element.removeEventListener('wheel', handleWheel);
-      element.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('pointerdown', handlePointerDown, { capture: true });
+      window.removeEventListener('pointermove', handlePointerMove, { capture: true });
+      window.removeEventListener('pointerup', handlePointerUp, { capture: true });
+      window.removeEventListener('pointercancel', handlePointerCancel, { capture: true });
       resetDragState();
     };
   }, []);
