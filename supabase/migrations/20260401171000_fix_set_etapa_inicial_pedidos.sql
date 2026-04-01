@@ -68,8 +68,8 @@ WITH etapa_inicial AS (
 )
 UPDATE public.pedidos p
 SET etapa_producao_id = ed.id
-FROM etapa_destino ed
-JOIN public.etapa_producao ep ON ep.id = p.etapa_producao_id
+FROM etapa_destino ed, public.etapa_producao ep
 WHERE p.status = 'em_producao'
+  AND ep.id = p.etapa_producao_id
   AND ed.id IS NOT NULL
   AND ep.tipo_etapa = 'aprovacao_arte';
