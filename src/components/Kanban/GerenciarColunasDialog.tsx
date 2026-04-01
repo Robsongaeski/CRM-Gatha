@@ -1,22 +1,100 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { GripVertical, Plus } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useEtapasProducao } from '@/hooks/pcp/useEtapasProducao';
-import { GripVertical, Plus, Pencil } from 'lucide-react';
-import { useState } from 'react';
-import { toast } from 'sonner';
+import type { EtapaProducao } from '@/hooks/pcp/useEtapasProducao';
 
 interface GerenciarColunasDialogProps {
   open: boolean;
   onClose: () => void;
 }
 
+interface SortableEtapaItemProps {
+  etapa: EtapaProducao;
+  onToggleAtiva: (etapaId: string, ativa: boolean) => void;
+}
+
+function SortableEtapaItem({ etapa, onToggleAtiva }: SortableEtapaItemProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: etapa.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={`flex items-center gap-3 p-3 bg-secondary/30 rounded-md cursor-grab active:cursor-grabbing ${isDragging ? 'opacity-80 shadow-sm' : ''}`}
+    >
+      <button
+        type="button"
+        className="inline-flex items-center justify-center h-6 w-6 text-muted-foreground"
+        aria-label={`Reordenar etapa ${etapa.nome_etapa}`}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+      <div
+        className="w-4 h-4 rounded-full"
+        style={{ backgroundColor: etapa.cor_hex || '#6366f1' }}
+      />
+      <span className="flex-1">{etapa.nome_etapa}</span>
+      <div
+        className="flex items-center gap-2"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <Label htmlFor={`ativa-${etapa.id}`} className="text-xs text-muted-foreground">
+          {etapa.ativa ? 'Visivel' : 'Oculta'}
+        </Label>
+        <Switch
+          id={`ativa-${etapa.id}`}
+          checked={etapa.ativa || false}
+          onCheckedChange={(checked) => onToggleAtiva(etapa.id, checked)}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function GerenciarColunasDialog({ open, onClose }: GerenciarColunasDialogProps) {
-  const { etapas, updateEtapa, createEtapa } = useEtapasProducao();
+  const { etapas, updateEtapa, createEtapa, reorderEtapas } = useEtapasProducao();
   const [novaEtapa, setNovaEtapa] = useState({ nome: '', cor: '#6366f1' });
   const [criando, setCriando] = useState(false);
+  const [etapasOrdenadas, setEtapasOrdenadas] = useState<EtapaProducao[]>([]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    })
+  );
+
+  useEffect(() => {
+    setEtapasOrdenadas(etapas);
+  }, [etapas]);
+
+  const etapaIds = useMemo(() => etapasOrdenadas.map((etapa) => etapa.id), [etapasOrdenadas]);
 
   const handleToggleAtiva = async (etapaId: string, ativa: boolean) => {
     try {
@@ -49,6 +127,31 @@ export function GerenciarColunasDialog({ open, onClose }: GerenciarColunasDialog
     }
   };
 
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = etapasOrdenadas.findIndex((etapa) => etapa.id === active.id);
+    const newIndex = etapasOrdenadas.findIndex((etapa) => etapa.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    const ordemAnterior = etapasOrdenadas;
+    const reordenadas = arrayMove(etapasOrdenadas, oldIndex, newIndex).map((etapa, index) => ({
+      ...etapa,
+      ordem: index + 1,
+    }));
+
+    setEtapasOrdenadas(reordenadas);
+
+    try {
+      await reorderEtapas(reordenadas.map(({ id, ordem }) => ({ id, ordem })));
+    } catch (error) {
+      setEtapasOrdenadas(ordemAnterior);
+      console.error('Erro ao reordenar etapas:', error);
+      toast.error('Erro ao salvar nova ordem das etapas');
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl">
@@ -57,35 +160,27 @@ export function GerenciarColunasDialog({ open, onClose }: GerenciarColunasDialog
         </DialogHeader>
 
         <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-          {/* Etapas Existentes */}
           <div className="space-y-2">
             <h3 className="font-semibold text-sm">Etapas Cadastradas</h3>
-            {etapas.map((etapa) => (
-              <div
-                key={etapa.id}
-                className="flex items-center gap-3 p-3 bg-secondary/30 rounded-md"
-              >
-                <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
-                <div
-                  className="w-4 h-4 rounded-full"
-                  style={{ backgroundColor: etapa.cor_hex || '#6366f1' }}
-                />
-                <span className="flex-1">{etapa.nome_etapa}</span>
-                <div className="flex items-center gap-2">
-                  <Label htmlFor={`ativa-${etapa.id}`} className="text-xs text-muted-foreground">
-                    {etapa.ativa ? 'Visível' : 'Oculta'}
-                  </Label>
-                  <Switch
-                    id={`ativa-${etapa.id}`}
-                    checked={etapa.ativa || false}
-                    onCheckedChange={(checked) => handleToggleAtiva(etapa.id, checked)}
-                  />
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext items={etapaIds} strategy={verticalListSortingStrategy}>
+                <div className="space-y-2">
+                  {etapasOrdenadas.map((etapa) => (
+                    <SortableEtapaItem
+                      key={etapa.id}
+                      etapa={etapa}
+                      onToggleAtiva={handleToggleAtiva}
+                    />
+                  ))}
                 </div>
-              </div>
-            ))}
+              </SortableContext>
+            </DndContext>
           </div>
 
-          {/* Criar Nova Etapa */}
           <div className="space-y-2 pt-4 border-t">
             {criando ? (
               <div className="space-y-3">

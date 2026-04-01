@@ -21,9 +21,18 @@ interface ConversationInfoProps {
   conversation: WhatsappConversation;
 }
 
+interface PedidoInternoResumo {
+  id: string;
+  numero_pedido: number;
+  data_pedido: string;
+  valor_total: number;
+  status: string;
+  etapa_producao_id: string | null;
+}
+
 export default function ConversationInfo({ conversation }: ConversationInfoProps) {
   const [notes, setNotes] = useState(conversation.internal_notes || '');
-  const [selectedPedido, setSelectedPedido] = useState<any>(null);
+  const [selectedPedido, setSelectedPedido] = useState<PedidoInternoResumo | null>(null);
   const [selectedEcommerceOrderId, setSelectedEcommerceOrderId] = useState<string | null>(null);
   const [expandedCartId, setExpandedCartId] = useState<string | null>(null);
   const saveNotes = useSaveInternalNotes();
@@ -127,18 +136,18 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
   });
 
   // Fetch pedidos internos if cliente vinculado
-  const { data: pedidosInternos = [] } = useQuery({
+  const { data: pedidosInternos = [] } = useQuery<PedidoInternoResumo[]>({
     queryKey: ['cliente-pedidos', conversation.cliente_id],
     queryFn: async () => {
       if (!conversation.cliente_id) return [];
       const { data, error } = await supabase
         .from('pedidos')
-        .select('id, numero_pedido, data_pedido, valor_total, status')
+        .select('id, numero_pedido, data_pedido, valor_total, status, etapa_producao_id')
         .eq('cliente_id', conversation.cliente_id)
         .order('data_pedido', { ascending: false })
         .limit(10);
       if (error) throw error;
-      return data;
+      return (data || []) as PedidoInternoResumo[];
     },
     enabled: !!conversation.cliente_id,
   });
@@ -188,8 +197,9 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
         notes,
       });
       toast.success('Anotações salvas');
-    } catch (error: any) {
-      toast.error(error.message || 'Erro ao salvar anotações');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Erro ao salvar anotações';
+      toast.error(message);
     }
   };
 

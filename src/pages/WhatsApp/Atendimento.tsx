@@ -26,7 +26,7 @@ export default function Atendimento() {
   
   const [filters, setFilters] = useState<ConversationFilters>({
     assignment: 'mine_and_new',
-    status: 'all',
+    status: 'active',
     search: '',
   });
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');

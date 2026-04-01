@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import type { Tables, TablesInsert, TablesUpdate } from '@/integrations/supabase/types';
 import { sanitizeError } from '@/lib/errorHandling';
 
-type EtapaProducao = Tables<'etapa_producao'>;
+export type EtapaProducao = Tables<'etapa_producao'>;
 type EtapaProducaoInsert = TablesInsert<'etapa_producao'>;
 type EtapaProducaoUpdate = TablesUpdate<'etapa_producao'>;
 
@@ -80,11 +80,48 @@ export function useEtapasProducao() {
     },
   });
 
+  const reorderMutation = useMutation({
+    mutationFn: async (etapasOrdenadas: Array<{ id: string; ordem: number }>) => {
+      // A tabela etapa_producao possui UNIQUE(ordem).
+      // Fazemos em 2 fases para evitar conflito temporario de unicidade.
+      const TEMP_BASE = -1000000;
+
+      for (let i = 0; i < etapasOrdenadas.length; i += 1) {
+        const { id } = etapasOrdenadas[i];
+        const ordemTemporaria = TEMP_BASE - i;
+        const { error } = await supabase
+          .from('etapa_producao')
+          .update({ ordem: ordemTemporaria })
+          .eq('id', id);
+
+        if (error) throw error;
+      }
+
+      for (let i = 0; i < etapasOrdenadas.length; i += 1) {
+        const { id, ordem } = etapasOrdenadas[i];
+        const { error } = await supabase
+          .from('etapa_producao')
+          .update({ ordem })
+          .eq('id', id);
+
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['etapas-producao'] });
+      toast.success('Ordem das etapas atualizada com sucesso');
+    },
+    onError: (error: Error) => {
+      toast.error(sanitizeError(error));
+    },
+  });
+
   return {
     etapas,
     isLoading,
     createEtapa: createMutation.mutateAsync,
     updateEtapa: updateMutation.mutateAsync,
     deleteEtapa: deleteMutation.mutateAsync,
+    reorderEtapas: reorderMutation.mutateAsync,
   };
 }

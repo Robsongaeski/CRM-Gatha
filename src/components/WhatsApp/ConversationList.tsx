@@ -116,7 +116,13 @@ export default function ConversationList({
         <div className="px-2 pb-2 flex gap-2 bg-white flex-shrink-0">
           <Select
             value={filters.assignment}
-            onValueChange={(value: 'mine' | 'mine_and_new' | 'all') => onFiltersChange({ ...filters, assignment: value })}
+            onValueChange={(value: 'mine' | 'mine_and_new' | 'all') => {
+              onFiltersChange({
+                ...filters,
+                assignment: value,
+                status: value === 'all' ? 'all' : filters.status,
+              });
+            }}
           >
             <SelectTrigger className="flex-1 h-8 text-xs bg-[#f0f2f5] border-none text-[#54656f]">
               <SelectValue />
