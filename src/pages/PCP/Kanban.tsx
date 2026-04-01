@@ -214,7 +214,7 @@ export default function Kanban() {
       {/* Container de scroll horizontal com drag-to-scroll */}
       <div 
         ref={dragScrollRef}
-        className="flex gap-4 overflow-x-auto pb-4 items-start min-h-[calc(100vh-220px)]"
+        className="w-full flex gap-4 overflow-x-auto pb-4 items-start min-h-[calc(100vh-220px)]"
       >
         <DndContext
           sensors={sensors}

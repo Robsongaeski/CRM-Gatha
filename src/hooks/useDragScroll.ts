@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 // Elementos que NAO devem iniciar drag-to-scroll
 const INTERACTIVE_SELECTORS = [
@@ -14,10 +14,12 @@ const INTERACTIVE_SELECTORS = [
 ].join(',');
 
 export function useDragScroll() {
-  const ref = useRef<HTMLDivElement>(null);
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const ref = useCallback((node: HTMLDivElement | null) => {
+    setElement(node);
+  }, []);
 
   useEffect(() => {
-    const element = ref.current;
     if (!element) return;
 
     const handleWheel = (e: WheelEvent) => {
@@ -102,8 +104,7 @@ export function useDragScroll() {
       window.removeEventListener('pointercancel', handlePointerCancel, { capture: true });
       resetDragState();
     };
-  }, []);
+  }, [element]);
 
   return ref;
 }
-
