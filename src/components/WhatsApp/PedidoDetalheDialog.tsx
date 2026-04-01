@@ -2,18 +2,30 @@ import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { CheckCircle2, ExternalLink, Loader2, MessageSquareWarning } from 'lucide-react';
+import {
+  Calendar,
+  CheckCircle2,
+  DollarSign,
+  ExternalLink,
+  FileText,
+  Loader2,
+  MessageSquareWarning,
+  Package,
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
-import { formatCurrency } from '@/lib/formatters';
-import { sanitizeError } from '@/lib/errorHandling';
+import { usePedido } from '@/hooks/usePedidos';
 import { useEtapasProducao } from '@/hooks/pcp/useEtapasProducao';
 import { useMovimentoEtapa } from '@/hooks/pcp/useMovimentoEtapa';
 import { supabase } from '@/integrations/supabase/client';
+import { sanitizeError } from '@/lib/errorHandling';
+import { formatCurrency } from '@/lib/formatters';
 
 interface PedidoDetalheDialogProps {
   open: boolean;
@@ -28,19 +40,50 @@ interface PedidoDetalheDialogProps {
   } | null;
 }
 
+interface PedidoItemDetalhado {
+  id?: string;
+  quantidade?: number | null;
+  valor_unitario?: number | null;
+  valor_total?: number | null;
+  observacoes?: string | null;
+  produto?: {
+    nome?: string | null;
+  } | null;
+}
+
+interface PedidoDetalhado {
+  id?: string;
+  numero_pedido?: number;
+  data_pedido?: string | null;
+  data_entrega?: string | null;
+  valor_total?: number | null;
+  status?: string | null;
+  etapa_producao_id?: string | null;
+  observacao?: string | null;
+  caminho_arquivos?: string | null;
+  vendedor?: {
+    nome?: string | null;
+  } | null;
+  itens?: PedidoItemDetalhado[];
+}
+
 const statusLabels: Record<string, string> = {
+  rascunho: 'Rascunho',
   orcamento: 'Orcamento',
   confirmado: 'Confirmado',
   em_producao: 'Em Producao',
+  pronto: 'Pronto',
   pronto_entrega: 'Pronto p/ Entrega',
   entregue: 'Entregue',
   cancelado: 'Cancelado',
 };
 
 const statusColors: Record<string, string> = {
+  rascunho: 'bg-slate-100 text-slate-800',
   orcamento: 'bg-blue-100 text-blue-800',
   confirmado: 'bg-green-100 text-green-800',
   em_producao: 'bg-yellow-100 text-yellow-800',
+  pronto: 'bg-purple-100 text-purple-800',
   pronto_entrega: 'bg-purple-100 text-purple-800',
   entregue: 'bg-gray-100 text-gray-800',
   cancelado: 'bg-red-100 text-red-800',
@@ -72,6 +115,13 @@ const parseObservacaoArray = (raw: string | null | undefined) => {
   }
 };
 
+const safeFormatDate = (value: string | null | undefined, withTime = false): string => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return format(date, withTime ? "dd/MM/yyyy 'as' HH:mm" : 'dd/MM/yyyy', { locale: ptBR });
+};
+
 export default function PedidoDetalheDialog({
   open,
   onOpenChange,
@@ -81,18 +131,31 @@ export default function PedidoDetalheDialog({
   const queryClient = useQueryClient();
   const { etapas } = useEtapasProducao();
   const { moverPedido, isMoving } = useMovimentoEtapa();
+  const { data: pedidoCompleto, isLoading } = usePedido(pedido?.id);
+
   const [textoAlteracao, setTextoAlteracao] = useState('');
   const [salvandoAlteracao, setSalvandoAlteracao] = useState(false);
   const [aprovandoPedido, setAprovandoPedido] = useState(false);
 
+  const pedidoId = pedido?.id ?? null;
+  const pedidoAtual: PedidoDetalhado =
+    ((pedidoCompleto as PedidoDetalhado | null) ??
+      (pedido as unknown as PedidoDetalhado | null) ??
+      {}) as PedidoDetalhado;
+  const etapaAtualId = (pedidoAtual?.etapa_producao_id as string | null) ?? null;
+  const statusAtual = (pedidoAtual?.status as string) || '';
+  const numeroPedido = pedidoAtual?.numero_pedido ?? pedido?.numero_pedido;
+  const valorTotal = Number(pedidoAtual?.valor_total ?? pedido?.valor_total ?? 0);
+  const observacoes = parseObservacaoArray(pedidoAtual?.observacao);
+  const itens = Array.isArray(pedidoAtual?.itens) ? pedidoAtual.itens : [];
+
   const etapaAtual = useMemo(
-    () => etapas.find((etapa) => etapa.id === pedido?.etapa_producao_id),
-    [etapas, pedido?.etapa_producao_id]
+    () => etapas.find((etapa) => etapa.id === etapaAtualId),
+    [etapas, etapaAtualId]
   );
 
   const etapaAlteracao = useMemo(
-    () =>
-      etapas.find((etapa) => normalizeText(etapa.nome_etapa).includes('alteracao')),
+    () => etapas.find((etapa) => normalizeText(etapa.nome_etapa).includes('alteracao')),
     [etapas]
   );
 
@@ -111,26 +174,30 @@ export default function PedidoDetalheDialog({
   const etapaElegivelAlteracao = etapaAtualNormalizada.includes('alteracao');
   const podeAvaliarNoAtendimento = etapaElegivelAprovacao || etapaElegivelAlteracao;
 
-  const appendObservacaoNoPedido = async (pedidoId: string, texto: string) => {
-    const { data: pedidoAtual, error: pedidoError } = await supabase
+  const quantidadeTotal = itens.reduce((acc: number, item) => {
+    return acc + Number(item?.quantidade || 0);
+  }, 0);
+
+  const appendObservacaoNoPedido = async (targetPedidoId: string, texto: string) => {
+    const { data: pedidoDoBanco, error: pedidoError } = await supabase
       .from('pedidos')
       .select('id, observacao')
-      .eq('id', pedidoId)
+      .eq('id', targetPedidoId)
       .maybeSingle();
 
     if (pedidoError) throw pedidoError;
-    if (!pedidoAtual) throw new Error('Sem permissao para atualizar este pedido.');
+    if (!pedidoDoBanco) throw new Error('Sem permissao para atualizar este pedido.');
 
-    const observacoes = parseObservacaoArray(pedidoAtual.observacao);
-    observacoes.push({
+    const lista = parseObservacaoArray(pedidoDoBanco.observacao);
+    lista.push({
       data: new Date().toISOString(),
       texto,
     });
 
     const { data: pedidoAtualizado, error: updateError } = await supabase
       .from('pedidos')
-      .update({ observacao: JSON.stringify(observacoes) })
-      .eq('id', pedidoId)
+      .update({ observacao: JSON.stringify(lista) })
+      .eq('id', targetPedidoId)
       .select('id')
       .maybeSingle();
 
@@ -139,8 +206,8 @@ export default function PedidoDetalheDialog({
   };
 
   const handlePedidoAprovado = async () => {
-    if (!pedido || !pedido.etapa_producao_id || !etapaPedidoAprovado) return;
-    if (pedido.etapa_producao_id === etapaPedidoAprovado.id) {
+    if (!pedidoId || !etapaAtualId || !etapaPedidoAprovado) return;
+    if (etapaAtualId === etapaPedidoAprovado.id) {
       toast.info('Este pedido ja esta em "Pedido Aprovado".');
       return;
     }
@@ -148,14 +215,15 @@ export default function PedidoDetalheDialog({
     setAprovandoPedido(true);
     try {
       await moverPedido({
-        pedidoId: pedido.id,
+        pedidoId,
         etapaNovaId: etapaPedidoAprovado.id,
-        etapaAnteriorId: pedido.etapa_producao_id,
+        etapaAnteriorId: etapaAtualId,
         observacao: 'Aprovado no atendimento',
       });
 
       queryClient.invalidateQueries({ queryKey: ['cliente-pedidos'] });
-      queryClient.invalidateQueries({ queryKey: ['pedido', pedido.id] });
+      queryClient.invalidateQueries({ queryKey: ['pedido', pedidoId] });
+      queryClient.invalidateQueries({ queryKey: ['pedidos-kanban'] });
       onOpenChange(false);
     } catch (error) {
       toast.error(sanitizeError(error));
@@ -165,7 +233,7 @@ export default function PedidoDetalheDialog({
   };
 
   const handleSolicitarAlteracao = async () => {
-    if (!pedido || !pedido.etapa_producao_id || !etapaAlteracao) return;
+    if (!pedidoId || !etapaAtualId || !etapaAlteracao) return;
     const motivo = textoAlteracao.trim();
     if (!motivo) {
       toast.error('Descreva a alteracao solicitada pelo cliente.');
@@ -174,13 +242,13 @@ export default function PedidoDetalheDialog({
 
     setSalvandoAlteracao(true);
     try {
-      await appendObservacaoNoPedido(pedido.id, motivo);
+      await appendObservacaoNoPedido(pedidoId, motivo);
 
-      if (pedido.etapa_producao_id !== etapaAlteracao.id) {
+      if (etapaAtualId !== etapaAlteracao.id) {
         await moverPedido({
-          pedidoId: pedido.id,
+          pedidoId,
           etapaNovaId: etapaAlteracao.id,
-          etapaAnteriorId: pedido.etapa_producao_id,
+          etapaAnteriorId: etapaAtualId,
           observacao: motivo,
         });
       } else {
@@ -188,7 +256,8 @@ export default function PedidoDetalheDialog({
       }
 
       queryClient.invalidateQueries({ queryKey: ['cliente-pedidos'] });
-      queryClient.invalidateQueries({ queryKey: ['pedido', pedido.id] });
+      queryClient.invalidateQueries({ queryKey: ['pedido', pedidoId] });
+      queryClient.invalidateQueries({ queryKey: ['pedidos-kanban'] });
       setTextoAlteracao('');
       onOpenChange(false);
     } catch (error) {
@@ -204,104 +273,194 @@ export default function PedidoDetalheDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-3xl max-h-[90vh]">
         <DialogHeader>
-          <DialogTitle>Pedido #{pedido.numero_pedido}</DialogTitle>
+          <DialogTitle>Pedido #{numeroPedido}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Status</span>
-            <Badge className={statusColors[pedido.status] || 'bg-gray-100'}>
-              {statusLabels[pedido.status] || pedido.status}
-            </Badge>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+            Carregando detalhes...
           </div>
+        ) : (
+          <ScrollArea className="max-h-[calc(90vh-120px)] pr-4">
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Informacoes
+                  </h4>
+                  <div className="text-sm space-y-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Status</span>
+                      <Badge className={statusColors[statusAtual] || 'bg-gray-100 text-gray-800'}>
+                        {statusLabels[statusAtual] || statusAtual || 'Sem status'}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Etapa Kanban</span>
+                      <span className="font-medium">{etapaAtual?.nome_etapa || 'Nao definida'}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Vendedor</span>
+                      <span>{pedidoAtual?.vendedor?.nome || '-'}</span>
+                    </div>
+                    {pedidoAtual?.caminho_arquivos && (
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="text-muted-foreground">Arquivos</span>
+                        <span className="text-right break-all">{pedidoAtual.caminho_arquivos}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Etapa Kanban</span>
-            <span className="font-medium text-sm">{etapaAtual?.nome_etapa || 'Nao definida'}</span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Data</span>
-            <span className="font-medium">
-              {format(new Date(pedido.data_pedido), 'dd/MM/yyyy', { locale: ptBR })}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Valor Total</span>
-            <span className="font-semibold text-lg">
-              {formatCurrency(pedido.valor_total)}
-            </span>
-          </div>
-
-          {podeAvaliarNoAtendimento && etapaAlteracao && etapaPedidoAprovado && pedido.etapa_producao_id ? (
-            <div className="space-y-3 rounded-lg border p-3">
-              <h4 className="text-sm font-semibold">Aprovacao do Cliente</h4>
-              <Textarea
-                placeholder="Se houver ajuste, descreva aqui o que precisa alterar..."
-                value={textoAlteracao}
-                onChange={(e) => setTextoAlteracao(e.target.value)}
-                rows={3}
-                className="text-sm"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant="outline"
-                  onClick={handleSolicitarAlteracao}
-                  disabled={processandoAcao}
-                >
-                  {salvandoAlteracao ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Salvando...
-                    </>
-                  ) : (
-                    <>
-                      <MessageSquareWarning className="h-4 w-4 mr-2" />
-                      Alteracao
-                    </>
-                  )}
-                </Button>
-                <Button
-                  className="bg-green-600 hover:bg-green-700"
-                  onClick={handlePedidoAprovado}
-                  disabled={processandoAcao}
-                >
-                  {aprovandoPedido ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Salvando...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-4 w-4 mr-2" />
-                      Pedido Aprovado
-                    </>
-                  )}
-                </Button>
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    Datas e Valor
+                  </h4>
+                  <div className="text-sm space-y-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Pedido</span>
+                      <span>{safeFormatDate(pedidoAtual?.data_pedido || pedido.data_pedido)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground">Entrega</span>
+                      <span>{safeFormatDate(pedidoAtual?.data_entrega)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-muted-foreground flex items-center gap-1">
+                        <DollarSign className="h-3.5 w-3.5" />
+                        Valor Total
+                      </span>
+                      <span className="font-semibold">{formatCurrency(valorTotal)}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-              Aprovacao pelo atendimento fica disponivel quando o pedido esta nas colunas
-              "Aguardando Aprovacao" ou "Alteracao" do Kanban.
-            </div>
-          )}
 
-          <Button
-            className="w-full"
-            variant="secondary"
-            onClick={() => {
-              navigate(`/pedidos/${pedido.id}`);
-              onOpenChange(false);
-            }}
-          >
-            <ExternalLink className="h-4 w-4 mr-2" />
-            Ver Detalhes Completos
-          </Button>
-        </div>
+              <Separator />
+
+              <div className="space-y-2">
+                <h4 className="font-semibold text-sm flex items-center gap-2">
+                  <Package className="h-4 w-4" />
+                  Itens do Pedido ({quantidadeTotal} pecas)
+                </h4>
+                <div className="space-y-2">
+                  {itens.length > 0 ? (
+                    itens.map((item) => {
+                      const quantidade = Number(item?.quantidade || 0);
+                      const valorUnitario = Number(item?.valor_unitario || 0);
+                      const valorItem = Number(item?.valor_total || quantidade * valorUnitario);
+                      const nomeProduto = item?.produto?.nome || 'Item sem nome';
+
+                      return (
+                        <div key={item?.id || `${nomeProduto}-${quantidade}`} className="rounded-md bg-secondary/40 p-3">
+                          <div className="font-medium text-sm">{nomeProduto}</div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {quantidade} un x {formatCurrency(valorUnitario)} = {formatCurrency(valorItem)}
+                          </div>
+                          {item?.observacoes && (
+                            <div className="text-xs text-muted-foreground mt-1 italic">{item.observacoes}</div>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="text-xs text-muted-foreground rounded-md border border-dashed p-3">
+                      Nenhum item encontrado para este pedido.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-2">
+                <h4 className="font-semibold text-sm">Observacoes do Pedido</h4>
+                {observacoes.length > 0 ? (
+                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    {observacoes.map((obs, idx) => (
+                      <div key={`${obs.data}-${idx}`} className="rounded-md border bg-muted/30 p-3">
+                        <div className="text-sm whitespace-pre-line">{obs.texto}</div>
+                        <div className="text-xs text-muted-foreground mt-1">{safeFormatDate(obs.data, true)}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground rounded-md border border-dashed p-3">
+                    Sem observacoes registradas.
+                  </div>
+                )}
+              </div>
+
+              <Separator />
+
+              {podeAvaliarNoAtendimento && etapaAlteracao && etapaPedidoAprovado && etapaAtualId ? (
+                <div className="space-y-3 rounded-lg border p-3">
+                  <h4 className="text-sm font-semibold">Aprovacao do Cliente</h4>
+                  <Textarea
+                    placeholder="Se houver ajuste, descreva aqui o que precisa alterar..."
+                    value={textoAlteracao}
+                    onChange={(e) => setTextoAlteracao(e.target.value)}
+                    rows={3}
+                    className="text-sm"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" onClick={handleSolicitarAlteracao} disabled={processandoAcao}>
+                      {salvandoAlteracao ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Salvando...
+                        </>
+                      ) : (
+                        <>
+                          <MessageSquareWarning className="h-4 w-4 mr-2" />
+                          Alteracao
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={handlePedidoAprovado}
+                      disabled={processandoAcao}
+                    >
+                      {aprovandoPedido ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Salvando...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 mr-2" />
+                          Pedido Aprovado
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                  Aprovacao pelo atendimento fica disponivel quando o pedido esta nas colunas
+                  "Aguardando Aprovacao" ou "Alteracao" do Kanban.
+                </div>
+              )}
+
+              <Button
+                className="w-full"
+                variant="secondary"
+                onClick={() => {
+                  navigate(`/pedidos/${pedido.id}`);
+                  onOpenChange(false);
+                }}
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Ver Detalhes Completos
+              </Button>
+            </div>
+          </ScrollArea>
+        )}
       </DialogContent>
     </Dialog>
   );
