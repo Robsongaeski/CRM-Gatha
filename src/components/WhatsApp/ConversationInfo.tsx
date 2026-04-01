@@ -28,6 +28,11 @@ interface PedidoInternoResumo {
   valor_total: number;
   status: string;
   etapa_producao_id: string | null;
+  etapa_producao?: {
+    id: string;
+    nome_etapa: string;
+    cor_hex: string | null;
+  } | null;
   cliente_id?: string | null;
   cliente?: {
     id: string;
@@ -166,6 +171,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
             valor_total,
             status,
             etapa_producao_id,
+            etapa_producao:etapa_producao(id, nome_etapa, cor_hex),
             cliente_id,
             cliente:clientes(id, nome_razao_social, telefone, whatsapp)
           `)
@@ -187,6 +193,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
             valor_total,
             status,
             etapa_producao_id,
+            etapa_producao:etapa_producao(id, nome_etapa, cor_hex),
             cliente_id,
             cliente:clientes(id, nome_razao_social, telefone, whatsapp)
           `)
@@ -324,6 +331,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
     [ecommerceOrders, showAllEcommerceOrders]
   );
   const hasMoreEcommerceOrders = ecommerceOrders.length > ORDERS_INITIAL_VISIBLE;
+  const hiddenEcommerceOrders = Math.max(ecommerceOrders.length - ORDERS_INITIAL_VISIBLE, 0);
 
   const pedidosInternosVisible = useMemo(
     () =>
@@ -333,6 +341,28 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
     [pedidosInternos, showAllInternalOrders]
   );
   const hasMorePedidosInternos = pedidosInternos.length > ORDERS_INITIAL_VISIBLE;
+  const hiddenPedidosInternos = Math.max(pedidosInternos.length - ORDERS_INITIAL_VISIBLE, 0);
+
+  const getPedidoInternoBadge = (order: PedidoInternoResumo) => {
+    if (order.status === 'entregue' || order.status === 'cancelado') {
+      return {
+        label: statusLabels[order.status] || order.status,
+        className: statusColors[order.status] || 'bg-gray-100 text-gray-800',
+      };
+    }
+
+    if (order.etapa_producao?.nome_etapa) {
+      return {
+        label: order.etapa_producao.nome_etapa,
+        className: 'bg-blue-100 text-blue-800',
+      };
+    }
+
+    return {
+      label: statusLabels[order.status] || order.status,
+      className: statusColors[order.status] || 'bg-gray-100 text-gray-800',
+    };
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden w-full min-w-0">
@@ -523,7 +553,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
                       className="w-full"
                       onClick={() => setShowAllEcommerceOrders((prev) => !prev)}
                     >
-                      {showAllEcommerceOrders ? 'Ver menos' : `Ver mais (${ecommerceOrders.length})`}
+                      {showAllEcommerceOrders ? 'Ver menos' : `Ver mais (+${hiddenEcommerceOrders})`}
                     </Button>
                   )}
                 </div>
@@ -541,24 +571,28 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
                   Pedidos Internos
                 </h5>
                 <div className="space-y-2">
-                  {pedidosInternosVisible.map((order) => (
-                    <button
-                      key={order.id}
-                      onClick={() => setSelectedPedido(order)}
-                      className="w-full p-2 rounded-lg bg-[#f0f2f5] text-sm text-left hover:bg-[#e9edef] transition-colors"
-                    >
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium text-[#111b21]">#{order.numero_pedido}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded ${statusColors[order.status] || 'bg-gray-100'}`}>
-                          {statusLabels[order.status] || order.status}
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-[#667781] mt-1">
-                        <span>{format(new Date(order.data_pedido), 'dd/MM/yyyy', { locale: ptBR })}</span>
-                        <span>{formatCurrency(order.valor_total)}</span>
-                      </div>
-                    </button>
-                  ))}
+                  {pedidosInternosVisible.map((order) => {
+                    const badge = getPedidoInternoBadge(order);
+
+                    return (
+                      <button
+                        key={order.id}
+                        onClick={() => setSelectedPedido(order)}
+                        className="w-full p-2 rounded-lg bg-[#f0f2f5] text-sm text-left hover:bg-[#e9edef] transition-colors"
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium text-[#111b21]">#{order.numero_pedido}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded ${badge.className}`}>
+                            {badge.label}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-[#667781] mt-1">
+                          <span>{format(new Date(order.data_pedido), 'dd/MM/yyyy', { locale: ptBR })}</span>
+                          <span>{formatCurrency(order.valor_total)}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
                   {hasMorePedidosInternos && (
                     <Button
                       type="button"
@@ -567,7 +601,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
                       className="w-full"
                       onClick={() => setShowAllInternalOrders((prev) => !prev)}
                     >
-                      {showAllInternalOrders ? 'Ver menos' : `Ver mais (${pedidosInternos.length})`}
+                      {showAllInternalOrders ? 'Ver menos' : `Ver mais (+${hiddenPedidosInternos})`}
                     </Button>
                   )}
                 </div>
