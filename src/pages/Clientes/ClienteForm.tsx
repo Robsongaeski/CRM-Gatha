@@ -26,8 +26,8 @@ const clienteSchema = z.object({
     .string()
     .trim()
     .min(1, 'Telefone é obrigatório')
-    .refine((value) => value.replace(/\D/g, '').length >= 10, 'Informe um telefone válido com DDD')
-    .max(20), // Campo unificado telefone/WhatsApp
+    .max(20) // Campo unificado telefone/WhatsApp
+    .refine((value) => value.replace(/\D/g, '').length >= 10, 'Informe um telefone válido com DDD'),
   email: z.string().email('Email inválido').max(255).optional().or(z.literal('')),
   endereco: z.string().max(500).optional(),
   observacao: z.string().max(1000).optional(),
