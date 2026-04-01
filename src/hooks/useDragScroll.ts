@@ -1,6 +1,6 @@
-import { useRef, useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
-// Elementos que NÃO devem iniciar drag-to-scroll
+// Elementos que NAO devem iniciar drag-to-scroll
 const INTERACTIVE_SELECTORS = [
   '[data-kanban-card]',
   '[data-no-drag-scroll]',
@@ -20,89 +20,73 @@ export function useDragScroll() {
     const element = ref.current;
     if (!element) return;
 
-    // ========== Shift + Mouse Wheel Scroll (método principal) ==========
+    // Shift + mouse wheel para scroll horizontal
     const handleWheel = (e: WheelEvent) => {
-      // Se Shift está pressionado, faz scroll horizontal
       if (e.shiftKey) {
         e.preventDefault();
         element.scrollLeft += e.deltaY;
       }
     };
 
-    // ========== Drag to Scroll (método secundário - clique em área vazia) ==========
-    let isDown = false;
-    let startX: number;
-    let scrollLeft: number;
+    let isDragging = false;
+    let startX = 0;
+    let startScrollLeft = 0;
 
     const isInteractiveElement = (target: EventTarget | null): boolean => {
       if (!target || !(target instanceof HTMLElement)) return false;
-      
-      // Verifica se o elemento ou algum ancestral é interativo
       return target.closest(INTERACTIVE_SELECTORS) !== null;
     };
 
+    const resetDragState = () => {
+      isDragging = false;
+      element.style.cursor = '';
+      element.style.userSelect = '';
+    };
+
     const handleMouseDown = (e: MouseEvent) => {
-      // Ignorar cliques em elementos interativos (cards, botões, etc)
-      if (isInteractiveElement(e.target)) return;
-      
-      // Ignorar clique com botão direito ou do meio
+      // Somente botao esquerdo
       if (e.button !== 0) return;
 
-      isDown = true;
+      // Nao iniciar arraste se clicar em card/botao/input etc
+      if (isInteractiveElement(e.target)) return;
+
+      isDragging = true;
+      startX = e.pageX;
+      startScrollLeft = element.scrollLeft;
       element.style.cursor = 'grabbing';
       element.style.userSelect = 'none';
-      startX = e.pageX - element.offsetLeft;
-      scrollLeft = element.scrollLeft;
-    };
-
-    const handleMouseLeave = () => {
-      if (!isDown) return;
-      isDown = false;
-      element.style.cursor = '';
-      element.style.userSelect = '';
-    };
-
-    const handleMouseUp = () => {
-      if (!isDown) return;
-      isDown = false;
-      element.style.cursor = '';
-      element.style.userSelect = '';
+      e.preventDefault();
     };
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isDown) return;
+      if (!isDragging) return;
+      const deltaX = e.pageX - startX;
+      element.scrollLeft = startScrollLeft - deltaX;
       e.preventDefault();
-      const x = e.pageX - element.offsetLeft;
-      const walk = (x - startX) * 1.5;
-      element.scrollLeft = scrollLeft - walk;
     };
 
-    // Adicionar listeners
+    const handleMouseUp = () => {
+      if (!isDragging) return;
+      resetDragState();
+    };
+
+    // Avisa visualmente que a area pode ser arrastada
+    element.style.cursor = 'grab';
+
     element.addEventListener('wheel', handleWheel, { passive: false });
     element.addEventListener('mousedown', handleMouseDown);
-    element.addEventListener('mouseleave', handleMouseLeave);
-    element.addEventListener('mouseup', handleMouseUp);
-    element.addEventListener('mousemove', handleMouseMove);
-    
-    // Listener global para mouse up (caso solte fora do elemento)
-    const handleGlobalMouseUp = () => {
-      if (isDown) {
-        isDown = false;
-        element.style.cursor = '';
-        element.style.userSelect = '';
-      }
-    };
-    window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
 
     return () => {
       element.removeEventListener('wheel', handleWheel);
       element.removeEventListener('mousedown', handleMouseDown);
-      element.removeEventListener('mouseleave', handleMouseLeave);
-      element.removeEventListener('mouseup', handleMouseUp);
-      element.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      resetDragState();
     };
   }, []);
 
   return ref;
 }
+
