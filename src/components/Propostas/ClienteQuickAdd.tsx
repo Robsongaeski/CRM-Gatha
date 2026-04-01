@@ -29,7 +29,11 @@ const clienteQuickSchema = z.object({
   nome_razao_social: z.string().trim().min(1, 'Nome é obrigatório'),
   responsavel: z.string().trim().optional(),
   cpf_cnpj: z.string().trim().optional(),
-  telefone: z.string().trim().optional(),
+  telefone: z
+    .string()
+    .trim()
+    .min(1, 'Telefone é obrigatório')
+    .refine((value) => value.replace(/\D/g, '').length >= 10, 'Informe um telefone válido com DDD'),
   email: z.string().trim().email('Email inválido').optional().or(z.literal('')),
 });
 
@@ -84,13 +88,14 @@ export function ClienteQuickAdd({ open, onOpenChange, onClienteCreated }: Client
       form.reset();
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      let errorMessage = error.message;
+    onError: (error: unknown) => {
+      const dbError = (error ?? {}) as { message?: string; code?: string };
+      let errorMessage = dbError.message || 'Erro ao cadastrar cliente';
       
-      if (error.code === '23505') {
-        if (error.message.includes('cpf_cnpj')) {
+      if (dbError.code === '23505') {
+        if (dbError.message?.includes('cpf_cnpj')) {
           errorMessage = 'Já existe um cliente cadastrado com este CPF/CNPJ';
-        } else if (error.message.includes('email')) {
+        } else if (dbError.message?.includes('email')) {
           errorMessage = 'Já existe um cliente cadastrado com este email';
         } else {
           errorMessage = 'Já existe um cliente cadastrado com estas informações';
@@ -173,7 +178,7 @@ export function ClienteQuickAdd({ open, onOpenChange, onClienteCreated }: Client
               name="telefone"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Telefone / WhatsApp</FormLabel>
+                  <FormLabel>Telefone / WhatsApp *</FormLabel>
                   <FormControl>
                     <PhoneInput {...field} />
                   </FormControl>
@@ -215,3 +220,4 @@ export function ClienteQuickAdd({ open, onOpenChange, onClienteCreated }: Client
     </Dialog>
   );
 }
+

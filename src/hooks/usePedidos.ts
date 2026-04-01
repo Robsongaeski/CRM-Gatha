@@ -42,6 +42,37 @@ export interface PedidoFormData {
   itens: PedidoItem[];
 }
 
+async function resolveEtapaInicialProducaoId(): Promise<string | null> {
+  try {
+    const { data: etapaInicial, error: inicialError } = await supabase
+      .from('etapa_producao')
+      .select('id')
+      .eq('ativa', true)
+      .eq('tipo_etapa', 'inicial')
+      .order('ordem', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (inicialError) throw inicialError;
+    if (etapaInicial?.id) return etapaInicial.id;
+
+    const { data: etapaFallback, error: fallbackError } = await supabase
+      .from('etapa_producao')
+      .select('id')
+      .eq('ativa', true)
+      .neq('tipo_etapa', 'aprovacao_arte')
+      .order('ordem', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (fallbackError) throw fallbackError;
+    return etapaFallback?.id ?? null;
+  } catch (error) {
+    console.error('Erro ao buscar etapa inicial de producao:', error);
+    return null;
+  }
+}
+
 // Buscar lista de pedidos com filtros
 export const usePedidos = (filters?: {
   status?: StatusPedido | StatusPedido[];
@@ -179,6 +210,8 @@ export const useCreatePedido = () => {
       if (!user) throw new Error('Usuário não autenticado');
 
       const { itens, ...pedidoData } = formData;
+      const etapaInicialProducaoId =
+        pedidoData.status === 'em_producao' ? await resolveEtapaInicialProducaoId() : null;
 
       // Corrigir datas: enviar com T12:00:00 para evitar shift de timezone
       const pedidoPayload = {
@@ -186,6 +219,7 @@ export const useCreatePedido = () => {
         data_pedido: pedidoData.data_pedido ? `${pedidoData.data_pedido}T12:00:00` : undefined,
         data_entrega: pedidoData.data_entrega ? `${pedidoData.data_entrega}T12:00:00` : undefined,
         vendedor_id: user.id,
+        ...(etapaInicialProducaoId ? { etapa_producao_id: etapaInicialProducaoId } : {}),
       };
 
       // Inserir o pedido
@@ -359,11 +393,33 @@ export const useUpdatePedido = (id: string) => {
       // Preservar vendedor atual para evitar limpeza indevida ao salvar
       const { data: pedidoMeta, error: pedidoMetaError } = await supabase
         .from('pedidos')
-        .select('vendedor_id')
+        .select('vendedor_id, etapa_producao_id, status')
         .eq('id', id)
         .single();
 
       if (pedidoMetaError) throw pedidoMetaError;
+
+      let etapaProducaoIdForcada: string | null = null;
+      if (pedidoData.status === 'em_producao') {
+        let etapaAtualTipo: string | null = null;
+
+        if (pedidoMeta?.etapa_producao_id) {
+          const { data: etapaAtual } = await supabase
+            .from('etapa_producao')
+            .select('tipo_etapa')
+            .eq('id', pedidoMeta.etapa_producao_id)
+            .maybeSingle();
+
+          etapaAtualTipo = etapaAtual?.tipo_etapa ?? null;
+        }
+
+        const precisaNormalizarEtapa =
+          !pedidoMeta?.etapa_producao_id || etapaAtualTipo === 'aprovacao_arte';
+
+        if (precisaNormalizarEtapa) {
+          etapaProducaoIdForcada = await resolveEtapaInicialProducaoId();
+        }
+      }
 
       // Corrigir datas: enviar com T12:00:00 para evitar shift de timezone
       const pedidoPayload = {
@@ -371,6 +427,7 @@ export const useUpdatePedido = (id: string) => {
         data_pedido: pedidoData.data_pedido ? `${pedidoData.data_pedido}T12:00:00` : undefined,
         data_entrega: pedidoData.data_entrega ? `${pedidoData.data_entrega}T12:00:00` : undefined,
         vendedor_id: pedidoMeta?.vendedor_id,
+        ...(etapaProducaoIdForcada ? { etapa_producao_id: etapaProducaoIdForcada } : {}),
       };
 
       // Atualizar o pedido (triggers SQL registram mudancas automaticamente)

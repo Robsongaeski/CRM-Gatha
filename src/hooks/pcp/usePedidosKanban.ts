@@ -53,7 +53,9 @@ export function usePedidosKanban(filtros?: FiltrosKanban) {
           pedido_tags:pedido_tags(id, nome, cor)
         `)
         .in('status', filtros?.mostrarEntregues ? ['em_producao', 'pronto', 'entregue'] : ['em_producao', 'pronto'])
-        .eq('requer_aprovacao_preco', false);
+        // Exibir no Kanban apenas pedidos ativos (nao aguardando aprovacao de preco)
+        // Aceita false e null para cobrir registros antigos.
+        .or('requer_aprovacao_preco.is.null,requer_aprovacao_preco.eq.false');
 
       // Filtro por cliente
       if (filtros?.clienteId) {
@@ -98,14 +100,18 @@ export function usePedidosKanban(filtros?: FiltrosKanban) {
     },
   });
 
-  // Agrupar pedidos por etapa
-  const pedidosPorEtapa = etapas.map(etapa => ({
+  const etapaIds = new Set(etapas.map((etapa) => etapa.id));
+
+  // Agrupar pedidos por etapa de produção válida
+  const pedidosPorEtapa = etapas.map((etapa) => ({
     etapa,
-    pedidos: pedidos.filter(p => p.etapa_producao_id === etapa.id),
+    pedidos: pedidos.filter((p) => p.etapa_producao_id === etapa.id),
   }));
 
-  // Pedidos sem etapa definida
-  const pedidosSemEtapa = pedidos.filter(p => !p.etapa_producao_id);
+  // Pedidos sem etapa ou apontando para etapa fora do quadro de produção
+  const pedidosSemEtapa = pedidos.filter(
+    (p) => !p.etapa_producao_id || !etapaIds.has(p.etapa_producao_id)
+  );
 
   return {
     etapas,

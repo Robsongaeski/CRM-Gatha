@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { WhatsappConversation, useSaveInternalNotes } from '@/hooks/whatsapp/useWhatsappConversations';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -28,6 +28,13 @@ interface PedidoInternoResumo {
   valor_total: number;
   status: string;
   etapa_producao_id: string | null;
+  cliente_id?: string | null;
+  cliente?: {
+    id: string;
+    nome_razao_social: string;
+    telefone: string | null;
+    whatsapp: string | null;
+  } | null;
 }
 
 export default function ConversationInfo({ conversation }: ConversationInfoProps) {
@@ -35,11 +42,17 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
   const [selectedPedido, setSelectedPedido] = useState<PedidoInternoResumo | null>(null);
   const [selectedEcommerceOrderId, setSelectedEcommerceOrderId] = useState<string | null>(null);
   const [expandedCartId, setExpandedCartId] = useState<string | null>(null);
+  const [showAllEcommerceOrders, setShowAllEcommerceOrders] = useState(false);
+  const [showAllInternalOrders, setShowAllInternalOrders] = useState(false);
+  const ORDERS_INITIAL_VISIBLE = 3;
   const saveNotes = useSaveInternalNotes();
 
   // Sincronizar notas quando a conversa mudar
   useEffect(() => {
     setNotes(conversation.internal_notes || '');
+    setExpandedCartId(null);
+    setShowAllEcommerceOrders(false);
+    setShowAllInternalOrders(false);
   }, [conversation.id, conversation.internal_notes]);
 
   // Normalizar telefone para busca (remover tudo exceto dígitos e código de país)
@@ -130,26 +143,79 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
       // Validação secundária para garantir precisão (DDD correto)
       return (data || []).filter(order => {
         return phoneMatches(order.customer_phone || '', contactPhoneNormalized);
-      }).slice(0, 10);
+      }).sort((a, b) =>
+        new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+      );
     },
     enabled: !!contactPhoneSuffix && contactPhoneSuffix.length >= 8,
   });
 
-  // Fetch pedidos internos if cliente vinculado
+  // Fetch pedidos internos por cliente vinculado e fallback por telefone
   const { data: pedidosInternos = [] } = useQuery<PedidoInternoResumo[]>({
-    queryKey: ['cliente-pedidos', conversation.cliente_id],
+    queryKey: ['cliente-pedidos', conversation.cliente_id, contactPhoneSuffix],
     queryFn: async () => {
-      if (!conversation.cliente_id) return [];
-      const { data, error } = await supabase
-        .from('pedidos')
-        .select('id, numero_pedido, data_pedido, valor_total, status, etapa_producao_id')
-        .eq('cliente_id', conversation.cliente_id)
-        .order('data_pedido', { ascending: false })
-        .limit(10);
-      if (error) throw error;
-      return (data || []) as PedidoInternoResumo[];
+      const pedidosMap = new Map<string, PedidoInternoResumo>();
+
+      if (conversation.cliente_id) {
+        const { data, error } = await supabase
+          .from('pedidos')
+          .select(`
+            id,
+            numero_pedido,
+            data_pedido,
+            valor_total,
+            status,
+            etapa_producao_id,
+            cliente_id,
+            cliente:clientes(id, nome_razao_social, telefone, whatsapp)
+          `)
+          .eq('cliente_id', conversation.cliente_id)
+          .order('data_pedido', { ascending: false })
+          .limit(30);
+
+        if (error) throw error;
+        (data || []).forEach((pedido) => pedidosMap.set(pedido.id, pedido as PedidoInternoResumo));
+      }
+
+      if (contactPhoneSuffix && contactPhoneSuffix.length >= 8) {
+        const { data, error } = await supabase
+          .from('pedidos')
+          .select(`
+            id,
+            numero_pedido,
+            data_pedido,
+            valor_total,
+            status,
+            etapa_producao_id,
+            cliente_id,
+            cliente:clientes(id, nome_razao_social, telefone, whatsapp)
+          `)
+          .order('data_pedido', { ascending: false })
+          .limit(120);
+
+        if (error) throw error;
+
+        (data || []).forEach((pedido) => {
+          const clientePedido = pedido.cliente as PedidoInternoResumo['cliente'];
+          const telefoneCliente = clientePedido?.telefone || '';
+          const whatsappCliente = clientePedido?.whatsapp || '';
+          const matchTelefone = phoneMatches(telefoneCliente, contactPhoneNormalized);
+          const matchWhatsapp = phoneMatches(whatsappCliente, contactPhoneNormalized);
+
+          if (matchTelefone || matchWhatsapp) {
+            pedidosMap.set(pedido.id, pedido as PedidoInternoResumo);
+          }
+        });
+      }
+
+      return Array.from(pedidosMap.values())
+        .sort(
+          (a, b) =>
+            new Date(b.data_pedido || 0).getTime() - new Date(a.data_pedido || 0).getTime()
+        )
+        .slice(0, 50);
     },
-    enabled: !!conversation.cliente_id,
+    enabled: !!conversation.cliente_id || (!!contactPhoneSuffix && contactPhoneSuffix.length >= 8),
   });
 
   // Fetch abandoned carts by phone - usar RPC para buscar com telefone normalizado
@@ -249,6 +315,24 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
     cancelled: 'bg-red-100 text-red-800',
     payment_denied: 'bg-red-100 text-red-800',
   };
+
+  const ecommerceOrdersVisible = useMemo(
+    () =>
+      showAllEcommerceOrders
+        ? ecommerceOrders
+        : ecommerceOrders.slice(0, ORDERS_INITIAL_VISIBLE),
+    [ecommerceOrders, showAllEcommerceOrders]
+  );
+  const hasMoreEcommerceOrders = ecommerceOrders.length > ORDERS_INITIAL_VISIBLE;
+
+  const pedidosInternosVisible = useMemo(
+    () =>
+      showAllInternalOrders
+        ? pedidosInternos
+        : pedidosInternos.slice(0, ORDERS_INITIAL_VISIBLE),
+    [pedidosInternos, showAllInternalOrders]
+  );
+  const hasMorePedidosInternos = pedidosInternos.length > ORDERS_INITIAL_VISIBLE;
 
   return (
     <div className="flex flex-col h-full overflow-hidden w-full min-w-0">
@@ -405,7 +489,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
                   Pedidos E-commerce
                 </h5>
                 <div className="space-y-2">
-                  {ecommerceOrders.map((order) => (
+                  {ecommerceOrdersVisible.map((order) => (
                     <button
                       key={order.id}
                       onClick={() => setSelectedEcommerceOrderId(order.id)}
@@ -431,12 +515,23 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
                       )}
                     </button>
                   ))}
+                  {hasMoreEcommerceOrders && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => setShowAllEcommerceOrders((prev) => !prev)}
+                    >
+                      {showAllEcommerceOrders ? 'Ver menos' : `Ver mais (${ecommerceOrders.length})`}
+                    </Button>
+                  )}
                 </div>
               </div>
             </>
           )}
 
-          {/* Pedidos internos (from cliente vinculado) */}
+          {/* Pedidos internos */}
           {pedidosInternos.length > 0 && (
             <>
               <Separator />
@@ -446,7 +541,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
                   Pedidos Internos
                 </h5>
                 <div className="space-y-2">
-                  {pedidosInternos.map((order) => (
+                  {pedidosInternosVisible.map((order) => (
                     <button
                       key={order.id}
                       onClick={() => setSelectedPedido(order)}
@@ -464,6 +559,17 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
                       </div>
                     </button>
                   ))}
+                  {hasMorePedidosInternos && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => setShowAllInternalOrders((prev) => !prev)}
+                    >
+                      {showAllInternalOrders ? 'Ver menos' : `Ver mais (${pedidosInternos.length})`}
+                    </Button>
+                  )}
                 </div>
               </div>
             </>

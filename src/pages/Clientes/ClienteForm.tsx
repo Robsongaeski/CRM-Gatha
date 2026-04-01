@@ -22,7 +22,12 @@ const clienteSchema = z.object({
   responsavel: z.string().max(200).optional(),
   nome_razao_social: z.string().min(2, 'Nome deve ter no mínimo 2 caracteres').max(200),
   cpf_cnpj: z.string().max(18).optional(),
-  telefone: z.string().max(15).optional(), // Campo unificado telefone/WhatsApp
+  telefone: z
+    .string()
+    .trim()
+    .min(1, 'Telefone é obrigatório')
+    .refine((value) => value.replace(/\D/g, '').length >= 10, 'Informe um telefone válido com DDD')
+    .max(20), // Campo unificado telefone/WhatsApp
   email: z.string().email('Email inválido').max(255).optional().or(z.literal('')),
   endereco: z.string().max(500).optional(),
   observacao: z.string().max(1000).optional(),
@@ -68,14 +73,14 @@ export default function ClienteForm() {
       segmento_id: '',
     },
     values: cliente ? {
-      responsavel: (cliente as any).responsavel || '',
+      responsavel: (cliente as { responsavel?: string | null }).responsavel || '',
       nome_razao_social: cliente.nome_razao_social,
       cpf_cnpj: cliente.cpf_cnpj || '',
       telefone: cliente.telefone || cliente.whatsapp || '', // Usa telefone ou whatsapp existente
       email: cliente.email || '',
       endereco: cliente.endereco || '',
       observacao: cliente.observacao || '',
-      segmento_id: (cliente as any).segmento_id || '',
+      segmento_id: (cliente as { segmento_id?: string | null }).segmento_id || '',
     } : undefined,
   });
 
@@ -171,17 +176,18 @@ export default function ClienteForm() {
       toast.success(isEditing ? 'Cliente atualizado com sucesso!' : 'Cliente criado com sucesso!');
       navigate('/clientes');
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
+      const dbError = (error ?? {}) as { message?: string; code?: string };
       // Tratar erro de duplicata customizado
-      if (error.message && !error.code) {
-        toast.error(error.message);
+      if (dbError.message && !dbError.code) {
+        toast.error(dbError.message);
         return;
       }
       // Tratar erro de duplicata (unique constraint violation)
-      if (error.code === '23505') {
-        if (error.message.includes('cpf_cnpj')) {
+      if (dbError.code === '23505') {
+        if (dbError.message?.includes('cpf_cnpj')) {
           toast.error('Já existe um cliente cadastrado com este CPF/CNPJ');
-        } else if (error.message.includes('email')) {
+        } else if (dbError.message?.includes('email')) {
           toast.error('Já existe um cliente cadastrado com este email');
         } else {
           toast.error('Já existe um cliente cadastrado com estas informações');
@@ -324,7 +330,7 @@ export default function ClienteForm() {
                   name="telefone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Telefone / WhatsApp</FormLabel>
+                      <FormLabel>Telefone / WhatsApp *</FormLabel>
                       <FormControl>
                         <PhoneInput {...field} />
                       </FormControl>
@@ -391,3 +397,4 @@ export default function ClienteForm() {
     </div>
   );
 }
+
