@@ -1,4 +1,5 @@
 import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { Calendar } from 'lucide-react';
 import { parseDateString } from '@/lib/formatters';
 import { parsePedidoObservacoes } from '@/lib/pedidoObservacoes';
@@ -16,6 +17,19 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
   const valorPendente = Math.round((valorTotal - valorPago) * 100) / 100;
   const observacoesGerais = parsePedidoObservacoes(pedido.observacao);
   const temImagemAprovada = Boolean(pedido.imagem_aprovada && pedido.imagem_aprovacao_url);
+  const dataEntrega = parseDateString(pedido.data_entrega);
+  const dataEntregaProducao = dataEntrega ? format(dataEntrega, 'dd/MM') : 'XX/XX';
+  const diaSemanaEntrega = dataEntrega
+    ? format(dataEntrega, 'EEEE', { locale: ptBR })
+    : 'dia da semana da entrega';
+  const diaSemanaEntregaCapitalizado =
+    diaSemanaEntrega.charAt(0).toUpperCase() + diaSemanaEntrega.slice(1);
+  const quantidadeTotalPecas =
+    pedido.itens?.reduce((sum: number, item: any) => sum + (Number(item.quantidade) || 0), 0) || 0;
+  const imagemPrincipalProducao =
+    pedido.imagem_aprovacao_url ||
+    pedido.itens?.find((item: any) => item.foto_modelo_url)?.foto_modelo_url ||
+    null;
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -64,11 +78,88 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
           .page-break { 
             page-break-inside: avoid; 
           }
+          .production-page {
+            border-top: 2px solid #1f2937;
+            margin-top: 12px;
+            padding-top: 10px;
+          }
+          .production-image {
+            max-height: 95mm;
+          }
+          .production-manual-block {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          .manual-line-fill {
+            border-bottom: 2px dashed #111827;
+            width: 100%;
+            display: block;
+            height: 1.25rem;
+          }
+          .manual-observacao-box {
+            min-height: 65px;
+            border-bottom: 2px dashed #9ca3af;
+          }
+          .text-producao-1 {
+            font-size: 54px;
+            line-height: 0.9;
+            font-weight: 900;
+            text-transform: uppercase;
+          }
+          .text-producao-2 {
+            font-size: 96px;
+            line-height: 0.85;
+            font-weight: 900;
+          }
+          .text-producao-3 {
+            font-size: 56px;
+            line-height: 0.92;
+            font-weight: 900;
+            text-transform: uppercase;
+          }
+          .text-producao-4 {
+            font-size: 48px;
+            line-height: 0.95;
+            font-weight: 900;
+            text-transform: uppercase;
+          }
+          .text-producao-manual {
+            font-size: 50px;
+            line-height: 1;
+            font-weight: 900;
+            text-transform: uppercase;
+          }
+          .text-producao-observacao {
+            font-size: 42px;
+            line-height: 1;
+            font-weight: 900;
+            text-transform: uppercase;
+          }
+        }
+        @media (max-width: 1200px) {
+          .text-producao-1 { font-size: 40px; }
+          .text-producao-2 { font-size: 74px; }
+          .text-producao-3 { font-size: 42px; }
+          .text-producao-4 { font-size: 36px; }
+          .text-producao-manual { font-size: 36px; }
+          .text-producao-observacao { font-size: 30px; }
         }
         @media screen {
           .ficha-pedido {
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
             margin: 20px auto;
+          }
+          .production-page {
+            margin-top: 24px;
+          }
+        }
+        @media print {
+          .production-page {
+            page-break-before: always;
+            break-before: page;
+            border-top: 0;
+            margin-top: 0;
+            padding-top: 0;
           }
         }
       `}</style>
@@ -264,6 +355,79 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
           </div>
           <div className="whitespace-nowrap">
             <span className="font-semibold">Data:</span> ___/___/______
+          </div>
+        </div>
+      </div>
+
+      {/* Segunda Pagina - Ficha de Producao */}
+      <div className="production-page">
+        <div className="flex items-center justify-between mb-3 pb-2 border-b-2 border-gray-800">
+          <div>
+            <span className="text-lg font-bold">PEDIDO #{pedido.numero_pedido}</span>
+            <span className="text-gray-500 ml-3 text-[11px]">
+              Emitido: {format(new Date(), 'dd/MM/yyyy HH:mm')}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-3 text-[11px]">
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span><b className="font-bold">Cliente:</b> {pedido.cliente?.nome_razao_social || '-'}</span>
+            {pedido.cliente?.cpf_cnpj && <span><b className="font-bold">CPF/CNPJ:</b> {pedido.cliente.cpf_cnpj}</span>}
+            <span><b className="font-bold">Tel:</b> {pedido.cliente?.telefone || pedido.cliente?.whatsapp || '-'}</span>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 justify-end">
+            <span><b className="font-bold">Data Pedido:</b> {format(parseDateString(pedido.data_pedido) || new Date(), 'dd/MM/yyyy')}</span>
+            <span><b className="font-bold">Vendedor:</b> {pedido.vendedor?.nome || '-'}</span>
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <div className="flex items-end gap-3">
+            <span className="text-producao-1">Data de entrega</span>
+            <span className="text-producao-2 text-red-700">{dataEntregaProducao}</span>
+          </div>
+
+          <p className="text-producao-3">{diaSemanaEntregaCapitalizado}</p>
+
+          <p className="text-producao-4">
+            Quantidade de pecas: <span className="text-red-700">{quantidadeTotalPecas}</span>
+          </p>
+        </div>
+
+        <div className="flex justify-center mb-6">
+          {imagemPrincipalProducao ? (
+            <img
+              src={imagemPrincipalProducao}
+              alt="Imagem principal para producao"
+              className="production-image max-w-full object-contain border border-gray-300 rounded"
+            />
+          ) : (
+            <div className="w-[330px] h-[280px] flex items-center justify-center bg-blue-500 text-white font-black uppercase text-2xl rounded">
+              Modelo
+            </div>
+          )}
+        </div>
+
+        <div className="production-manual-block">
+          <div className="space-y-3">
+            <div className="flex items-end gap-2">
+              <span className="text-producao-manual whitespace-nowrap">Impressao:</span>
+              <span className="manual-line-fill" />
+            </div>
+            <div className="flex items-end gap-2">
+              <span className="text-producao-manual whitespace-nowrap">Costura:</span>
+              <span className="manual-line-fill" />
+            </div>
+            <div className="flex items-end gap-2">
+              <span className="text-producao-manual whitespace-nowrap">Pedido pronto:</span>
+              <span className="manual-line-fill" />
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <p className="text-gray-400 text-producao-observacao">observacao:</p>
+            <div className="manual-observacao-box" />
           </div>
         </div>
       </div>
