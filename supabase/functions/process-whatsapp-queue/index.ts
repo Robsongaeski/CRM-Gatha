@@ -107,6 +107,151 @@ function normalizePhoneFromJid(remoteJid: string): string {
   return remoteJid.replace(/@.*$/, "");
 }
 
+function looksLikeUuid(value: string | null | undefined): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "").trim(),
+  );
+}
+
+function normalizeExternalMessageId(value: unknown): string {
+  return String(value || "").trim();
+}
+
+function expandExternalMessageIdCandidates(value: unknown): string[] {
+  const normalized = normalizeExternalMessageId(value);
+  if (!normalized) return [];
+
+  const withoutOwner = normalized.includes(":")
+    ? (normalized.split(":").pop() || normalized).trim()
+    : normalized;
+
+  return Array.from(new Set([normalized, withoutOwner].filter(Boolean)));
+}
+
+function toUazapiReplyMessageId(value: unknown): string {
+  const normalized = normalizeExternalMessageId(value);
+  if (!normalized) return "";
+  return normalized.includes(":")
+    ? (normalized.split(":").pop() || normalized).trim()
+    : normalized;
+}
+
+function pickUazapiMessageExternalId(payload: any): string {
+  return normalizeExternalMessageId(
+    pick(payload, [
+      "messageid",
+      "message.messageid",
+      "data.messageid",
+      "response.messageid",
+      "key.id",
+      "messageId",
+      "message.messageId",
+      "data.messageId",
+      "response.messageId",
+      "id",
+      "message.id",
+      "data.id",
+      "response.id",
+    ]),
+  );
+}
+
+function buildUazapiQuotedPayload(quotedExternalId?: string | null): Record<string, unknown> {
+  const externalId = toUazapiReplyMessageId(quotedExternalId);
+  if (!externalId) return {};
+  return { replyid: externalId };
+}
+
+async function resolveUazapiCanonicalReplyId(
+  baseUrl: string,
+  token: string,
+  quotedExternalId?: string | null,
+): Promise<string | null> {
+  const normalized = normalizeExternalMessageId(quotedExternalId);
+  if (!normalized) return null;
+
+  for (const candidate of expandExternalMessageIdCandidates(normalized)) {
+    try {
+      const { response, data } = await uazapiRequest(baseUrl, "/message/find", {
+        method: "POST",
+        token,
+        body: { id: candidate, limit: 1 },
+      });
+      if (!response.ok) continue;
+
+      const canonicalId = normalizeExternalMessageId(
+        pick(data, [
+          "messages.0.messageid",
+          "data.messages.0.messageid",
+          "results.0.messageid",
+          "items.0.messageid",
+          "messages.0.id",
+          "data.messages.0.id",
+          "results.0.id",
+          "items.0.id",
+        ]),
+      );
+      if (canonicalId) return toUazapiReplyMessageId(canonicalId);
+    } catch {
+      // fallback abaixo
+    }
+  }
+
+  return toUazapiReplyMessageId(normalized);
+}
+
+async function resolveQuotedMessageContext(
+  supabase: any,
+  quotedMessageId: string | null,
+  conversationId: string | null,
+): Promise<{ messageId: string | null; externalId: string | null; content: string | null; sender: string | null }> {
+  const input = normalizeExternalMessageId(quotedMessageId);
+  if (!input) return { messageId: null, externalId: null, content: null, sender: null };
+
+  let quotedRecord: any = null;
+
+  const byId = await supabase
+    .from("whatsapp_messages")
+    .select("id, message_id_external, content, sender_name, conversation_id")
+    .eq("id", input)
+    .maybeSingle();
+  if (!byId.error && byId.data) quotedRecord = byId.data;
+
+  if (!quotedRecord) {
+    for (const candidateExternalId of expandExternalMessageIdCandidates(input)) {
+      const byExternal = await supabase
+        .from("whatsapp_messages")
+        .select("id, message_id_external, content, sender_name, conversation_id")
+        .eq("message_id_external", candidateExternalId)
+        .maybeSingle();
+      if (!byExternal.error && byExternal.data) {
+        quotedRecord = byExternal.data;
+        break;
+      }
+    }
+  }
+
+  if (quotedRecord && conversationId && String(quotedRecord.conversation_id) !== String(conversationId)) {
+    quotedRecord = null;
+  }
+
+  if (!quotedRecord) {
+    return {
+      messageId: looksLikeUuid(input) ? input : null,
+      externalId: looksLikeUuid(input) ? null : input,
+      content: null,
+      sender: null,
+    };
+  }
+
+  return {
+    messageId: looksLikeUuid(String(quotedRecord.id || "")) ? String(quotedRecord.id) : null,
+    externalId: quotedRecord.message_id_external ? String(quotedRecord.message_id_external) : (looksLikeUuid(input) ? null : input),
+    content: quotedRecord.content ? String(quotedRecord.content) : null,
+    sender: quotedRecord.sender_name ? String(quotedRecord.sender_name) : null,
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -158,6 +303,7 @@ serve(async (req) => {
         const instance = instanceMap.get(msg.instance_id);
         if (!instance) continue;
         const apiType = instance.api_type || "evolution";
+        const quotedContext = await resolveQuotedMessageContext(supabase, msg.quoted_message_id ?? null, msg.conversation_id ?? null);
 
         await supabase
           .from("whatsapp_message_queue")
@@ -171,12 +317,20 @@ serve(async (req) => {
           if (!uazCfg) throw new Error("UAZAPI nao configurada.");
           const token = await resolveUazapiToken(supabase, instance, uazCfg.baseUrl, uazCfg.adminToken);
           const number = normalizePhoneFromJid(msg.remote_jid);
+          const canonicalReplyId = await resolveUazapiCanonicalReplyId(uazCfg.baseUrl, token, quotedContext.externalId);
 
           if (msg.message_type === "text") {
             const sent = await uazapiRequest(uazCfg.baseUrl, "/send/text", {
               method: "POST",
               token,
-              body: { number, phone: number, text: msg.content, message: msg.content },
+              body: {
+                number,
+                phone: number,
+                chatid: msg.remote_jid,
+                text: msg.content,
+                message: msg.content,
+                ...buildUazapiQuotedPayload(canonicalReplyId),
+              },
             });
             response = sent.response;
             result = sent.data;
@@ -184,10 +338,12 @@ serve(async (req) => {
             const mediaPayload: any = {
               number,
               phone: number,
+              chatid: msg.remote_jid,
               type: msg.message_type || "image",
               text: msg.content || "",
               caption: msg.content || "",
             };
+            Object.assign(mediaPayload, buildUazapiQuotedPayload(canonicalReplyId));
             if (msg.media_base64) {
               mediaPayload.file = msg.media_base64;
               mediaPayload.media = msg.media_base64;
@@ -210,14 +366,17 @@ serve(async (req) => {
           }
         } else {
           if (!evolutionApiUrl || !evolutionApiKey) throw new Error("Evolution API nao configurada");
+          const evolutionQuoted = quotedContext.externalId
+            ? { quoted: { key: { remoteJid: msg.remote_jid, id: quotedContext.externalId } } }
+            : {};
           if (msg.message_type === "text") {
             response = await fetch(`${evolutionApiUrl}/message/sendText/${instance.instance_name}`, {
               method: "POST",
               headers: { apikey: evolutionApiKey, "Content-Type": "application/json" },
-              body: JSON.stringify({ number: msg.remote_jid, text: msg.content }),
+              body: JSON.stringify({ number: msg.remote_jid, text: msg.content, ...evolutionQuoted }),
             });
           } else {
-            const mediaPayload: any = { number: msg.remote_jid, caption: msg.content };
+            const mediaPayload: any = { number: msg.remote_jid, caption: msg.content, ...evolutionQuoted };
             if (msg.media_base64) mediaPayload.media = msg.media_base64;
             else if (msg.media_url) mediaPayload.media = msg.media_url;
             response = await fetch(`${evolutionApiUrl}/message/sendMedia/${instance.instance_name}`, {
@@ -230,7 +389,7 @@ serve(async (req) => {
         }
 
         if (response.ok) {
-          const messageIdExternal = pick(result, ["key.id", "messageId", "id"]);
+          const messageIdExternal = pickUazapiMessageExternalId(result) || null;
           await supabase.from("whatsapp_messages").insert({
             conversation_id: msg.conversation_id,
             instance_id: msg.instance_id,
@@ -239,6 +398,9 @@ serve(async (req) => {
             content: msg.content,
             message_type: msg.message_type,
             media_url: msg.media_url,
+            quoted_message_id: quotedContext.messageId,
+            quoted_content: quotedContext.content,
+            quoted_sender: quotedContext.sender,
             status: "sent",
           });
 

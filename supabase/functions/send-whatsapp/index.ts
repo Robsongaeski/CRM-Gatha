@@ -83,6 +83,29 @@ function pick(obj: any, paths: string[]): any {
   return null;
 }
 
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+  return atob(normalized + padding);
+}
+
+function parseAuthClaims(authorizationHeader: string | null): Record<string, unknown> | null {
+  if (!authorizationHeader) return null;
+  const token = authorizationHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+
+  try {
+    const payload = decodeBase64Url(parts[1]);
+    const parsed = JSON.parse(payload);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 async function parseJsonSafe(response: Response): Promise<any> {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -151,6 +174,168 @@ async function persistUazapiToken(supabase: any, instanceId: string, token: stri
   }
 }
 
+function looksLikeUuid(value: string | null | undefined): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || '').trim(),
+  );
+}
+
+function normalizeExternalMessageId(value: unknown): string {
+  return String(value || '').trim();
+}
+
+function expandExternalMessageIdCandidates(value: unknown): string[] {
+  const normalized = normalizeExternalMessageId(value);
+  if (!normalized) return [];
+
+  const withoutOwner = normalized.includes(':')
+    ? (normalized.split(':').pop() || normalized).trim()
+    : normalized;
+
+  return Array.from(new Set([normalized, withoutOwner].filter(Boolean)));
+}
+
+function toUazapiReplyMessageId(value: unknown): string {
+  const normalized = normalizeExternalMessageId(value);
+  if (!normalized) return '';
+  return normalized.includes(':')
+    ? (normalized.split(':').pop() || normalized).trim()
+    : normalized;
+}
+
+function pickUazapiMessageExternalId(payload: any): string {
+  return normalizeExternalMessageId(
+    pick(payload, [
+      'messageid',
+      'message.messageid',
+      'data.messageid',
+      'response.messageid',
+      'key.id',
+      'messageId',
+      'message.messageId',
+      'data.messageId',
+      'response.messageId',
+      'id',
+      'message.id',
+      'data.id',
+      'response.id',
+    ]),
+  );
+}
+
+interface QuotedMessageContext {
+  messageId: string | null;
+  externalId: string | null;
+  content: string | null;
+  sender: string | null;
+}
+
+async function resolveQuotedMessageContext(
+  supabase: any,
+  quotedMessageId?: string,
+  conversationId?: string,
+): Promise<QuotedMessageContext> {
+  const input = normalizeExternalMessageId(quotedMessageId);
+  if (!input) {
+    return { messageId: null, externalId: null, content: null, sender: null };
+  }
+
+  let quotedRecord: any = null;
+
+  const queryById = await supabase
+    .from('whatsapp_messages')
+    .select('id, message_id_external, content, sender_name, conversation_id')
+    .eq('id', input)
+    .maybeSingle();
+
+  if (!queryById.error && queryById.data) {
+    quotedRecord = queryById.data;
+  }
+
+  if (!quotedRecord) {
+    for (const candidateExternalId of expandExternalMessageIdCandidates(input)) {
+      const queryByExternalId = await supabase
+        .from('whatsapp_messages')
+        .select('id, message_id_external, content, sender_name, conversation_id')
+        .eq('message_id_external', candidateExternalId)
+        .maybeSingle();
+
+      if (!queryByExternalId.error && queryByExternalId.data) {
+        quotedRecord = queryByExternalId.data;
+        break;
+      }
+    }
+  }
+
+  if (quotedRecord && conversationId && String(quotedRecord.conversation_id) !== String(conversationId)) {
+    quotedRecord = null;
+  }
+
+  if (!quotedRecord) {
+    return {
+      messageId: looksLikeUuid(input) ? input : null,
+      externalId: looksLikeUuid(input) ? null : input,
+      content: null,
+      sender: null,
+    };
+  }
+
+  return {
+    messageId: looksLikeUuid(String(quotedRecord.id || '')) ? String(quotedRecord.id) : null,
+    externalId: quotedRecord.message_id_external ? String(quotedRecord.message_id_external) : (looksLikeUuid(input) ? null : input),
+    content: quotedRecord.content ? String(quotedRecord.content) : null,
+    sender: quotedRecord.sender_name ? String(quotedRecord.sender_name) : null,
+  };
+}
+
+function buildUazapiQuotedPayload(quotedExternalId?: string | null): Record<string, unknown> {
+  const externalId = toUazapiReplyMessageId(quotedExternalId);
+  if (!externalId) return {};
+
+  // Mantemos o ID completo (owner:messageid quando presente) para preservar
+  // compatibilidade com payloads onde o provedor exige o formato canônico.
+  return { replyid: externalId };
+}
+
+async function resolveUazapiCanonicalReplyId(
+  uazapiUrl: string,
+  instanceToken: string,
+  quotedExternalId?: string | null,
+): Promise<string | null> {
+  const normalized = normalizeExternalMessageId(quotedExternalId);
+  if (!normalized) return null;
+
+  for (const candidate of expandExternalMessageIdCandidates(normalized)) {
+    try {
+      const { response, data } = await uazapiRequest(uazapiUrl, '/message/find', {
+        method: 'POST',
+        token: instanceToken,
+        body: { id: candidate, limit: 1 },
+      });
+
+      if (!response.ok) continue;
+
+      const canonicalId = normalizeExternalMessageId(
+        pick(data, [
+          'messages.0.messageid',
+          'data.messages.0.messageid',
+          'results.0.messageid',
+          'items.0.messageid',
+          'messages.0.id',
+          'data.messages.0.id',
+          'results.0.id',
+          'items.0.id',
+        ]),
+      );
+      if (canonicalId) return toUazapiReplyMessageId(canonicalId);
+    } catch {
+      // fallback abaixo
+    }
+  }
+
+  return toUazapiReplyMessageId(normalized);
+}
+
 async function resolveUazapiTokenForInstance(supabase: any, instance: any, baseUrl: string, adminToken: string): Promise<string> {
   let token = String(instance?.uazapi_instance_token || '');
   if (token) return token;
@@ -175,6 +360,49 @@ async function resolveUazapiTokenForInstance(supabase: any, instance: any, baseU
   return token;
 }
 
+async function userCanAccessInstance(supabase: any, userId: string, instanceId: string): Promise<boolean> {
+  const normalizedUserId = String(userId || '').trim();
+  const normalizedInstanceId = String(instanceId || '').trim();
+  if (!normalizedUserId || !normalizedInstanceId) return false;
+
+  const accessByRpc = await supabase.rpc('can_access_whatsapp_instance', {
+    _user_id: normalizedUserId,
+    _instance_id: normalizedInstanceId,
+  });
+
+  if (!accessByRpc.error && typeof accessByRpc.data === 'boolean') {
+    return accessByRpc.data;
+  }
+
+  if (accessByRpc.error) {
+    console.warn('can_access_whatsapp_instance indisponivel, usando fallback:', accessByRpc.error);
+  }
+
+  const [isAdminRes, canLegacyManageRes, canGranularManageRes] = await Promise.all([
+    supabase.rpc('is_admin', { _user_id: normalizedUserId }),
+    supabase.rpc('has_permission', { _user_id: normalizedUserId, _permission_id: 'ecommerce.whatsapp.configurar' }),
+    supabase.rpc('has_permission', { _user_id: normalizedUserId, _permission_id: 'whatsapp.instancias.gerenciar' }),
+  ]);
+
+  if (Boolean(isAdminRes.data) || Boolean(canLegacyManageRes.data) || Boolean(canGranularManageRes.data)) {
+    return true;
+  }
+
+  const { data: boundInstance, error: boundInstanceError } = await supabase
+    .from('whatsapp_instance_users')
+    .select('id')
+    .eq('user_id', normalizedUserId)
+    .eq('instance_id', normalizedInstanceId)
+    .maybeSingle();
+
+  if (boundInstanceError) {
+    console.warn('Falha ao validar vinculo de instancia (fallback):', boundInstanceError);
+    return false;
+  }
+
+  return Boolean(boundInstance?.id);
+}
+
 // --- UAZAPI: Extrair numero limpo do JID ---
 function jidToPhone(jid: string): string {
   return jid.replace(/@.*$/, '');
@@ -191,15 +419,18 @@ async function sendViaUazapi(
   mediaBase64?: string,
   mediaMimeType?: string,
   mediaFilename?: string,
+  quotedExternalId?: string | null,
 ): Promise<any> {
   const phone = jidToPhone(targetJid);
   const number = targetJid.includes('@g.us') ? targetJid : phone;
+  const canonicalReplyId = await resolveUazapiCanonicalReplyId(uazapiUrl, instanceToken, quotedExternalId);
+  const quotePayload = buildUazapiQuotedPayload(canonicalReplyId);
 
   if (messageType === 'text') {
     const { response, data } = await uazapiRequest(uazapiUrl, '/send/text', {
       method: 'POST',
       token: instanceToken,
-      body: { number, phone: number, text: content, message: content }
+      body: { number, phone: number, chatid: targetJid, text: content, message: content, ...quotePayload }
     });
     data._httpStatus = response.status;
     return data;
@@ -207,10 +438,13 @@ async function sendViaUazapi(
     const payload: any = {
       number,
       phone: number,
+      chatid: targetJid,
       type: messageType,
       text: content || '',
       caption: content || '',
     };
+
+    Object.assign(payload, quotePayload);
 
     if (mediaUrl) {
       payload.file = mediaUrl;
@@ -267,6 +501,15 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const authClaims = parseAuthClaims(req.headers.get('Authorization'));
+    const requestRole = String(authClaims?.role || '').trim().toLowerCase();
+    const requestUserId = typeof authClaims?.sub === 'string' ? String(authClaims.sub).trim() : '';
+    const isServiceRoleRequest = requestRole === 'service_role';
+    const isAuthenticatedUserRequest = requestRole === 'authenticated' && requestUserId.length > 0;
+
+    if (!isServiceRoleRequest && !isAuthenticatedUserRequest) {
+      throw new Error('Sem permissao para enviar mensagem.');
+    }
 
     const body: SendMessageRequest = await req.json();
     const {
@@ -328,14 +571,48 @@ serve(async (req) => {
 
     if (!instance) throw new Error('Nenhuma instancia WhatsApp disponivel');
 
-    // Resolver JID de envio a partir da conversa para evitar JID inválido/stale (ex.: LID)
-    let effectiveRemoteJid = remoteJid;
+    let conversationData: any = null;
     if (conversationId) {
-      const { data: conversationData } = await supabase
+      const { data: fetchedConversationData, error: conversationError } = await supabase
         .from('whatsapp_conversations')
-        .select('id, is_group, remote_jid, contact_phone')
+        .select('id, instance_id, is_group, remote_jid, contact_phone')
         .eq('id', conversationId)
         .maybeSingle();
+
+      if (conversationError) throw conversationError;
+      if (!fetchedConversationData) throw new Error('Conversa nao encontrada para envio.');
+      if (!fetchedConversationData.instance_id) throw new Error('Conversa sem instancia valida para envio.');
+      conversationData = fetchedConversationData;
+
+      if (String(instance.id) !== String(fetchedConversationData.instance_id)) {
+        const { data: instanceFromConversation, error: instanceFromConversationError } = await supabase
+          .from('whatsapp_instances')
+          .select('*')
+          .eq('id', fetchedConversationData.instance_id)
+          .maybeSingle();
+
+        if (instanceFromConversationError) throw instanceFromConversationError;
+        if (!instanceFromConversation) throw new Error('Instancia da conversa nao encontrada.');
+
+        console.warn('Instancia divergente da conversa, aplicando instancia correta.', {
+          requestedInstanceId: instance.id,
+          conversationInstanceId: fetchedConversationData.instance_id,
+          conversationId,
+        });
+        instance = instanceFromConversation;
+      }
+    }
+
+    if (isAuthenticatedUserRequest) {
+      const canAccessInstance = await userCanAccessInstance(supabase, requestUserId, instance.id);
+      if (!canAccessInstance) {
+        throw new Error('Usuario sem acesso a esta instancia de WhatsApp.');
+      }
+    }
+
+    // Resolver JID de envio a partir da conversa para evitar JID inválido/stale (ex.: LID)
+    let effectiveRemoteJid = remoteJid;
+    if (conversationData) {
 
       if (conversationData?.is_group) {
         effectiveRemoteJid = String(
@@ -357,6 +634,7 @@ serve(async (req) => {
     }
 
     console.log('Target JID resolved:', { incoming: remoteJid, effective: effectiveRemoteJid, conversationId });
+    const quotedContext = await resolveQuotedMessageContext(supabase, quotedMessageId, conversationId);
 
     // --- ROTEAMENTO POR PROVEDOR ---
     const apiType = instance.api_type || 'evolution';
@@ -396,6 +674,7 @@ serve(async (req) => {
           message_type: messageType,
           media_url: mediaUrl,
           media_base64: mediaBase64,
+          quoted_message_id: quotedContext.messageId,
           status: 'pending'
         });
 
@@ -409,6 +688,9 @@ serve(async (req) => {
             media_url: mediaUrl,
             media_mime_type: mediaMimeType,
             media_filename: mediaFilename,
+            quoted_message_id: quotedContext.messageId,
+            quoted_content: quotedContext.content,
+            quoted_sender: quotedContext.sender,
             status: 'queued'
           });
           const conversationPatch: Record<string, unknown> = {
@@ -430,7 +712,7 @@ serve(async (req) => {
       const formattedJid = effectiveRemoteJid.includes('@') ? effectiveRemoteJid : formatRemoteJid(effectiveRemoteJid);
       const uazapiResponse = await sendViaUazapi(
         uazapiUrl, instanceToken, formattedJid,
-        messageType, content, mediaUrl, mediaBase64, mediaMimeType, mediaFilename
+        messageType, content, mediaUrl, mediaBase64, mediaMimeType, mediaFilename, quotedContext.externalId
       );
 
       console.log('UAZAPI response:', uazapiResponse);
@@ -441,7 +723,14 @@ serve(async (req) => {
         if (conversationId) {
           await supabase.from('whatsapp_messages').insert({
             conversation_id: conversationId, instance_id: instance.id, from_me: true,
-            content, message_type: messageType, media_url: mediaUrl, status: 'error', error_message: errorMsg
+            content,
+            message_type: messageType,
+            media_url: mediaUrl,
+            quoted_message_id: quotedContext.messageId,
+            quoted_content: quotedContext.content,
+            quoted_sender: quotedContext.sender,
+            status: 'error',
+            error_message: errorMsg
           });
           await supabase.from('whatsapp_conversations').update({
             last_message_at: new Date().toISOString(),
@@ -453,7 +742,7 @@ serve(async (req) => {
         });
       }
 
-      const messageIdExternal = uazapiResponse?.id || uazapiResponse?.messageId || uazapiResponse?.key?.id;
+      const messageIdExternal = pickUazapiMessageExternalId(uazapiResponse) || null;
 
       // Salvar midia no Storage se vier base64
       let finalMediaUrl = mediaUrl;
@@ -483,7 +772,9 @@ serve(async (req) => {
         media_url: finalMediaUrl,
         media_mime_type: mediaMimeType,
         media_filename: mediaFilename,
-        quoted_message_id: quotedMessageId,
+        quoted_message_id: quotedContext.messageId,
+        quoted_content: quotedContext.content,
+        quoted_sender: quotedContext.sender,
         sender_name: senderName,
         status: 'sent'
       }).select().single();
@@ -538,6 +829,7 @@ serve(async (req) => {
         message_type: messageType,
         media_url: mediaUrl,
         media_base64: mediaBase64,
+        quoted_message_id: quotedContext.messageId,
         status: 'pending'
       });
 
@@ -551,6 +843,9 @@ serve(async (req) => {
           media_url: mediaUrl,
           media_mime_type: mediaMimeType,
           media_filename: mediaFilename,
+          quoted_message_id: quotedContext.messageId,
+          quoted_content: quotedContext.content,
+          quoted_sender: quotedContext.sender,
           status: 'queued'
         });
         const conversationPatch: Record<string, unknown> = {
@@ -584,11 +879,8 @@ serve(async (req) => {
 
     // Quoted options
     let quotedOptions: any = {};
-    if (quotedMessageId) {
-      const { data: quotedMsg } = await supabase.from('whatsapp_messages').select('message_id_external').eq('id', quotedMessageId).single();
-      if (quotedMsg?.message_id_external) {
-        quotedOptions = { quoted: { key: { remoteJid: formattedJid, id: quotedMsg.message_id_external } } };
-      }
+    if (quotedContext.externalId) {
+      quotedOptions = { quoted: { key: { remoteJid: formattedJid, id: quotedContext.externalId } } };
     }
 
     async function sendViaEvolution(targetJid: string) {
@@ -699,7 +991,9 @@ serve(async (req) => {
       media_url: finalMediaUrl,
       media_mime_type: mediaMimeType,
       media_filename: mediaFilename,
-      quoted_message_id: quotedMessageId,
+      quoted_message_id: quotedContext.messageId,
+      quoted_content: quotedContext.content,
+      quoted_sender: quotedContext.sender,
       sender_name: senderName,
       status: 'sent'
     }).select().single();
