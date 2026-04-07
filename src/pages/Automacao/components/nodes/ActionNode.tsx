@@ -1,6 +1,6 @@
 ﻿import React, { memo } from 'react';
 import { Handle, Position, NodeProps } from '@xyflow/react';
-import { Send, Mail, Bell, RefreshCw, Tag, User, Users, Webhook, MessageSquare } from 'lucide-react';
+import { Send, Mail, Bell, RefreshCw, Tag, User, Users, Webhook, MessageSquare, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const subtypeIcons: Record<string, React.ReactNode> = {
@@ -14,6 +14,7 @@ const subtypeIcons: Record<string, React.ReactNode> = {
   set_followup_flag: <Bell className="h-4 w-4" />,
   keyword_auto_reply: <MessageSquare className="h-4 w-4" />,
   call_webhook: <Webhook className="h-4 w-4" />,
+  ai_agent: <Bot className="h-4 w-4" />,
 };
 
 export const ActionNode = memo(({ data, selected }: NodeProps) => {
@@ -39,6 +40,14 @@ export const ActionNode = memo(({ data, selected }: NodeProps) => {
 
     if (subtype === 'call_webhook' && config.webhookUrl) {
       return config.webhookUrl.substring(0, 35) + '...';
+    }
+
+    if (subtype === 'ai_agent') {
+      const agentName = String(config.agent_name || '').trim();
+      const agentKey = String(config.agent_key || '').trim();
+      if (agentName) return `Agente: ${agentName}`;
+      if (agentKey) return `Agente: ${agentKey}`;
+      return 'Selecione um agente';
     }
 
     if (subtype === 'update_status') {

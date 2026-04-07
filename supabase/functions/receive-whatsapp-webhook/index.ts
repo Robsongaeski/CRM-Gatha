@@ -327,6 +327,9 @@ serve(async (req) => {
         senderPhone: string;
         senderName: string;
         fromMe: boolean;
+        messageExternalId?: string | null;
+        messageId?: string | null;
+        messageCreatedAt?: string | null;
       },
     ) => {
       try {
@@ -347,6 +350,9 @@ serve(async (req) => {
               sender_phone: messageData.senderPhone || null,
               sender_name: messageData.senderName || null,
               from_me: messageData.fromMe,
+              inbound_message_external_id: messageData.messageExternalId || null,
+              inbound_message_id: messageData.messageId || null,
+              inbound_message_created_at: messageData.messageCreatedAt || null,
             },
           }),
         });
@@ -1063,6 +1069,9 @@ serve(async (req) => {
           senderPhone: senderPhone || '',
           senderName: senderName || '',
           fromMe,
+          messageExternalId: externalMessageId || null,
+          messageId: savedMessage?.id ? String(savedMessage.id) : null,
+          messageCreatedAt: savedMessage?.created_at ? String(savedMessage.created_at) : null,
         },
       );
 
@@ -1076,6 +1085,9 @@ serve(async (req) => {
             senderPhone: senderPhone || '',
             senderName: senderName || '',
             fromMe,
+            messageExternalId: externalMessageId || null,
+            messageId: savedMessage?.id ? String(savedMessage.id) : null,
+            messageCreatedAt: savedMessage?.created_at ? String(savedMessage.created_at) : null,
           },
         );
       }

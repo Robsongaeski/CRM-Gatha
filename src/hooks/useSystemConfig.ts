@@ -57,7 +57,7 @@ export function useSystemConfig() {
 
   // Mutation para atualizar configuração
   const updateConfigMutation = useMutation({
-    mutationFn: async ({ key, value }: { key: string; value: string }) => {
+    mutationFn: async ({ key, value, is_secret }: { key: string; value: string; is_secret?: boolean }) => {
       const { data: { user } } = await supabase.auth.getUser();
       
       const { data, error } = await supabase
@@ -65,8 +65,11 @@ export function useSystemConfig() {
         .upsert({ 
           key,
           value, 
+          ...(typeof is_secret === 'boolean' ? { is_secret } : {}),
           updated_by: user?.id,
           updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'key',
         })
         .select()
         .single();

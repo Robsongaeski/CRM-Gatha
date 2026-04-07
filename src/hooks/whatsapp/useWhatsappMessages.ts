@@ -196,6 +196,11 @@ export function useSendWhatsappMessage() {
     },
     onMutate: async (variables) => {
       const tempMessageId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const currentMessages =
+        (queryClient.getQueryData(['whatsapp-messages', variables.conversationId]) as WhatsappMessage[] | undefined) || [];
+      const quotedMessage = variables.quotedMessageId
+        ? currentMessages.find((message) => message.id === variables.quotedMessageId) || null
+        : null;
       const optimisticMessage: WhatsappMessage = {
         id: tempMessageId,
         conversation_id: variables.conversationId,
@@ -210,8 +215,8 @@ export function useSendWhatsappMessage() {
         media_mime_type: variables.mediaMimeType || null,
         media_filename: variables.mediaFilename || null,
         quoted_message_id: variables.quotedMessageId || null,
-        quoted_content: null,
-        quoted_sender: null,
+        quoted_content: quotedMessage?.content || null,
+        quoted_sender: quotedMessage?.sender_name || null,
         reactions: null,
         status: 'pending',
         error_message: null,

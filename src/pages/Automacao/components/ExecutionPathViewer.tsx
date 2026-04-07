@@ -9,6 +9,7 @@ import {
   Bell,
   Tag,
   Webhook,
+  Bot,
   Clock,
   ChevronDown,
   ChevronRight,
@@ -48,6 +49,7 @@ const nodeIcons: Record<string, React.ElementType> = {
   create_notification: Bell,
   add_tag: Tag,
   call_webhook: Webhook,
+  ai_agent: Bot,
   delay: Clock,
   schedule: Clock,
   stop_flow: StopCircle,
@@ -82,6 +84,10 @@ function getLogSummary(log: ExecutionLog): string | null {
   if (output.skipped) return `Ignorado: ${getSkippedReason(String(output.skipped))}`;
   if (output.assigned_user_name) return `Distribuido para ${String(output.assigned_user_name)}`;
   if (output.whatsapp_sent === true) return 'Mensagem de WhatsApp enviada';
+  if (output.ai_agent_called === true) {
+    const key = String(output.agent_key || '').trim();
+    return key ? `Agente IA acionado (${key})` : 'Agente IA acionado';
+  }
   if (output.email_sent === true) return 'Email enviado';
   if (output.notification_created === true) return 'Notificacao criada';
   if (output.status_updated === true && output.new_status) {

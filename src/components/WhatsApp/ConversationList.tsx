@@ -89,7 +89,7 @@ export default function ConversationList({
           <div className="relative flex-1">
             <Search className="absolute left-3 top-2 h-4 w-4 text-[#54656f]" />
             <Input
-              placeholder="Pesquisar conversa"
+              placeholder="Pesquisar conversa, cliente ou pedido"
               value={filters.search}
               onChange={(e) => onFiltersChange({ ...filters, search: e.target.value })}
               className="pl-10 h-8 bg-[#f0f2f5] border-none rounded-lg text-sm text-[#111b21] placeholder:text-[#667781] focus-visible:ring-0"

@@ -169,6 +169,7 @@ export function useWhatsappConversations(
 
       const searchTerm = filters.search.trim();
       const hasSearch = searchTerm.length > 0;
+      let matchedClienteIdsFromSearch: string[] = [];
 
       // Filtro de atribuição
       if (!hasSearch && filters.assignment === 'mine' && user) {
@@ -208,6 +209,7 @@ export function useWhatsappConversations(
           .trim();
 
         const searchClauses = new Set<string>();
+        const matchedClienteIds = new Set<string>();
 
         if (serverSearchTerm) {
           searchClauses.add(`contact_name.ilike.%${serverSearchTerm}%`);
@@ -232,9 +234,32 @@ export function useWhatsappConversations(
             .map((cliente) => cliente.id)
             .filter(Boolean);
 
-          if (clienteIds.length > 0) {
-            searchClauses.add(`cliente_id.in.(${clienteIds.join(',')})`);
+          clienteIds.forEach((clienteId) => matchedClienteIds.add(clienteId));
+        }
+
+        const orderNumberDigits = onlyDigits(searchTerm);
+        if (orderNumberDigits.length > 0) {
+          const parsedOrderNumber = Number.parseInt(orderNumberDigits, 10);
+
+          if (Number.isFinite(parsedOrderNumber)) {
+            const { data: matchedPedidos } = await supabase
+              .from('pedidos')
+              .select('cliente_id')
+              .eq('numero_pedido', parsedOrderNumber)
+              .not('cliente_id', 'is', null)
+              .limit(100);
+
+            (matchedPedidos || []).forEach((pedido) => {
+              if (pedido.cliente_id) {
+                matchedClienteIds.add(pedido.cliente_id);
+              }
+            });
           }
+        }
+
+        matchedClienteIdsFromSearch = Array.from(matchedClienteIds);
+        if (matchedClienteIdsFromSearch.length > 0) {
+          searchClauses.add(`cliente_id.in.(${matchedClienteIdsFromSearch.join(',')})`);
         }
 
         if (searchClauses.size > 0) {
@@ -263,6 +288,7 @@ export function useWhatsappConversations(
 
       if (hasSearch) {
         const normalizedSearch = normalizeSearchText(searchTerm);
+        const matchedClienteIdSet = new Set(matchedClienteIdsFromSearch);
 
         results = results.filter((conv) => {
           const matchesText =
@@ -280,7 +306,10 @@ export function useWhatsappConversations(
             conv.remote_jid,
           );
 
-          return matchesText || matchesPhone;
+          const matchesOrderCliente =
+            !!conv.cliente_id && matchedClienteIdSet.has(conv.cliente_id);
+
+          return matchesText || matchesPhone || matchesOrderCliente;
         });
       }
 

@@ -72,11 +72,48 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
           }
           .ficha-pedido {
             margin: 0;
-            padding: 8mm;
+            padding: 6mm;
             box-shadow: none !important;
+            font-size: 11px;
           }
           .page-break { 
             page-break-inside: avoid; 
+          }
+          .item-block {
+            margin-bottom: 2mm !important;
+            padding-bottom: 2mm !important;
+            break-inside: auto;
+            page-break-inside: auto;
+          }
+          .item-header {
+            margin-bottom: 1.5mm !important;
+            padding: 1mm 1.5mm !important;
+          }
+          .item-body {
+            gap: 2mm !important;
+          }
+          .item-model-image {
+            width: 46mm !important;
+            height: 46mm !important;
+          }
+          .grade-box {
+            padding: 1.2mm !important;
+            border-width: 1px !important;
+          }
+          .grade-chips {
+            display: none !important;
+          }
+          .grade-inline-print {
+            display: block !important;
+            margin-top: 1mm;
+            font-size: 10px;
+            line-height: 1.2;
+            color: #111827;
+            font-weight: 600;
+            word-break: break-word;
+          }
+          .item-divider {
+            border-bottom-width: 1px !important;
           }
           .production-page {
             border-top: 2px solid #1f2937;
@@ -241,9 +278,9 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
           Itens do Pedido
         </h2>
         {pedido.itens?.map((item: any, index: number) => (
-          <div key={index} className="mb-4 pb-3 border-b-2 border-gray-300 page-break">
+          <div key={index} className="item-block item-divider mb-3 pb-2 border-b-2 border-gray-300">
             {/* Cabeçalho do Item */}
-            <div className="flex items-center gap-3 mb-2 bg-gray-100 px-2 py-1 rounded">
+            <div className="item-header flex items-center gap-3 mb-2 bg-gray-100 px-2 py-1 rounded">
               <span className="text-sm font-bold">
                 ITEM {index + 1}: {item.produto?.nome || 'Produto'}
                 {item.produto?.codigo && <span className="text-gray-600 font-semibold ml-1">[{item.produto.codigo}]</span>}
@@ -257,14 +294,14 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
             </div>
 
             {/* Layout: Imagem à esquerda (só se não houver imagem aprovada), informações à direita */}
-            <div className="flex gap-3">
+            <div className="item-body flex gap-3">
               {/* Foto do Modelo - NÃO mostra se há imagem aprovada no pedido */}
               {item.foto_modelo_url && !(pedido.imagem_aprovada && pedido.imagem_aprovacao_url) && (
                 <div className="flex-shrink-0">
                   <img
                     src={item.foto_modelo_url}
                     alt={`Modelo ${item.produto?.nome || 'Produto'}`}
-                    className="w-64 h-64 object-contain border border-gray-400"
+                    className="item-model-image w-64 h-64 object-contain border border-gray-400"
                   />
                 </div>
               )}
@@ -273,15 +310,20 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
               <div className="flex-1 text-[11px] space-y-2">
                 {/* Grade de Tamanhos */}
                 {item.grades && item.grades.length > 0 && (
-                  <div className="bg-gray-50 p-2 rounded border border-gray-200">
+                  <div className="grade-box bg-gray-50 p-2 rounded border border-gray-200">
                     <span className="font-bold text-gray-800">Grade:</span>
-                    <div className="flex gap-1 flex-wrap mt-1">
+                    <div className="grade-chips flex gap-1 flex-wrap mt-1">
                       {item.grades.map((grade: any, gIndex: number) => (
                         <span key={gIndex} className="px-2 py-1 bg-gray-300 rounded font-mono text-[11px] font-bold border border-gray-400">
                           {grade.tamanho_nome}({grade.quantidade})
                         </span>
                       ))}
                     </div>
+                    <p className="grade-inline-print hidden">
+                      {item.grades
+                        .map((grade: any) => `${grade.tamanho_nome}(${grade.quantidade})`)
+                        .join(' · ')}
+                    </p>
                   </div>
                 )}
 

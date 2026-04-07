@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 interface Message {
   id: string;
+  message_id_external?: string | null;
   direction: 'incoming' | 'outgoing';
   type: string;
   content: string | null;

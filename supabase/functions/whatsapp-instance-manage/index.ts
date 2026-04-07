@@ -40,6 +40,13 @@ const parseJsonSafe = async (r: Response) => {
 };
 
 const uazErr = (data: any, fallback: string) => String(pick(data, ["message", "error", "details", "response.message"]) || fallback);
+const isAlreadyExistsError = (message: string) => {
+  const normalized = String(message || "").toLowerCase();
+  if (!normalized) return false;
+  return ["already exists", "already exist", "duplicate", "duplicado", "ja existe", "jÃ¡ existe", "exists"].some((part) =>
+    normalized.includes(part)
+  );
+};
 const CONNECTED_STATES = new Set(["open", "opened", "connected", "online", "authenticated", "ready"]);
 const normalizeConnectionState = (raw: any): { status: "connected" | "disconnected"; rawState: string } => {
   const rawText =
@@ -112,6 +119,20 @@ const uazWebhookBody = (url: string) => ({
   addUrlEvents: false,
   addUrlTypesMessages: false,
 });
+
+const resolveWebhookUrl = (candidate: string | undefined, fallback: string): string => {
+  const raw = String(candidate || "").trim();
+  if (!raw) return fallback;
+  if (/^undefined\b/i.test(raw) || /^null\b/i.test(raw)) return fallback;
+
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return fallback;
+    return parsed.toString();
+  } catch {
+    return fallback;
+  }
+};
 
 async function sysMap(supabase: any, keys: string[]) {
   const { data, error } = await supabase.from("system_config").select("key, value").in("key", keys);
@@ -391,12 +412,75 @@ serve(async (req) => {
       if (!instanceName) throw new Error("instanceName e obrigatorio");
       if (apiType === "uazapi") {
         const cfg = await getUazCfg(supabase);
+        const existing = await tokenFromAll(cfg, instanceName);
+        if (existing?.token) {
+          await persistUaz(
+            supabase,
+            { id: instanceId, instance_name: instanceName },
+            { uazapi_instance_token: existing.token, uazapi_instance_external_id: existing.extId || null },
+          );
+
+          let statusData: any = null;
+          try {
+            const st = await uazReq(cfg, "/instance/status", { token: existing.token });
+            statusData = st.data;
+          } catch {
+            // ignore and return minimal success payload
+          }
+
+          result = {
+            success: true,
+            reusedExistingInstance: true,
+            instance: statusData?.instance || statusData || null,
+            instanceName,
+            instanceToken: existing.token,
+            instanceExternalId: existing.extId || null,
+            qrcode: uazQr(statusData),
+            pairingCode: uazPair(statusData),
+          };
+          return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
         const init = await uazReq(cfg, "/instance/init", {
           method: "POST",
           admin: true,
           body: { name: instanceName, instanceName, Name: instanceName },
         });
-        if (!init.response.ok) throw new Error(uazErr(init.data, "Erro ao criar instancia UAZAPI"));
+        if (!init.response.ok) {
+          const initErrorMessage = uazErr(init.data, "Erro ao criar instancia UAZAPI");
+          if (!isAlreadyExistsError(initErrorMessage)) {
+            throw new Error(initErrorMessage);
+          }
+
+          const found = await tokenFromAll(cfg, instanceName);
+          if (!found?.token) throw new Error(initErrorMessage);
+
+          await persistUaz(
+            supabase,
+            { id: instanceId, instance_name: instanceName },
+            { uazapi_instance_token: found.token, uazapi_instance_external_id: found.extId || null },
+          );
+
+          let statusData: any = null;
+          try {
+            const st = await uazReq(cfg, "/instance/status", { token: found.token });
+            statusData = st.data;
+          } catch {
+            // ignore and return minimal success payload
+          }
+
+          result = {
+            success: true,
+            reusedExistingInstance: true,
+            instance: statusData?.instance || statusData || null,
+            instanceName,
+            instanceToken: found.token,
+            instanceExternalId: found.extId || null,
+            qrcode: uazQr(statusData),
+            pairingCode: uazPair(statusData),
+          };
+          return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
         let token = uazToken(init.data);
         let extId = pick(init.data, ["id", "instance.id", "data.id"]);
         if (!token) {
@@ -536,7 +620,8 @@ serve(async (req) => {
       if (apiType === "uazapi") {
         const cfg = await getUazCfg(supabase);
         const ctx = await resolveUazCtx(supabase, cfg, { instanceId, instanceName, requireToken: true });
-        const finalWebhook = webhookUrl || `${supabaseUrl}/functions/v1/receive-whatsapp-uazapi-webhook`;
+        const fallbackWebhook = `${supabaseUrl}/functions/v1/receive-whatsapp-uazapi-webhook`;
+        const finalWebhook = resolveWebhookUrl(webhookUrl, fallbackWebhook);
         const wr = await uazReq(cfg, "/webhook", {
           method: "POST",
           token: ctx.token,
@@ -547,14 +632,15 @@ serve(async (req) => {
         else await supabase.from("whatsapp_instances").update({ webhook_configured: true }).eq("instance_name", ctx.instanceName);
         result = { success: true, webhookSet: true, data: wr.data, webhookUrl: finalWebhook };
       } else {
-        if (!webhookUrl) throw new Error("webhookUrl e obrigatorio");
         if (!evolutionApiUrl || !evolutionApiKey) throw new Error("Evolution API nao configurada");
+        const fallbackWebhook = `${supabaseUrl}/functions/v1/receive-whatsapp-webhook`;
+        const finalWebhook = resolveWebhookUrl(webhookUrl, fallbackWebhook);
         let ok = false;
         let r = await fetch(`${baseUrl}/webhook/set/${instanceName}`, {
           method: "POST",
           headers: { apikey: evolutionApiKey, "Content-Type": "application/json" },
           body: JSON.stringify({
-            webhook: { enabled: true, url: webhookUrl, byEvents: false, base64: true, events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "QRCODE_UPDATED"] },
+            webhook: { enabled: true, url: finalWebhook, byEvents: false, base64: true, events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "QRCODE_UPDATED"] },
           }),
         });
         let d = await parseJsonSafe(r);
@@ -563,14 +649,21 @@ serve(async (req) => {
           r = await fetch(`${baseUrl}/webhook/set/${instanceName}`, {
             method: "POST",
             headers: { apikey: evolutionApiKey, "Content-Type": "application/json" },
-            body: JSON.stringify({ url: webhookUrl, webhook_by_events: false, webhook_base64: true, events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"] }),
+            body: JSON.stringify({ url: finalWebhook, webhook_by_events: false, webhook_base64: true, events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE"] }),
           });
           d = await parseJsonSafe(r);
           if (r.ok) ok = true;
         }
+        if (!ok) {
+          const errMsg =
+            String(pick(d, ["response.message.0", "response.message", "message", "error"]) || "").trim() ||
+            `Falha ao configurar webhook na Evolution API para ${instanceName}.`;
+          throw new Error(errMsg);
+        }
+
         if (instanceId) await supabase.from("whatsapp_instances").update({ webhook_configured: true }).eq("id", instanceId);
         else await supabase.from("whatsapp_instances").update({ webhook_configured: true }).eq("instance_name", instanceName);
-        result = { success: true, webhookSet: ok, data: d };
+        result = { success: true, webhookSet: true, data: d, webhookUrl: finalWebhook };
       }
     } else if (action === "check-status") {
       if (instanceName) {

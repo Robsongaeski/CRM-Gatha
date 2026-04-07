@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   Calendar,
+  Check,
   CheckCircle2,
   DollarSign,
   ExternalLink,
@@ -11,21 +12,25 @@ import {
   Loader2,
   MessageSquareWarning,
   Package,
+  Pencil,
+  X,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { usePedido } from '@/hooks/usePedidos';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useEtapasProducao } from '@/hooks/pcp/useEtapasProducao';
 import { useMovimentoEtapa } from '@/hooks/pcp/useMovimentoEtapa';
 import { supabase } from '@/integrations/supabase/client';
 import { sanitizeError } from '@/lib/errorHandling';
-import { formatCurrency } from '@/lib/formatters';
+import { extractDateOnly, formatCurrency } from '@/lib/formatters';
 
 interface PedidoDetalheDialogProps {
   open: boolean;
@@ -129,6 +134,7 @@ export default function PedidoDetalheDialog({
 }: PedidoDetalheDialogProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { can, isAdmin } = usePermissions();
   const { etapas } = useEtapasProducao();
   const { moverPedido, isMoving } = useMovimentoEtapa();
   const { data: pedidoCompleto, isLoading } = usePedido(pedido?.id);
@@ -136,6 +142,9 @@ export default function PedidoDetalheDialog({
   const [textoAlteracao, setTextoAlteracao] = useState('');
   const [salvandoAlteracao, setSalvandoAlteracao] = useState(false);
   const [aprovandoPedido, setAprovandoPedido] = useState(false);
+  const [editingEntrega, setEditingEntrega] = useState(false);
+  const [novaDataEntrega, setNovaDataEntrega] = useState('');
+  const [salvandoEntrega, setSalvandoEntrega] = useState(false);
 
   const pedidoId = pedido?.id ?? null;
   const pedidoAtual: PedidoDetalhado =
@@ -148,6 +157,12 @@ export default function PedidoDetalheDialog({
   const valorTotal = Number(pedidoAtual?.valor_total ?? pedido?.valor_total ?? 0);
   const observacoes = parseObservacaoArray(pedidoAtual?.observacao);
   const itens = Array.isArray(pedidoAtual?.itens) ? pedidoAtual.itens : [];
+  const dataEntregaAtual = extractDateOnly(pedidoAtual?.data_entrega);
+  const podeEditarEntrega =
+    isAdmin ||
+    can('pedidos.editar') ||
+    can('pedidos.editar_todos') ||
+    can('pcp.kanban.movimentar');
 
   const etapaAtual = useMemo(
     () => etapas.find((etapa) => etapa.id === etapaAtualId),
@@ -177,6 +192,12 @@ export default function PedidoDetalheDialog({
   const quantidadeTotal = itens.reduce((acc: number, item) => {
     return acc + Number(item?.quantidade || 0);
   }, 0);
+
+  useEffect(() => {
+    if (!open) return;
+    setNovaDataEntrega(dataEntregaAtual);
+    setEditingEntrega(false);
+  }, [open, dataEntregaAtual, pedidoId]);
 
   const appendObservacaoNoPedido = async (targetPedidoId: string, texto: string) => {
     const { data: pedidoDoBanco, error: pedidoError } = await supabase
@@ -267,9 +288,50 @@ export default function PedidoDetalheDialog({
     }
   };
 
+  const handleSalvarDataEntrega = async () => {
+    if (!pedidoId) return;
+    if (!novaDataEntrega) {
+      toast.error('Informe uma data de entrega válida.');
+      return;
+    }
+
+    const dataAtual = extractDateOnly(pedidoAtual?.data_entrega);
+    if (dataAtual === novaDataEntrega) {
+      setEditingEntrega(false);
+      return;
+    }
+
+    setSalvandoEntrega(true);
+    try {
+      const { data: updatedPedido, error } = await supabase
+        .from('pedidos')
+        .update({ data_entrega: `${novaDataEntrega}T12:00:00` })
+        .eq('id', pedidoId)
+        .select('id')
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!updatedPedido) throw new Error('Sem permissao para atualizar este pedido.');
+
+      queryClient.invalidateQueries({ queryKey: ['pedido', pedidoId] });
+      queryClient.invalidateQueries({ queryKey: ['pedidos'] });
+      queryClient.invalidateQueries({ queryKey: ['pedidos-kanban'] });
+      queryClient.invalidateQueries({ queryKey: ['pedido-historico', pedidoId] });
+      queryClient.invalidateQueries({ queryKey: ['cliente-pedidos'] });
+      queryClient.invalidateQueries({ queryKey: ['pedidos-calendario'] });
+
+      setEditingEntrega(false);
+      toast.success('Data de entrega atualizada com registro no histórico.');
+    } catch (error) {
+      toast.error(sanitizeError(error));
+    } finally {
+      setSalvandoEntrega(false);
+    }
+  };
+
   if (!pedido) return null;
 
-  const processandoAcao = isMoving || salvandoAlteracao || aprovandoPedido;
+  const processandoAcao = isMoving || salvandoAlteracao || aprovandoPedido || salvandoEntrega;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -327,8 +389,60 @@ export default function PedidoDetalheDialog({
                     </div>
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-muted-foreground">Entrega</span>
-                      <span>{safeFormatDate(pedidoAtual?.data_entrega)}</span>
+                      <div className="flex items-center gap-2">
+                        <span>{safeFormatDate(pedidoAtual?.data_entrega)}</span>
+                        {podeEditarEntrega && !editingEntrega && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            onClick={() => setEditingEntrega(true)}
+                            title="Editar data de entrega"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
+                    {podeEditarEntrega && editingEntrega && (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">Nova entrega</span>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="date"
+                            className="h-8 w-[150px]"
+                            value={novaDataEntrega}
+                            onChange={(e) => setNovaDataEntrega(e.target.value)}
+                          />
+                          <Button
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={handleSalvarDataEntrega}
+                            disabled={!novaDataEntrega || salvandoEntrega}
+                            title="Salvar nova data"
+                          >
+                            {salvandoEntrega ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8"
+                            onClick={() => {
+                              setNovaDataEntrega(dataEntregaAtual);
+                              setEditingEntrega(false);
+                            }}
+                            disabled={salvandoEntrega}
+                            title="Cancelar edição"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-muted-foreground flex items-center gap-1">
                         <DollarSign className="h-3.5 w-3.5" />

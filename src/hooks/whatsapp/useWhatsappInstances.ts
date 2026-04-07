@@ -44,6 +44,15 @@ function isMissingColumnError(error: unknown, columns: string[]) {
   return message.includes('schema cache') || message.includes('does not exist') || message.includes('column');
 }
 
+function isUniqueInstanceNameError(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+  if (!message) return false;
+  return (
+    message.includes('whatsapp_instances_instance_name_key') ||
+    (message.includes('duplicate key') && message.includes('instance_name'))
+  );
+}
+
 function buildHistoryInsertPayload(data: { import_history_enabled?: boolean; import_history_days?: number }) {
   const importHistoryEnabled = data.import_history_enabled === true;
   const payload: Record<string, unknown> = {
@@ -106,11 +115,82 @@ export function useCreateWhatsappInstance() {
         ...buildHistoryInsertPayload(data),
       };
 
+      const { data: existingByName } = await supabase
+        .from('whatsapp_instances')
+        .select('*')
+        .eq('instance_name', data.instance_name)
+        .maybeSingle();
+
+      if (existingByName?.is_active) {
+        throw new Error(`JÃ¡ existe uma instÃ¢ncia ativa com o nome "${data.instance_name}".`);
+      }
+
+      if (existingByName && !existingByName.is_active) {
+        const reactivatePayload: Record<string, unknown> = {
+          ...insertPayload,
+          is_active: true,
+          status: 'disconnected',
+          webhook_configured: false,
+        };
+
+        let reactivateResult = await supabase
+          .from('whatsapp_instances')
+          .update(reactivatePayload)
+          .eq('id', existingByName.id)
+          .select()
+          .single();
+
+        if (reactivateResult.error && isMissingColumnError(reactivateResult.error, ['import_history_enabled', 'import_history_days'])) {
+          const fallbackReactivatePayload = {
+            nome: data.nome,
+            instance_name: data.instance_name,
+            is_active: true,
+            status: 'disconnected' as const,
+            webhook_configured: false,
+          };
+          reactivateResult = await supabase
+            .from('whatsapp_instances')
+            .update(fallbackReactivatePayload)
+            .eq('id', existingByName.id)
+            .select()
+            .single();
+        }
+
+        if (reactivateResult.error) throw reactivateResult.error;
+
+        return { instance: reactivateResult.data, qrcode: evolutionResult.qrcode };
+      }
+
       let { data: instance, error } = await supabase
         .from('whatsapp_instances')
         .insert(insertPayload)
         .select()
         .single();
+
+      if (error && isUniqueInstanceNameError(error)) {
+        const { data: existingInactive } = await supabase
+          .from('whatsapp_instances')
+          .select('*')
+          .eq('instance_name', data.instance_name)
+          .maybeSingle();
+
+        if (existingInactive && !existingInactive.is_active) {
+          const reactivatePayload: Record<string, unknown> = {
+            ...insertPayload,
+            is_active: true,
+            status: 'disconnected',
+            webhook_configured: false,
+          };
+          const retryReactivate = await supabase
+            .from('whatsapp_instances')
+            .update(reactivatePayload)
+            .eq('id', existingInactive.id)
+            .select()
+            .single();
+          instance = retryReactivate.data;
+          error = retryReactivate.error;
+        }
+      }
 
       if (error && isMissingColumnError(error, ['import_history_enabled', 'import_history_days'])) {
         const fallbackPayload = {
@@ -183,11 +263,101 @@ export function useCreateUazapiInstance() {
       if (uazapiResult.instanceToken) insertPayload.uazapi_instance_token = uazapiResult.instanceToken;
       if (uazapiResult.instanceExternalId) insertPayload.uazapi_instance_external_id = uazapiResult.instanceExternalId;
 
+      const { data: existingByName } = await supabase
+        .from('whatsapp_instances')
+        .select('*')
+        .eq('instance_name', data.instance_name)
+        .maybeSingle();
+
+      if (existingByName?.is_active) {
+        throw new Error(`JÃ¡ existe uma instÃ¢ncia ativa com o nome "${data.instance_name}".`);
+      }
+
+      if (existingByName && !existingByName.is_active) {
+        const reactivatePayload: Record<string, unknown> = {
+          ...insertPayload,
+          is_active: true,
+          status: 'disconnected',
+          webhook_configured: false,
+        };
+
+        let reactivateResult = await supabase
+          .from('whatsapp_instances')
+          .update(reactivatePayload)
+          .eq('id', existingByName.id)
+          .select()
+          .single();
+
+        if (reactivateResult.error && /uazapi_instance_token|uazapi_instance_external_id/i.test(getErrorMessage(reactivateResult.error))) {
+          const fallbackReactivatePayload: Record<string, unknown> = {
+            nome: data.nome,
+            instance_name: data.instance_name,
+            status: 'disconnected',
+            api_type: 'uazapi',
+            is_active: true,
+            webhook_configured: false,
+            ...buildHistoryInsertPayload(data),
+          };
+          reactivateResult = await supabase
+            .from('whatsapp_instances')
+            .update(fallbackReactivatePayload)
+            .eq('id', existingByName.id)
+            .select()
+            .single();
+        }
+
+        if (reactivateResult.error && isMissingColumnError(reactivateResult.error, ['import_history_enabled', 'import_history_days'])) {
+          const fallbackReactivatePayload = {
+            nome: data.nome,
+            instance_name: data.instance_name,
+            status: 'disconnected' as const,
+            api_type: 'uazapi' as const,
+            is_active: true,
+            webhook_configured: false,
+          };
+          reactivateResult = await supabase
+            .from('whatsapp_instances')
+            .update(fallbackReactivatePayload)
+            .eq('id', existingByName.id)
+            .select()
+            .single();
+        }
+
+        if (reactivateResult.error) throw reactivateResult.error;
+
+        return { instance: reactivateResult.data, qrcode: uazapiResult.qrcode };
+      }
+
       let { data: instance, error } = await supabase
         .from('whatsapp_instances')
         .insert(insertPayload)
         .select()
         .single();
+
+      if (error && isUniqueInstanceNameError(error)) {
+        const { data: existingInactive } = await supabase
+          .from('whatsapp_instances')
+          .select('*')
+          .eq('instance_name', data.instance_name)
+          .maybeSingle();
+
+        if (existingInactive && !existingInactive.is_active) {
+          const reactivatePayload: Record<string, unknown> = {
+            ...insertPayload,
+            is_active: true,
+            status: 'disconnected',
+            webhook_configured: false,
+          };
+          const retryReactivate = await supabase
+            .from('whatsapp_instances')
+            .update(reactivatePayload)
+            .eq('id', existingInactive.id)
+            .select()
+            .single();
+          instance = retryReactivate.data;
+          error = retryReactivate.error;
+        }
+      }
 
       if (error && /uazapi_instance_token|uazapi_instance_external_id/i.test(getErrorMessage(error))) {
         const fallbackPayload = {
@@ -423,13 +593,6 @@ export function useSetWebhook() {
     mutationFn: async (
       { instanceId, instanceName, apiType }: { instanceId: string; instanceName: string; apiType?: WhatsappInstance['api_type'] },
     ) => {
-      // Get the Supabase URL dynamically
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const webhookPath = apiType === 'uazapi' ? 'receive-whatsapp-uazapi-webhook' : 'receive-whatsapp-webhook';
-      const webhookUrl = `${supabaseUrl}/functions/v1/${webhookPath}`;
-      
-      console.log('Configuring webhook:', webhookUrl);
-      
       const { data, error } = await supabase.functions
         .invoke('whatsapp-instance-manage', {
           body: { 
@@ -437,7 +600,6 @@ export function useSetWebhook() {
             instanceId,
             instanceName,
             apiType,
-            webhookUrl 
           }
         });
 

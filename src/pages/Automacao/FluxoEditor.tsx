@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+﻿import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ReactFlow,
@@ -76,6 +76,29 @@ const legacyActionSubtypeMap: Record<string, string> = {
   resposta_palavra: 'keyword_auto_reply',
 };
 
+function extractAiAgentKeyFromWebhookConfig(rawConfig: unknown): string {
+  const config = (rawConfig && typeof rawConfig === 'object')
+    ? (rawConfig as Record<string, unknown>)
+    : {};
+  const rawUrl = String(config.url || config.webhookUrl || '').trim();
+  if (!rawUrl || !/whatsapp-ai-router/i.test(rawUrl)) return '';
+
+  try {
+    const parsed = rawUrl.startsWith('http')
+      ? new URL(rawUrl)
+      : new URL(rawUrl, 'https://local.invalid');
+    return String(parsed.searchParams.get('agent_key') || '').trim();
+  } catch {
+    const match = rawUrl.match(/[?&]agent_key=([^&]+)/i);
+    if (!match?.[1]) return '';
+    try {
+      return decodeURIComponent(match[1]).trim();
+    } catch {
+      return String(match[1] || '').trim();
+    }
+  }
+}
+
 function normalizeActionSubtype(node: Node): Node {
   if (node.type !== 'action') return node;
 
@@ -89,8 +112,13 @@ function normalizeActionSubtype(node: Node): Node {
       ''
   ).trim();
   const label = String(data.label || '').trim().toLowerCase();
+  const config = (data.config as Record<string, unknown>) || {};
 
   let normalizedSubtype = legacyActionSubtypeMap[rawSubtype.toLowerCase()] || rawSubtype;
+  const aiAgentKeyFromWebhook = extractAiAgentKeyFromWebhookConfig(config);
+  if (rawSubtype.toLowerCase() === 'call_webhook' && aiAgentKeyFromWebhook) {
+    normalizedSubtype = 'ai_agent';
+  }
   if (!normalizedSubtype && label.includes('resposta por palavra')) {
     normalizedSubtype = 'keyword_auto_reply';
   }
@@ -104,6 +132,13 @@ function normalizeActionSubtype(node: Node): Node {
     data: {
       ...node.data,
       subtype: normalizedSubtype,
+      config: normalizedSubtype === 'ai_agent'
+        ? {
+            ...config,
+            agent_key: String(config.agent_key || aiAgentKeyFromWebhook || '').trim(),
+            agent_name: String(config.agent_name || '').trim() || undefined,
+          }
+        : config,
     },
   };
 }
@@ -255,7 +290,7 @@ function FluxoEditorInner() {
     triggers.forEach(trigger => {
       const hasConnection = edges.some(e => e.source === trigger.id);
       if (!hasConnection) {
-        errors.push(`O gatilho "${trigger.data.label}" precisa estar conectado a uma ação`);
+        errors.push(`O gatilho "${trigger.data.label}" precisa estar conectado a uma aÃ§Ã£o`);
       }
     });
     
@@ -263,7 +298,7 @@ function FluxoEditorInner() {
     nodes.filter(n => n.type !== 'trigger').forEach(node => {
       const hasIncoming = edges.some(e => e.target === node.id);
       if (!hasIncoming) {
-        errors.push(`O nó "${node.data.label}" não está conectado ao fluxo`);
+        errors.push(`O nÃ³ "${node.data.label}" nÃ£o estÃ¡ conectado ao fluxo`);
       }
     });
 
@@ -285,21 +320,24 @@ function FluxoEditorInner() {
       const config = node.data.config as any;
       const subtype = node.data.subtype;
 
-      // WhatsApp: aceitar message único ou messages array
+      // WhatsApp: aceitar message Ãºnico ou messages array
       if (subtype === 'send_whatsapp') {
         const hasMessage = config?.message || (config?.randomMessages && Array.isArray(config?.messages) && config.messages.some((m: string) => m?.trim()));
         if (!hasMessage) {
-          errors.push(`Ação "${node.data.label}" precisa de uma mensagem configurada`);
+          errors.push(`AÃ§Ã£o "${node.data.label}" precisa de uma mensagem configurada`);
         }
       }
       if (subtype === 'send_email' && (!config?.subject || !config?.body)) {
-        errors.push(`Ação "${node.data.label}" precisa de assunto e corpo do e-mail`);
+        errors.push(`AÃ§Ã£o "${node.data.label}" precisa de assunto e corpo do e-mail`);
       }
       if (subtype === 'call_webhook' && !config?.webhookUrl && !config?.url) {
-        errors.push(`Ação "${node.data.label}" precisa de uma URL do webhook`);
+        errors.push(`AÃ§Ã£o "${node.data.label}" precisa de uma URL do webhook`);
+      }
+      if (subtype === 'ai_agent' && !String(config?.agent_key || '').trim()) {
+        errors.push(`AÃ§Ã£o "${node.data.label}" precisa de um agente IA selecionado`);
       }
       if (subtype === 'assign_to_user' && !config?.user_id) {
-        errors.push(`Ação "${node.data.label}" precisa de um atendente selecionado`);
+        errors.push(`AÃ§Ã£o "${node.data.label}" precisa de um atendente selecionado`);
       }
       if (subtype === 'keyword_auto_reply') {
         const rules = Array.isArray(config?.rules) ? config.rules : [];
@@ -311,7 +349,7 @@ function FluxoEditorInner() {
           return rule?.keyword?.trim() && hasResponse;
         });
         if (!hasValidRule) {
-          errors.push(`Ação "${node.data.label}" precisa de pelo menos uma regra palavra/resposta`);
+          errors.push(`AÃ§Ã£o "${node.data.label}" precisa de pelo menos uma regra palavra/resposta`);
         }
       }
     });    
@@ -545,7 +583,7 @@ function FluxoEditorInner() {
               <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex: Boas-vindas" />
             </div>
             <div className="space-y-2">
-              <Label>Descrição</Label>
+              <Label>DescriÃ§Ã£o</Label>
               <Textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Objetivo..." rows={3} />
             </div>
             <div className="space-y-2">
@@ -581,3 +619,5 @@ export default function FluxoEditor() {
     </ReactFlowProvider>
   );
 }
+
+

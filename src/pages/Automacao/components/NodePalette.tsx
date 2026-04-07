@@ -3,7 +3,7 @@ import {
   Zap, ShoppingCart, Users, MessageSquare, FileText, Mail, Bell, 
   RefreshCw, Tag, User, Webhook, GitBranch, Clock, Calendar, 
   Split, StopCircle, Gauge, Package, CreditCard, Truck,
-  Timer, MessageCircle, DollarSign, UserCheck, Package2, LogOut
+  Timer, MessageCircle, DollarSign, UserCheck, Package2, LogOut, Bot
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -35,6 +35,7 @@ const triggerNodes: NodeItem[] = [
 
 const actionNodes: NodeItem[] = [
   { type: 'action', subtype: 'send_whatsapp', label: 'Enviar WhatsApp', icon: <MessageSquare className="h-4 w-4" />, description: 'Envia mensagem via WhatsApp' },
+  { type: 'action', subtype: 'ai_agent', label: 'Agente IA', icon: <Bot className="h-4 w-4" />, description: 'Atendimento com agente IA' },
   { type: 'action', subtype: 'send_email', label: 'Enviar E-mail', icon: <Mail className="h-4 w-4" />, description: 'Envia e-mail via Resend' },
   { type: 'action', subtype: 'create_notification', label: 'Notificação Interna', icon: <Bell className="h-4 w-4" />, description: 'Cria notificação no sistema' },
   { type: 'action', subtype: 'update_status', label: 'Alterar Status', icon: <RefreshCw className="h-4 w-4" />, description: 'Atualiza status da entidade' },

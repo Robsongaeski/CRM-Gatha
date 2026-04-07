@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Play, Pause, Trash2, Edit, MoreHorizontal, Zap, Mail, MessageSquare, ShoppingCart, Users, Activity, Copy } from 'lucide-react';
+import { Plus, Play, Pause, Trash2, Edit, MoreHorizontal, Zap, Mail, MessageSquare, ShoppingCart, Users, Activity, Copy, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -87,10 +87,16 @@ export default function FluxosLista() {
             Crie e gerencie fluxos automáticos para pedidos, leads e atendimentos
           </p>
         </div>
-        <Button onClick={() => navigate('/automacao/novo')}>
-          <Plus className="h-4 w-4 mr-2" />
-          Novo Fluxo
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => navigate('/automacao/agentes-ia')}>
+            <Bot className="h-4 w-4 mr-2" />
+            Agentes IA
+          </Button>
+          <Button onClick={() => navigate('/automacao/novo')}>
+            <Plus className="h-4 w-4 mr-2" />
+            Novo Fluxo
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}

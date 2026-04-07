@@ -113,6 +113,15 @@ interface AutomationInstanceUserLink {
   user_id: string;
 }
 
+interface AutomationAiAgentOption {
+  id: string;
+  agent_key: string;
+  name: string;
+  provider: 'openai' | 'gemini';
+  model: string;
+  is_active: boolean;
+}
+
 function useAutomationWhatsappOptions(enabled: boolean) {
   const instancesQuery = useQuery({
     queryKey: ['automation-whatsapp-instances'],
@@ -164,6 +173,23 @@ function useAutomationWhatsappOptions(enabled: boolean) {
     links: linksQuery.data || [],
     isLoading: instancesQuery.isLoading || attendantsQuery.isLoading || linksQuery.isLoading,
   };
+}
+
+function useAutomationAiAgentOptions(enabled: boolean) {
+  return useQuery({
+    queryKey: ['automation-ai-agent-options'],
+    enabled,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('whatsapp_ai_agents')
+        .select('id, agent_key, name, provider, model, is_active')
+        .eq('is_active', true)
+        .order('name', { ascending: true });
+      if (error) throw error;
+      return ((data || []) as AutomationAiAgentOption[]).filter((item) => String(item.agent_key || '').trim());
+    },
+  });
 }
 
 function toStringArray(value: unknown): string[] {
@@ -375,6 +401,7 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
   const subtype = node.data.subtype as string;
   const knownActionSubtypes = new Set([
     'send_whatsapp',
+    'ai_agent',
     'send_email',
     'create_notification',
     'update_status',
@@ -391,12 +418,17 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
     'assign_to_user',
     'assign_round_robin',
   ].includes(subtype);
+  const needsAiAgentOptions = subtype === 'ai_agent';
   const {
     instances: whatsappInstances,
     attendants,
     links,
     isLoading: loadingWhatsappOptions,
   } = useAutomationWhatsappOptions(needsWhatsappOptions);
+  const {
+    data: aiAgents = [],
+    isLoading: loadingAiAgents,
+  } = useAutomationAiAgentOptions(needsAiAgentOptions);
 
   // Inicializar config com valores existentes para suportar formatos antigos
   const normalizedConfig = {
@@ -408,6 +440,11 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
   };
 
   const selectedEligibleUserIds = toStringArray(config.eligible_user_ids);
+  const selectedAiAgentKey = String(config.agent_key || '').trim();
+  const selectedAiAgent = React.useMemo(
+    () => aiAgents.find((agent) => agent.agent_key === selectedAiAgentKey),
+    [aiAgents, selectedAiAgentKey],
+  );
   const instanceIdsFromConfig = toStringArray(config.instance_ids);
   const availableAttendants = React.useMemo(() => {
     if (instanceIdsFromConfig.length === 0) return attendants;
@@ -776,6 +813,77 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
               rows={6}
               className="bg-muted/50 resize-none font-mono text-sm"
             />
+          </FormSection>
+        </>
+      )}
+
+      {subtype === 'ai_agent' && (
+        <>
+          <FormSection
+            title="Agente IA"
+            hint="Selecione qual agente IA deve responder neste ponto do fluxo"
+          >
+            {loadingAiAgents ? (
+              <div className="text-xs text-muted-foreground">Carregando agentes IA...</div>
+            ) : aiAgents.length === 0 ? (
+              <div className="space-y-2">
+                <div className="text-xs text-muted-foreground">Nenhum agente IA ativo encontrado.</div>
+                <Input
+                  value={config.agent_key || ''}
+                  onChange={(e) => onUpdate({ ...config, agent_key: e.target.value })}
+                  placeholder="agent_key manual (ex: comercial_v1)"
+                  className="bg-muted/50"
+                />
+              </div>
+            ) : (
+              <Select
+                value={selectedAiAgentKey || 'none'}
+                onValueChange={(value) => {
+                  if (value === 'none') {
+                    onUpdate({ ...config, agent_key: '', agent_name: '' });
+                    return;
+                  }
+                  const selected = aiAgents.find((agent) => agent.agent_key === value);
+                  onUpdate({
+                    ...config,
+                    agent_key: value,
+                    agent_name: selected?.name || '',
+                  });
+                }}
+              >
+                <SelectTrigger className="bg-muted/50">
+                  <SelectValue placeholder="Selecione um agente IA" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Selecione</SelectItem>
+                  {aiAgents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.agent_key}>
+                      {agent.name} ({agent.agent_key})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FormSection>
+
+          <FormSection title="Resumo">
+            <div className="rounded-lg border bg-muted/20 p-3 text-sm space-y-1">
+              <p>
+                <span className="font-medium">Agent key:</span>{' '}
+                <code>{String(config.agent_key || '').trim() || '(nao definido)'}</code>
+              </p>
+              <p>
+                <span className="font-medium">Nome:</span>{' '}
+                {selectedAiAgent?.name || String(config.agent_name || '').trim() || '(nao definido)'}
+              </p>
+              <p>
+                <span className="font-medium">Modelo:</span>{' '}
+                {selectedAiAgent ? `${selectedAiAgent.provider}/${selectedAiAgent.model}` : '(nao definido)'}
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              O fluxo chamara internamente o roteador de IA sem expor URL de webhook.
+            </p>
           </FormSection>
         </>
       )}

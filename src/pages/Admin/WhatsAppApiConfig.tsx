@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Save, Server, Eye, EyeOff, Shield, AlertTriangle, Zap } from 'lucide-react';
+import { Save, Server, Eye, EyeOff, Shield, AlertTriangle, Zap, Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSystemConfig } from '@/hooks/useSystemConfig';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -21,6 +21,14 @@ export default function WhatsAppApiConfig() {
   const [showUazapiAdminToken, setShowUazapiAdminToken] = useState(false);
   const [isEditingUazapiAdminToken, setIsEditingUazapiAdminToken] = useState(false);
 
+  const [openAiApiKey, setOpenAiApiKey] = useState('');
+  const [showOpenAiApiKey, setShowOpenAiApiKey] = useState(false);
+  const [isEditingOpenAiApiKey, setIsEditingOpenAiApiKey] = useState(false);
+
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [showGeminiApiKey, setShowGeminiApiKey] = useState(false);
+  const [isEditingGeminiApiKey, setIsEditingGeminiApiKey] = useState(false);
+
   const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
@@ -29,35 +37,57 @@ export default function WhatsAppApiConfig() {
       setApiKey('');
       setUazapiUrl(getConfig('uazapi_api_url') || '');
       setUazapiAdminToken('');
+      setOpenAiApiKey('');
+      setGeminiApiKey('');
     }
   }, [isLoading, configs]);
 
   const handleSaveConfig = async () => {
-    if (!apiUrl.trim() && !uazapiUrl.trim()) {
-      toast.error('Informe pelo menos uma URL de API (Evolution ou UAZAPI)');
-      return;
-    }
-
     try {
+      let updatesCount = 0;
+
       if (apiUrl.trim()) {
         updateConfig({ key: 'evolution_api_url', value: apiUrl.trim() });
+        updatesCount += 1;
       }
       if (apiKey.trim() && isEditingApiKey) {
-        updateConfig({ key: 'evolution_api_key', value: apiKey.trim() });
+        updateConfig({ key: 'evolution_api_key', value: apiKey.trim(), is_secret: true });
+        updatesCount += 1;
       }
 
       if (uazapiUrl.trim()) {
         updateConfig({ key: 'uazapi_api_url', value: uazapiUrl.trim() });
+        updatesCount += 1;
       }
       if (uazapiAdminToken.trim() && isEditingUazapiAdminToken) {
-        updateConfig({ key: 'uazapi_admin_token', value: uazapiAdminToken.trim() });
+        updateConfig({ key: 'uazapi_admin_token', value: uazapiAdminToken.trim(), is_secret: true });
+        updatesCount += 1;
+      }
+
+      if (openAiApiKey.trim() && isEditingOpenAiApiKey) {
+        updateConfig({ key: 'openai_api_key', value: openAiApiKey.trim(), is_secret: true });
+        updatesCount += 1;
+      }
+
+      if (geminiApiKey.trim() && isEditingGeminiApiKey) {
+        updateConfig({ key: 'gemini_api_key', value: geminiApiKey.trim(), is_secret: true });
+        updatesCount += 1;
+      }
+
+      if (updatesCount === 0) {
+        toast.error('Nenhuma alteracao valida para salvar');
+        return;
       }
 
       setHasChanges(false);
       setIsEditingApiKey(false);
       setIsEditingUazapiAdminToken(false);
+      setIsEditingOpenAiApiKey(false);
+      setIsEditingGeminiApiKey(false);
       setApiKey('');
       setUazapiAdminToken('');
+      setOpenAiApiKey('');
+      setGeminiApiKey('');
       toast.success('Configuracoes salvas com sucesso');
     } catch {
       toast.error('Erro ao salvar configuracoes');
@@ -68,13 +98,17 @@ export default function WhatsAppApiConfig() {
   const hasApiKeyConfigured = Boolean(getConfig('evolution_api_key'));
   const maskedUazapiAdminToken = getMaskedValue('uazapi_admin_token');
   const hasUazapiAdminTokenConfigured = Boolean(getConfig('uazapi_admin_token'));
+  const maskedOpenAiApiKey = getMaskedValue('openai_api_key');
+  const hasOpenAiApiKeyConfigured = Boolean(getConfig('openai_api_key'));
+  const maskedGeminiApiKey = getMaskedValue('gemini_api_key');
+  const hasGeminiApiKeyConfigured = Boolean(getConfig('gemini_api_key'));
 
   return (
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Configuracao das APIs WhatsApp</h1>
         <p className="text-muted-foreground">
-          Configure Evolution API e UAZAPI sem impactar o funcionamento atual
+          Configure Evolution API, UAZAPI e credenciais de IA sem impactar o funcionamento atual
         </p>
       </div>
 
@@ -160,6 +194,123 @@ export default function WhatsAppApiConfig() {
                     onClick={() => setShowApiKey(!showApiKey)}
                   >
                     {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bot className="h-5 w-5 text-violet-600" />
+            Credenciais de IA
+          </CardTitle>
+          <CardDescription>
+            Chaves para integração direta com OpenAI e Gemini (usadas pelo roteador de IA do WhatsApp)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="openai-api-key">OPENAI_API_KEY</Label>
+              <div className="relative">
+                {isEditingOpenAiApiKey ? (
+                  <Input
+                    id="openai-api-key"
+                    type={showOpenAiApiKey ? 'text' : 'password'}
+                    placeholder="Digite a OpenAI API Key"
+                    value={openAiApiKey}
+                    onChange={(e) => {
+                      setOpenAiApiKey(e.target.value);
+                      setHasChanges(true);
+                    }}
+                    className="pr-10"
+                  />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="openai-api-key-display"
+                      type="text"
+                      value={hasOpenAiApiKeyConfigured ? maskedOpenAiApiKey : '(nao configurada)'}
+                      disabled
+                      className="font-mono bg-muted"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setIsEditingOpenAiApiKey(true);
+                        setOpenAiApiKey('');
+                      }}
+                    >
+                      Alterar
+                    </Button>
+                  </div>
+                )}
+                {isEditingOpenAiApiKey && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-full px-3"
+                    onClick={() => setShowOpenAiApiKey(!showOpenAiApiKey)}
+                  >
+                    {showOpenAiApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="gemini-api-key">GEMINI_API_KEY</Label>
+              <div className="relative">
+                {isEditingGeminiApiKey ? (
+                  <Input
+                    id="gemini-api-key"
+                    type={showGeminiApiKey ? 'text' : 'password'}
+                    placeholder="Digite a Gemini API Key"
+                    value={geminiApiKey}
+                    onChange={(e) => {
+                      setGeminiApiKey(e.target.value);
+                      setHasChanges(true);
+                    }}
+                    className="pr-10"
+                  />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="gemini-api-key-display"
+                      type="text"
+                      value={hasGeminiApiKeyConfigured ? maskedGeminiApiKey : '(nao configurada)'}
+                      disabled
+                      className="font-mono bg-muted"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setIsEditingGeminiApiKey(true);
+                        setGeminiApiKey('');
+                      }}
+                    >
+                      Alterar
+                    </Button>
+                  </div>
+                )}
+                {isEditingGeminiApiKey && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-full px-3"
+                    onClick={() => setShowGeminiApiKey(!showGeminiApiKey)}
+                  >
+                    {showGeminiApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 )}
               </div>
@@ -263,4 +414,3 @@ export default function WhatsAppApiConfig() {
     </div>
   );
 }
-

@@ -135,6 +135,53 @@ function pickFromMany(objects: any[], paths: string[]): any {
   return null;
 }
 
+function normalizeMessageExternalId(value: unknown): string {
+  return String(value || "").trim();
+}
+
+function buildExternalIdCandidates(value: unknown): string[] {
+  const normalized = normalizeMessageExternalId(value);
+  if (!normalized) return [];
+
+  const withoutOwner = normalized.includes(":")
+    ? (normalized.split(":").pop() || normalized).trim()
+    : normalized;
+
+  return Array.from(
+    new Set(
+      [normalized, withoutOwner]
+        .map((item) => String(item || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function pickExternalMessageIdFromSource(source: any): string {
+  if (!source || typeof source !== "object") return "";
+
+  return normalizeMessageExternalId(
+    pick(source, [
+      "messageid",
+      "message.messageid",
+      "key.id",
+      "messageId",
+      "message.messageId",
+      "id",
+      "message.id",
+      "keyId",
+      "msgId",
+    ]),
+  );
+}
+
+function pickExternalMessageIdFromMany(objects: any[]): string {
+  for (const obj of objects) {
+    const externalId = pickExternalMessageIdFromSource(obj);
+    if (externalId) return externalId;
+  }
+  return "";
+}
+
 function sanitizeHeaderValue(key: string, value: string): string {
   if (!value) return value;
   if (!/(authorization|token|apikey|api-key|key|secret)/i.test(key)) return value;
@@ -207,17 +254,7 @@ function collectMessageCandidates(data: any): any[] {
   const pushCandidate = (candidate: any) => {
     if (!candidate || typeof candidate !== "object") return;
     const envelope = candidate.__envelope && typeof candidate.__envelope === "object" ? candidate.__envelope : null;
-    const messageExternalId = pickFromMany([candidate, envelope], [
-      "key.id",
-      "id",
-      "messageId",
-      "messageid",
-      "keyId",
-      "msgId",
-      "message.id",
-      "message.messageId",
-      "message.messageid",
-    ]) || "";
+    const messageExternalId = pickExternalMessageIdFromMany([candidate, envelope]);
     const signatureParts = [
       messageExternalId,
       pickFromMany([candidate, envelope], [
@@ -518,6 +555,41 @@ async function resolveInstanceByIdentifier(supabase: any, identifier: string): P
   return null;
 }
 
+async function logWebhookDebugEvent(
+  supabase: any,
+  params: {
+    instanceId?: string | null;
+    instanceIdentifier?: string | null;
+    rawEvent?: string | null;
+    normalizedEvent?: string | null;
+    status: string;
+    messageCandidates?: number | null;
+    messagesProcessed?: number | null;
+    parseErrors?: number | null;
+    details?: Record<string, unknown> | null;
+    errorMessage?: string | null;
+  },
+) {
+  try {
+    await supabase.from("whatsapp_webhook_debug_events").insert({
+      provider: "uazapi",
+      source_function: "receive-whatsapp-uazapi-webhook",
+      instance_id: params.instanceId || null,
+      instance_identifier: params.instanceIdentifier || null,
+      raw_event: params.rawEvent || null,
+      normalized_event: params.normalizedEvent || null,
+      status: params.status,
+      message_candidates: params.messageCandidates ?? null,
+      messages_processed: params.messagesProcessed ?? null,
+      parse_errors: params.parseErrors ?? null,
+      details: params.details ?? null,
+      error_message: params.errorMessage ?? null,
+    });
+  } catch (error) {
+    console.warn("[UAZAPI WEBHOOK] failed to persist debug event:", error);
+  }
+}
+
 function normalizeMessageStatus(statusRaw: unknown): "pending" | "sent" | "delivered" | "read" | "error" {
   if (typeof statusRaw === "number") {
     switch (statusRaw) {
@@ -765,10 +837,16 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let supabase: any = null;
+  let debugInstanceId: string | null = null;
+  let debugInstanceIdentifier: string | null = null;
+  let debugRawEvent: string | null = null;
+  let debugNormalizedEvent: string | null = null;
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    supabase = createClient(supabaseUrl, supabaseServiceKey);
     const triggerAutomation = async (
       triggerType: string,
       conversationData: Record<string, unknown>,
@@ -777,6 +855,9 @@ serve(async (req) => {
         senderPhone: string;
         senderName: string;
         fromMe: boolean;
+        messageExternalId?: string | null;
+        messageId?: string | null;
+        messageCreatedAt?: string | null;
       },
     ) => {
       try {
@@ -787,12 +868,15 @@ serve(async (req) => {
           data: {
             ...conversationData,
             conversation_id: conversationData.id,
-            message_text: messageData.messageText,
-            sender_phone: messageData.senderPhone || null,
-            sender_name: messageData.senderName || null,
-            from_me: messageData.fromMe,
-          },
-        };
+              message_text: messageData.messageText,
+              sender_phone: messageData.senderPhone || null,
+              sender_name: messageData.senderName || null,
+              from_me: messageData.fromMe,
+              inbound_message_external_id: messageData.messageExternalId || null,
+              inbound_message_id: messageData.messageId || null,
+              inbound_message_created_at: messageData.messageCreatedAt || null,
+            },
+          };
 
         await fetch(`${supabaseUrl}/functions/v1/automation-trigger`, {
           method: "POST",
@@ -841,6 +925,15 @@ serve(async (req) => {
             error: jsonErr instanceof Error ? jsonErr.message : String(jsonErr),
             snippet: rawBody.substring(0, 1200),
           });
+          await logWebhookDebugEvent(supabase, {
+            status: "invalid_json",
+            details: {
+              url: req.url,
+              contentType,
+              bodySnippet: rawBody.substring(0, 1200),
+            },
+            errorMessage: jsonErr instanceof Error ? jsonErr.message : String(jsonErr),
+          });
           return new Response(JSON.stringify({ success: false, error: "Invalid JSON payload" }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
             status: 400,
@@ -871,6 +964,7 @@ serve(async (req) => {
     const event = payload?.event || payload?.EventType || payload?.eventType || payload?.type ||
       payload?.data?.event || payload?.data?.EventType || payload?.data?.eventType || payload?.data?.type ||
       pathHints.eventFromPath;
+    debugRawEvent = String(event || "");
     const data = payload?.data ?? payload;
     const hasMessagePayload = Boolean(
       payload?.message ||
@@ -888,25 +982,47 @@ serve(async (req) => {
     ) {
       normalizedEvent = "messages";
     }
+    debugNormalizedEvent = normalizedEvent || null;
+
+    const payloadInstanceObject = payload?.instance && typeof payload.instance === "object" ? payload.instance : null;
+    const dataInstanceObject = data?.instance && typeof data.instance === "object" ? data.instance : null;
 
     const instanceCandidates = Array.from(
       new Set(
         [
           payload?.instanceName,
           payload?.instance_name,
-          payload?.instance,
+          typeof payload?.instance === "string" ? payload.instance : null,
           payload?.instance_id,
           payload?.instanceId,
           payload?.token,
           data?.instanceName,
           data?.instance_name,
-          data?.instance,
+          typeof data?.instance === "string" ? data.instance : null,
           data?.instance_id,
           data?.instanceId,
           data?.token,
+          // UAZAPI pode enviar `instance` como objeto; extrair campos comuns.
+          payloadInstanceObject?.name,
+          payloadInstanceObject?.instanceName,
+          payloadInstanceObject?.instance_name,
+          payloadInstanceObject?.id,
+          payloadInstanceObject?.instanceId,
+          payloadInstanceObject?.instance_id,
+          payloadInstanceObject?.token,
+          dataInstanceObject?.name,
+          dataInstanceObject?.instanceName,
+          dataInstanceObject?.instance_name,
+          dataInstanceObject?.id,
+          dataInstanceObject?.instanceId,
+          dataInstanceObject?.instance_id,
+          dataInstanceObject?.token,
+          // Fallback por extração de paths em payloads aninhados.
+          pick(payload, ["instance.name", "instance.instanceName", "instance.instance_name", "instance.id", "instance.token"]),
+          pick(data, ["instance.name", "instance.instanceName", "instance.instance_name", "instance.id", "instance.token"]),
         ]
           .map((value) => String(value || "").trim())
-          .filter(Boolean),
+          .filter((value) => Boolean(value) && value !== "[object Object]"),
       ),
     );
 
@@ -920,6 +1036,8 @@ serve(async (req) => {
         break;
       }
     }
+    debugInstanceIdentifier = instanceIdentifier || null;
+    debugInstanceId = instance?.id || null;
     console.log("[UAZAPI WEBHOOK] instance resolution:", {
       input: instanceIdentifier || null,
       candidates: instanceCandidates.slice(0, 6),
@@ -975,6 +1093,17 @@ serve(async (req) => {
         status,
         phone: updateData.numero_whatsapp || null,
       });
+      await logWebhookDebugEvent(supabase, {
+        instanceId: instance?.id || null,
+        instanceIdentifier: instanceIdentifier || null,
+        rawEvent: debugRawEvent,
+        normalizedEvent: normalizedEvent || null,
+        status: "connection_update",
+        details: {
+          status,
+          phone: updateData.numero_whatsapp || null,
+        },
+      });
 
       return new Response(JSON.stringify({ success: true, connectionUpdate: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -986,21 +1115,15 @@ serve(async (req) => {
       console.log("[UAZAPI WEBHOOK] messages_update received:", { count: updates.length });
 
       for (const update of updates) {
-        const messageId = pick(update, [
-          "id",
-          "key.id",
-          "messageId",
-          "messageid",
-          "keyId",
-          "message.id",
-          "message.messageId",
-          "message.messageid",
-        ]);
+        const messageId = pickExternalMessageIdFromMany([update]);
         const statusRaw = pick(update, ["status", "ack", "update.status"]);
         if (!messageId || statusRaw === undefined) continue;
 
         const status = normalizeMessageStatus(statusRaw);
-        const query = supabase.from("whatsapp_messages").update({ status }).eq("message_id_external", String(messageId));
+        const query = supabase
+          .from("whatsapp_messages")
+          .update({ status })
+          .in("message_id_external", buildExternalIdCandidates(messageId));
         if (instance?.id) query.eq("instance_id", instance.id);
         await query;
 
@@ -1010,6 +1133,16 @@ serve(async (req) => {
           instanceId: instance?.id || null,
         });
       }
+      await logWebhookDebugEvent(supabase, {
+        instanceId: instance?.id || null,
+        instanceIdentifier: instanceIdentifier || null,
+        rawEvent: debugRawEvent,
+        normalizedEvent: normalizedEvent || null,
+        status: "messages_update",
+        details: {
+          updates: updates.length,
+        },
+      });
 
       return new Response(JSON.stringify({ success: true, statusUpdated: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1018,6 +1151,18 @@ serve(async (req) => {
 
     if (!["messages", "history"].includes(normalizedEvent)) {
       console.log("[UAZAPI WEBHOOK] ignored event:", normalizedEvent || null);
+      await logWebhookDebugEvent(supabase, {
+        instanceId: instance?.id || null,
+        instanceIdentifier: instanceIdentifier || null,
+        rawEvent: debugRawEvent,
+        normalizedEvent: normalizedEvent || null,
+        status: "ignored_event",
+        details: {
+          hasMessagePayload,
+          pathEventHint: pathHints.eventFromPath || null,
+          pathTypeHint: pathHints.typeFromPath || null,
+        },
+      });
       return new Response(JSON.stringify({ success: true, ignored: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -1027,6 +1172,15 @@ serve(async (req) => {
       console.error("[UAZAPI WEBHOOK] instance not found for message event:", {
         instanceIdentifier,
         event: normalizedEvent,
+      });
+      await logWebhookDebugEvent(supabase, {
+        instanceIdentifier: instanceIdentifier || null,
+        rawEvent: debugRawEvent,
+        normalizedEvent: normalizedEvent || null,
+        status: "instance_not_found",
+        details: {
+          candidates: instanceCandidates.slice(0, 8),
+        },
       });
       return new Response(JSON.stringify({ success: false, error: "Instance not found" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1042,6 +1196,13 @@ serve(async (req) => {
         instanceName: instance.instance_name,
         importHistoryEnabled,
         importHistoryDays,
+      });
+      await logWebhookDebugEvent(supabase, {
+        instanceId: instance.id,
+        instanceIdentifier: instanceIdentifier || null,
+        rawEvent: debugRawEvent,
+        normalizedEvent: normalizedEvent || null,
+        status: "history_disabled",
       });
       return new Response(JSON.stringify({ success: true, ignored: true, reason: "history-disabled" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1059,6 +1220,7 @@ serve(async (req) => {
     });
 
     const results = [];
+    let parseErrors = 0;
     let uazapiConfigCache: { baseUrl: string; adminToken: string } | null = null;
     let uazapiInstanceTokenCache: string | null = null;
 
@@ -1085,17 +1247,15 @@ serve(async (req) => {
         }
         const messageTimestampIso = (messageTimestamp || new Date()).toISOString();
 
-        const fromMe = toBoolean(
-          pickFromMany(sources, [
-            "key.fromMe",
-            "fromMe",
-            "from_me",
-            "isFromMe",
-            "senderMe",
-            "message.fromMe",
-            "message.from_me",
-          ]) || false,
-        );
+        const explicitFromMe = pickFromMany(sources, [
+          "key.fromMe",
+          "fromMe",
+          "from_me",
+          "message.key.fromMe",
+          "message.fromMe",
+          "message.from_me",
+        ]);
+        const fromMe = explicitFromMe === null || explicitFromMe === undefined ? false : toBoolean(explicitFromMe);
         const rawChatJid = pickFromMany(sources, [
           "remoteJid",
           "key.remoteJid",
@@ -1177,20 +1337,7 @@ serve(async (req) => {
           }
         }
 
-        const externalMessageId = String(
-          pickFromMany(sources, [
-            "key.id",
-            "id",
-            "messageId",
-            "messageid",
-            "keyId",
-            "msgId",
-            "message.id",
-            "message.messageId",
-            "message.messageid",
-          ]) ||
-            "",
-        ).trim();
+        const externalMessageId = pickExternalMessageIdFromMany(sources);
         const pushName = String(
           pickFromMany(sources, [
             "pushName",
@@ -1222,16 +1369,23 @@ serve(async (req) => {
         }
 
         if (externalMessageId) {
-          const duplicateCheck = await supabase
-            .from("whatsapp_messages")
-            .select("id")
-            .eq("instance_id", instance.id)
-            .eq("message_id_external", externalMessageId)
-            .maybeSingle();
-          if (duplicateCheck.data) {
+          let duplicateMessage: { id: string } | null = null;
+          for (const candidateExternalId of buildExternalIdCandidates(externalMessageId)) {
+            const duplicateCheck = await supabase
+              .from("whatsapp_messages")
+              .select("id")
+              .eq("instance_id", instance.id)
+              .eq("message_id_external", candidateExternalId)
+              .maybeSingle();
+            if (duplicateCheck.data) {
+              duplicateMessage = duplicateCheck.data;
+              break;
+            }
+          }
+          if (duplicateMessage) {
             console.log("[UAZAPI WEBHOOK] duplicate message skipped:", {
               externalMessageId,
-              existingId: duplicateCheck.data.id,
+              existingId: duplicateMessage.id,
             });
             continue;
           }
@@ -1553,21 +1707,36 @@ serve(async (req) => {
           {};
 
         if (!contextInfo?.stanzaId) {
-          const quotedExternal = String(
-            pickFromMany(sources, ["quotedMessageId", "quoted.id", "replyTo", "message.replyTo", "message.quoted"]) || "",
-          ).trim();
+          const quotedExternalRaw = pickFromMany(sources, [
+            "quotedMessageId",
+            "quoted.id",
+            "quoted",
+            "replyTo",
+            "message.replyTo",
+            "message.quoted",
+            "data.quoted",
+          ]);
+          const quotedExternal = typeof quotedExternalRaw === "object"
+            ? pickExternalMessageIdFromSource(quotedExternalRaw)
+            : normalizeMessageExternalId(quotedExternalRaw);
           if (quotedExternal) {
             contextInfo.stanzaId = quotedExternal;
           }
         }
 
         const isMediaType = ["image", "audio", "document", "video", "sticker"].includes(messageType);
+        const mediaBucketPrefix = `${supabaseUrl}/storage/v1/object/public/whatsapp-media/`;
+        const mediaUrlString = String(mediaUrl || "");
+        const mediaAlreadyInSupabase = Boolean(mediaUrlString && mediaUrlString.startsWith(mediaBucketPrefix));
+        const shouldPersistMediaInSupabase = ["image", "audio", "document"].includes(messageType);
+        const forceStorageUpload = shouldPersistMediaInSupabase && !mediaAlreadyInSupabase;
         const textWithoutContentCanBeMedia = messageType === "text" && !content && Boolean(externalMessageId);
         const mediaNeedsResolution = (isMediaType || (messageType === "text" && (hasMediaShape || textWithoutContentCanBeMedia))) && (
           !mediaUrl ||
           mediaUrl.includes("mmg.whatsapp.net") ||
           mediaUrl.includes("/v/t62.") ||
-          mediaUrl.includes("mms3=true")
+          mediaUrl.includes("mms3=true") ||
+          forceStorageUpload
         );
 
         if (mediaNeedsResolution) {
@@ -1575,37 +1744,40 @@ serve(async (req) => {
             const { baseUrl: uazapiUrl, adminToken } = await loadUazapiConfig(supabase);
             if (uazapiUrl && adminToken) {
               const instanceToken = await resolveUazapiToken(supabase, instance, uazapiUrl, adminToken);
+              const fallbackMessageId = pickExternalMessageIdFromSource(message);
               const downloadIds = Array.from(
                 new Set([
-                  externalMessageId || "",
-                  String(pick(message, ["messageid", "id"]) || "").trim(),
+                  ...buildExternalIdCandidates(externalMessageId),
+                  ...buildExternalIdCandidates(fallbackMessageId),
                 ].filter(Boolean)),
               );
 
               for (const downloadId of downloadIds) {
-                const linkResp = await uazapiRequest(uazapiUrl, "/message/download", {
-                  method: "POST",
-                  token: instanceToken,
-                  body: { id: downloadId, return_base64: false, return_link: true },
-                });
+                if (!forceStorageUpload) {
+                  const linkResp = await uazapiRequest(uazapiUrl, "/message/download", {
+                    method: "POST",
+                    token: instanceToken,
+                    body: { id: downloadId, return_base64: false, return_link: true },
+                  });
 
-                if (linkResp.response.ok) {
-                  const linkUrl = pick(linkResp.data, ["fileURL", "url", "data.fileURL", "data.url"]);
-                  const linkMime = pick(linkResp.data, ["mimetype", "mimeType", "data.mimetype", "media.mimetype"]);
-                  if (linkUrl) {
-                    mediaUrl = String(linkUrl);
-                    mediaMimeType = String(linkMime || mediaMimeType || "").trim() || mediaMimeType;
-                    if (messageType === "text") {
-                      const mapped = normalizeIncomingMessageType(
-                        pick(linkResp.data, ["messageType", "type", "mediaType", "data.messageType", "data.type"]),
-                      ) || inferMessageTypeFromMimeType(linkMime || mediaMimeType);
-                      if (mapped) messageType = mapped;
+                  if (linkResp.response.ok) {
+                    const linkUrl = pick(linkResp.data, ["fileURL", "url", "data.fileURL", "data.url"]);
+                    const linkMime = pick(linkResp.data, ["mimetype", "mimeType", "data.mimetype", "media.mimetype"]);
+                    if (linkUrl) {
+                      mediaUrl = String(linkUrl);
+                      mediaMimeType = String(linkMime || mediaMimeType || "").trim() || mediaMimeType;
+                      if (messageType === "text") {
+                        const mapped = normalizeIncomingMessageType(
+                          pick(linkResp.data, ["messageType", "type", "mediaType", "data.messageType", "data.type"]),
+                        ) || inferMessageTypeFromMimeType(linkMime || mediaMimeType);
+                        if (mapped) messageType = mapped;
+                      }
+                      break;
                     }
-                    break;
                   }
                 }
 
-                if (mediaUrl) break;
+                if (mediaUrl && !forceStorageUpload) break;
 
                 const mediaResp = await uazapiRequest(uazapiUrl, "/message/download", {
                   method: "POST",
@@ -1668,7 +1840,7 @@ serve(async (req) => {
                   });
                 }
 
-                if (mediaUrl) break;
+                if (mediaUrl && (mediaUrl.startsWith(mediaBucketPrefix) || !forceStorageUpload)) break;
               }
             }
           } catch (mediaErr) {
@@ -1730,12 +1902,19 @@ serve(async (req) => {
         let quotedSender = null;
 
         if (contextInfo?.stanzaId) {
-          const { data: quotedMsg } = await supabase
-            .from("whatsapp_messages")
-            .select("id, content, sender_name")
-            .eq("instance_id", instance.id)
-            .eq("message_id_external", contextInfo.stanzaId)
-            .maybeSingle();
+          let quotedMsg: { id: string; content: string | null; sender_name: string | null } | null = null;
+          for (const quotedExternalId of buildExternalIdCandidates(contextInfo.stanzaId)) {
+            const quotedLookup = await supabase
+              .from("whatsapp_messages")
+              .select("id, content, sender_name")
+              .eq("instance_id", instance.id)
+              .eq("message_id_external", quotedExternalId)
+              .maybeSingle();
+            if (quotedLookup.data) {
+              quotedMsg = quotedLookup.data;
+              break;
+            }
+          }
 
           if (quotedMsg) {
             quotedMessageId = quotedMsg.id;
@@ -1955,6 +2134,9 @@ serve(async (req) => {
               senderPhone: senderPhone || "",
               senderName: senderName || "",
               fromMe,
+              messageExternalId: externalMessageId || null,
+              messageId: savedMessage?.id ? String(savedMessage.id) : null,
+              messageCreatedAt: savedMessage?.created_at ? String(savedMessage.created_at) : null,
             },
           );
 
@@ -1968,6 +2150,9 @@ serve(async (req) => {
                 senderPhone: senderPhone || "",
                 senderName: senderName || "",
                 fromMe,
+                messageExternalId: externalMessageId || null,
+                messageId: savedMessage?.id ? String(savedMessage.id) : null,
+                messageCreatedAt: savedMessage?.created_at ? String(savedMessage.created_at) : null,
               },
             );
           }
@@ -1975,6 +2160,7 @@ serve(async (req) => {
 
         results.push({ messageId: savedMessage.id, conversationId: conversation.id });
       } catch (msgErr) {
+        parseErrors += 1;
         console.error("[UAZAPI WEBHOOK] parse/map error:", {
           error: msgErr instanceof Error ? msgErr.message : String(msgErr),
           payload: JSON.stringify(msgData).substring(0, 1200),
@@ -1982,11 +2168,32 @@ serve(async (req) => {
       }
     }
 
+    await logWebhookDebugEvent(supabase, {
+      instanceId: instance.id,
+      instanceIdentifier: instanceIdentifier || null,
+      rawEvent: debugRawEvent,
+      normalizedEvent: normalizedEvent || null,
+      status: "processed",
+      messageCandidates: messages.length,
+      messagesProcessed: results.length,
+      parseErrors,
+    });
+
     return new Response(JSON.stringify({ success: true, processed: results.length, results }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error: unknown) {
     console.error("[UAZAPI WEBHOOK] fatal error:", error);
+    if (supabase) {
+      await logWebhookDebugEvent(supabase, {
+        instanceId: debugInstanceId,
+        instanceIdentifier: debugInstanceIdentifier,
+        rawEvent: debugRawEvent,
+        normalizedEvent: debugNormalizedEvent,
+        status: "fatal_error",
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    }
     return new Response(
       JSON.stringify({
         success: false,

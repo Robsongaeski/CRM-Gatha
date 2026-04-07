@@ -10,9 +10,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Send, MoreVertical, Users, UserPlus, CheckCircle2, RefreshCw, ArrowRightLeft, Smile, Paperclip, Image, FileText, X, Zap, ChevronRight, Search, WifiOff, Mic, Square, Trash2 } from 'lucide-react';
+import { Send, Users, UserPlus, CheckCircle2, RefreshCw, ArrowRightLeft, Smile, Paperclip, Image, FileText, X, Zap, ChevronRight, Search, WifiOff, Mic, Square, Trash2, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { sanitizeError } from '@/lib/errorHandling';
@@ -216,6 +215,16 @@ export default function ChatArea({
       r.conteudo.toLowerCase().includes(quickReplySearch.toLowerCase())
   );
 
+  const messageContentById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of messages) {
+      if (item.id && item.content) {
+        map.set(item.id, item.content);
+      }
+    }
+    return map;
+  }, [messages]);
+
   const handleSend = async () => {
     if (!message.trim() && !selectedFile) return;
 
@@ -310,8 +319,12 @@ export default function ChatArea({
       }
     }
 
-    // Capturar mensagem sendo respondida
-    const quotedMessageId = replyingTo?.id || replyingTo?.message_id_external;
+    // Capturar mensagem sendo respondida (evita ids temporarios otimizados)
+    const replyId = String(replyingTo?.id || '').trim();
+    const quotedMessageId =
+      replyId && !replyId.startsWith('tmp-')
+        ? replyId
+        : (replyingTo?.message_id_external ? String(replyingTo.message_id_external) : undefined);
     setReplyingTo(null); // Limpar IMEDIATAMENTE a UI de resposta
 
     // Enviar em background (não bloqueia a UI)
@@ -383,6 +396,12 @@ export default function ChatArea({
 
   const handleAssign = async () => {
     try {
+      if (!user?.id) {
+        toast.error('Usuário não identificado para assumir o atendimento');
+        return;
+      }
+
+      const wasUnassigned = !conversation.assigned_to;
       let userName = currentUserProfile?.nome;
       if (!userName) {
         const { data: profileData } = await supabase
@@ -393,15 +412,21 @@ export default function ChatArea({
         userName = profileData?.nome || 'Atendente';
       }
 
-      await assignConversation.mutateAsync({ conversationId: conversation.id });
+      await assignConversation.mutateAsync({ conversationId: conversation.id, userId: user.id });
       
       await createSystemMessage.mutateAsync({
         conversationId: conversation.id,
         instanceId: conversation.instance_id,
-        content: `👋 Sendo atendido por ${userName}`
+        content: wasUnassigned
+          ? `🤖 Atendimento IA encerrado. 👤 Sendo atendido por ${userName}`
+          : `👤 Sendo atendido por ${userName}`
       });
 
-      toast.success('Conversa atribuída a você');
+      toast.success(
+        wasUnassigned
+          ? 'Atendimento IA encerrado e conversa atribuída a você'
+          : 'Conversa atribuída a você'
+      );
     } catch (error: unknown) {
       toast.error('Erro ao atribuir conversa', { description: sanitizeError(error) });
     }
@@ -644,6 +669,11 @@ export default function ChatArea({
 
   const isAssignedToMe = conversation.assigned_to === user?.id;
   const isFinished = conversation.status === 'finished';
+  const canTransferConversation = !isFinished;
+  const canTakeOverConversation = !conversation.is_group && !isFinished && !isAssignedToMe;
+  const takeOverLabel = conversation.assigned_to
+    ? 'Assumir atendimento'
+    : 'Encerrar atendimento IA e assumir';
 
   // Nome principal: cliente vinculado ou contato
   const mainName = conversation.cliente?.nome_razao_social || 
@@ -724,6 +754,35 @@ export default function ChatArea({
         
         <div className="flex items-center gap-2 flex-shrink-0 text-[#54656f]">
           <Search className="h-5 w-5 cursor-pointer hover:text-[#3b4a54] mr-1" />
+
+          {canTransferConversation && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowTransferDialog(true)}
+              className="text-[#54656f] border-[#d1d7db] hover:bg-black/5 gap-1 h-8"
+            >
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+              Transferir
+            </Button>
+          )}
+
+          {canTakeOverConversation && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAssign}
+              title={takeOverLabel}
+              className="text-[#0f766e] border-[#99f6e4] hover:bg-[#ccfbf1]/60 gap-1 h-8"
+            >
+              {conversation.assigned_to ? (
+                <UserPlus className="h-3.5 w-3.5" />
+              ) : (
+                <Bot className="h-3.5 w-3.5" />
+              )}
+              {conversation.assigned_to ? 'Assumir' : 'Encerrar IA'}
+            </Button>
+          )}
           
           {/* Botões mantidos fora do menu conforme solicitado */}
           {isFinished ? (
@@ -747,26 +806,6 @@ export default function ChatArea({
               Finalizar
             </Button>
           )}
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="cursor-pointer hover:text-[#3b4a54] p-1.5 rounded-full hover:bg-black/5 ml-1">
-                <MoreVertical className="h-5 w-5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setShowTransferDialog(true)}>
-                <ArrowRightLeft className="h-4 w-4 mr-2" />
-                Transferir atendimento
-              </DropdownMenuItem>
-              {!isAssignedToMe && !isFinished && (
-                <DropdownMenuItem onClick={handleAssign}>
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  Atribuir a mim
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </div>
 
@@ -836,6 +875,7 @@ export default function ChatArea({
                     <MessageBubble 
                       message={{
                         id: msg.id,
+                        message_id_external: msg.message_id_external,
                         direction: msg.from_me ? 'outgoing' : 'incoming',
                         type: msg.message_type,
                         content: msg.content,
@@ -844,7 +884,15 @@ export default function ChatArea({
                         media_mimetype: msg.media_mime_type,
                         status: msg.status,
                         created_at: msg.created_at,
-                        quoted_message: msg.quoted_content ? { content: msg.quoted_content } : null,
+                        quoted_message:
+                          (msg.quoted_content ||
+                            (msg.quoted_message_id ? (messageContentById.get(msg.quoted_message_id) || null) : null))
+                            ? {
+                                content:
+                                  msg.quoted_content ||
+                                  (msg.quoted_message_id ? (messageContentById.get(msg.quoted_message_id) || '') : ''),
+                              }
+                            : null,
                       }} 
                       senderName={msg.sender_name}
                       isGroup={conversation.is_group}

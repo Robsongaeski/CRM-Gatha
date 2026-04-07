@@ -5,7 +5,7 @@ import {
   Percent, FileText, History, CheckCircle, Truck, Shield, UserPlus, Upload, Tag, Receipt, 
   FileSpreadsheet, BookOpen, Ruler, Factory, Printer, AlertTriangle, KanbanSquare, RefreshCcw,
   CalendarClock, PackageCheck, Wrench, ChevronRight, FileBadge, Send, BarChart3, HelpCircle, PackageX,
-  MessageSquare, Shirt, Workflow, Store, ListTodo, UserCog, Calendar, Gift, Briefcase, Cog, Building2
+  MessageSquare, Shirt, Workflow, Store, ListTodo, UserCog, Calendar, Gift, Briefcase, Cog, Building2, Bot
 } from 'lucide-react';
 import {
   Sidebar,
@@ -109,6 +109,7 @@ const whatsappItems = [
 
 const automacaoItems = [
   { title: 'Fluxos de Automação', url: '/automacao', icon: Workflow },
+  { title: 'Agentes IA', url: '/automacao/agentes-ia', icon: Bot },
 ];
 
 // RH - Gestão de Colaboradores

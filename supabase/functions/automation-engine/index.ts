@@ -538,9 +538,41 @@ async function processAction(
       return { success: true, output: { tag_added: true } }
     }
 
+    case 'ai_agent': {
+      const explicitAgentKey = resolveVariable(
+        (config.agent_key as string) || (config.agentKey as string),
+        context,
+      )
+      const webhookUrl = (config.url as string) || (config.webhookUrl as string) || ''
+      const agentKeyFromWebhook = extractAgentKeyFromWebhookUrl(webhookUrl)
+      const agentKey = String(explicitAgentKey || agentKeyFromWebhook || '').trim()
+
+      if (!agentKey) {
+        throw new Error('AI agent: missing agent_key')
+      }
+
+      const url = `/functions/v1/whatsapp-ai-router?agent_key=${encodeURIComponent(agentKey)}`
+      const response = await executeWebhookRequest({
+        url,
+        method: 'POST',
+        body: JSON.stringify({ ...context, agent_key: agentKey }),
+        supabaseUrl,
+        supabaseServiceKey,
+      })
+
+      return {
+        success: response.ok,
+        output: {
+          ai_agent_called: true,
+          agent_key: agentKey,
+          response_status: response.status,
+        },
+      }
+    }
+
     case 'call_webhook': {
-      const url = config.url as string || config.webhookUrl as string
-      const method = (config.method as string) || 'POST'
+      const url = (config.url as string) || (config.webhookUrl as string)
+      const method = ((config.method as string) || 'POST').toUpperCase()
       const bodyTemplate = config.body as string
       
       if (!url) {
@@ -548,19 +580,20 @@ async function processAction(
       }
 
       const body = bodyTemplate ? resolveTemplate(bodyTemplate, context) : JSON.stringify(context)
-      
-      const response = await fetch(url, {
+      const response = await executeWebhookRequest({
+        url,
         method,
-        headers: { 'Content-Type': 'application/json' },
-        body: method !== 'GET' ? body : undefined
+        body: method !== 'GET' ? body : undefined,
+        supabaseUrl,
+        supabaseServiceKey,
       })
 
-      return { 
-        success: response.ok, 
-        output: { 
-          webhook_called: true, 
-          response_status: response.status 
-        } 
+      return {
+        success: response.ok,
+        output: {
+          webhook_called: true,
+          response_status: response.status,
+        },
       }
     }
 
@@ -851,6 +884,70 @@ async function processAction(
       console.log(`Unknown action subtype: ${subtype}`)
       return { success: true }
   }
+}
+
+function extractAgentKeyFromWebhookUrl(rawUrl: string): string {
+  const url = String(rawUrl || '').trim()
+  if (!url || !/whatsapp-ai-router/i.test(url)) return ''
+
+  try {
+    const parsed = url.startsWith('http')
+      ? new URL(url)
+      : new URL(url, 'https://local.invalid')
+    return String(parsed.searchParams.get('agent_key') || '').trim()
+  } catch {
+    const match = url.match(/[?&]agent_key=([^&]+)/i)
+    if (!match?.[1]) return ''
+    try {
+      return decodeURIComponent(match[1]).trim()
+    } catch {
+      return String(match[1] || '').trim()
+    }
+  }
+}
+
+async function executeWebhookRequest(params: {
+  url: string
+  method: string
+  body?: string
+  supabaseUrl: string
+  supabaseServiceKey: string
+}): Promise<Response> {
+  const baseFunctionUrl = `${params.supabaseUrl}/functions/v1/`
+  let resolvedUrl = params.url
+  let isInternalFunctionCall = false
+  let isAiRouterCall = false
+
+  if (/^\/?functions\/v1\//i.test(params.url)) {
+    resolvedUrl = `${params.supabaseUrl.replace(/\/+$/, '')}/${params.url.replace(/^\/+/, '')}`
+    isInternalFunctionCall = true
+    isAiRouterCall = /\/functions\/v1\/whatsapp-ai-router(?:\?|$)/i.test(resolvedUrl)
+  } else {
+    try {
+      const target = new URL(params.url)
+      const base = new URL(baseFunctionUrl)
+      isInternalFunctionCall = target.origin === base.origin && target.pathname.startsWith('/functions/v1/')
+      isAiRouterCall = /\/functions\/v1\/whatsapp-ai-router$/i.test(target.pathname)
+    } catch {
+      isInternalFunctionCall = false
+      isAiRouterCall = false
+    }
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (isInternalFunctionCall && isAiRouterCall) {
+    headers.Authorization = `Bearer ${params.supabaseServiceKey}`
+    const internalSecret = Deno.env.get('WHATSAPP_AI_WEBHOOK_SECRET')
+    if (internalSecret) {
+      headers['x-webhook-secret'] = internalSecret
+    }
+  }
+
+  return fetch(resolvedUrl, {
+    method: params.method,
+    headers,
+    body: params.method !== 'GET' ? params.body : undefined,
+  })
 }
 
 async function processCondition(
