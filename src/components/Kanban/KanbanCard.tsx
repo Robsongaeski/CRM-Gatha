@@ -93,7 +93,7 @@ export function KanbanCard({ pedido, onClick, onPrint }: KanbanCardProps) {
               {onPrint && (
                 <button
                   type="button"
-                  className="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background/90 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  className="inline-flex h-5 items-center gap-1 rounded border border-border bg-background/90 px-1.5 text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                   title="Imprimir ficha do pedido"
                   onPointerDown={(e) => {
                     e.stopPropagation();
@@ -110,6 +110,7 @@ export function KanbanCard({ pedido, onClick, onPrint }: KanbanCardProps) {
                   }}
                 >
                   <Printer className="h-3 w-3" />
+                  <span>Ficha</span>
                 </button>
               )}
               <div className="flex gap-0.5">
