@@ -2742,6 +2742,8 @@ export type Database = {
           caminho_arquivos: string | null
           cliente_id: string
           created_at: string | null
+          desconto_aguardando_aprovacao: boolean | null
+          desconto_percentual: number | null
           data_entrega: string | null
           data_fim_producao: string | null
           data_inicio_producao: string | null
@@ -2764,6 +2766,8 @@ export type Database = {
           caminho_arquivos?: string | null
           cliente_id: string
           created_at?: string | null
+          desconto_aguardando_aprovacao?: boolean | null
+          desconto_percentual?: number | null
           data_entrega?: string | null
           data_fim_producao?: string | null
           data_inicio_producao?: string | null
@@ -2786,6 +2790,8 @@ export type Database = {
           caminho_arquivos?: string | null
           cliente_id?: string
           created_at?: string | null
+          desconto_aguardando_aprovacao?: boolean | null
+          desconto_percentual?: number | null
           data_entrega?: string | null
           data_fim_producao?: string | null
           data_inicio_producao?: string | null
@@ -3236,6 +3242,8 @@ export type Database = {
           created_at: string | null
           criar_previa: boolean | null
           data_follow_up: string | null
+          desconto_aguardando_aprovacao: boolean | null
+          desconto_percentual: number | null
           descricao_criacao: string | null
           etapa_aprovacao_id: string | null
           id: string
@@ -3254,6 +3262,8 @@ export type Database = {
           created_at?: string | null
           criar_previa?: boolean | null
           data_follow_up?: string | null
+          desconto_aguardando_aprovacao?: boolean | null
+          desconto_percentual?: number | null
           descricao_criacao?: string | null
           etapa_aprovacao_id?: string | null
           id?: string
@@ -3272,6 +3282,8 @@ export type Database = {
           created_at?: string | null
           criar_previa?: boolean | null
           data_follow_up?: string | null
+          desconto_aguardando_aprovacao?: boolean | null
+          desconto_percentual?: number | null
           descricao_criacao?: string | null
           etapa_aprovacao_id?: string | null
           id?: string

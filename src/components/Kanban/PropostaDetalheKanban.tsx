@@ -352,6 +352,9 @@ export function PropostaDetalheKanban({ propostaId, onClose }: PropostaDetalheKa
     );
   }
   if (!proposta) return null;
+  const subtotalProposta = Number(proposta.valor_total || 0);
+  const descontoPercentualProposta = Number((proposta as any).desconto_percentual || 0);
+  const valorFinalProposta = subtotalProposta - (subtotalProposta * (descontoPercentualProposta / 100));
 
   return (
     <Dialog open={!!propostaId} onOpenChange={onClose}>
@@ -383,8 +386,13 @@ export function PropostaDetalheKanban({ propostaId, onClose }: PropostaDetalheKa
                   <div className="flex items-center gap-2">
                     <DollarSign className="h-3 w-3 text-muted-foreground" />
                     <span className="text-muted-foreground">Valor:</span>
-                    <span className="font-semibold">R$ {proposta.valor_total?.toFixed(2)}</span>
+                    <span className="font-semibold">R$ {valorFinalProposta.toFixed(2)}</span>
                   </div>
+                  {descontoPercentualProposta > 0 && (
+                    <div className="text-xs text-green-600">
+                      Desconto à vista aplicado: {descontoPercentualProposta.toFixed(1)}%
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">{proposta.status}</Badge>
                   </div>

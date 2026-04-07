@@ -192,6 +192,12 @@ export default function PropostasLista() {
     }).format(numValue);
   };
 
+  const calcularValorFinalProposta = (proposta: any) => {
+    const subtotal = Number(proposta.valor_total || 0);
+    const descontoPercentual = Number(proposta.desconto_percentual || 0);
+    return subtotal - (subtotal * (descontoPercentual / 100));
+  };
+
   const getFollowUpStatus = (dataFollowUp: string | null) => {
     if (!dataFollowUp) return null;
     const date = new Date(dataFollowUp);
@@ -242,7 +248,7 @@ export default function PropostasLista() {
     ganhas: propostasMesAtual.filter((p: any) => p.status === 'ganha').length,
     valorTotal: propostasMesAtual
       .filter((p: any) => p.status !== 'perdida')
-      .reduce((sum: number, p: any) => sum + parseFloat(p.valor_total || 0), 0),
+      .reduce((sum: number, p: any) => sum + calcularValorFinalProposta(p), 0),
     lembretesHoje: propostasMesAtual.filter(
       (p: any) => p.data_follow_up && isToday(new Date(p.data_follow_up))
     ).length,
@@ -396,7 +402,7 @@ export default function PropostasLista() {
                         <TableCell className="font-medium">
                           {proposta.cliente?.nome_razao_social}
                         </TableCell>
-                        <TableCell>{formatCurrency(proposta.valor_total)}</TableCell>
+                        <TableCell>{formatCurrency(calcularValorFinalProposta(proposta))}</TableCell>
                         <TableCell>
                           {podeEditar ? (
                             <Select

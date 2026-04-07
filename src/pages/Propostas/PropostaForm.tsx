@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { CurrencyInput } from '@/components/ui/currency-input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -51,6 +52,7 @@ const propostaSchema = z.object({
   cliente_id: z.string().uuid('Selecione um cliente'),
   status: z.enum(['pendente', 'enviada', 'follow_up', 'ganha', 'perdida']),
   observacoes: z.string().optional().nullable(),
+  desconto_percentual: z.number().min(0, 'Desconto minimo: 0%').max(100, 'Desconto maximo: 100%').default(0),
   data_follow_up: z.date().optional().nullable(),
   motivo_perda: z.string().optional().nullable(),
   criar_previa: z.boolean().default(false),
@@ -107,6 +109,8 @@ export default function PropostaForm() {
   const [clienteSearchOpen, setClienteSearchOpen] = useState(false);
   const [produtoSearchOpen, setProdutoSearchOpen] = useState<number | null>(null);
   const [faixasPreco, setFaixasPreco] = useState<Record<number, any>>({});
+  const [descontoModo, setDescontoModo] = useState<'percentual' | 'valor'>('percentual');
+  const [descontoValorInput, setDescontoValorInput] = useState(0);
 
   const { data: proposta } = useProposta(isEditing ? id : undefined);
   const createMutation = useCreateProposta();
@@ -199,6 +203,7 @@ export default function PropostaForm() {
       cliente_id: '',
       status: 'enviada',
       observacoes: '',
+      desconto_percentual: 0,
       data_follow_up: null,
       motivo_perda: '',
       criar_previa: false,
@@ -218,6 +223,23 @@ export default function PropostaForm() {
 
   const status = form.watch('status');
   const criarPrevia = form.watch('criar_previa');
+  const itensFormulario = form.watch('itens');
+  const subtotalProposta = itensFormulario.reduce((total, item) => total + (item.quantidade * item.valor_unitario), 0);
+  const descontoPercentual = Math.min(Math.max(Number(form.watch('desconto_percentual') || 0), 0), 100);
+  const descontoValorNormalizado =
+    descontoModo === 'valor'
+      ? Math.min(Math.max(descontoValorInput || 0, 0), subtotalProposta)
+      : subtotalProposta * (descontoPercentual / 100);
+  const descontoPercentualEfetivo =
+    subtotalProposta > 0 ? Math.min((descontoValorNormalizado / subtotalProposta) * 100, 100) : 0;
+  const descontoAcimaLimite = !isAdmin && descontoPercentualEfetivo > 3;
+  const valorFinalProposta = Math.max(subtotalProposta - descontoValorNormalizado, 0);
+
+  useEffect(() => {
+    if (descontoModo === 'valor' && descontoValorInput > subtotalProposta) {
+      setDescontoValorInput(subtotalProposta);
+    }
+  }, [descontoModo, descontoValorInput, subtotalProposta]);
   
   // useEffect para carregar dados da proposta ao editar
   useEffect(() => {
@@ -233,6 +255,7 @@ export default function PropostaForm() {
         cliente_id: proposta.cliente_id,
         status: proposta.status as StatusProposta,
         observacoes: proposta.observacoes || '',
+        desconto_percentual: Number((proposta as any).desconto_percentual || 0),
         data_follow_up: proposta.data_follow_up ? new Date(proposta.data_follow_up) : null,
         motivo_perda: proposta.motivo_perda || '',
         criar_previa: (proposta as any).criar_previa || false,
@@ -243,6 +266,10 @@ export default function PropostaForm() {
         vendedor_id: proposta.vendedor_id || null,
         itens,
       });
+      const descontoInicial = Number((proposta as any).desconto_percentual || 0);
+      const subtotalInicial = itens.reduce((total, item) => total + (item.quantidade * item.valor_unitario), 0);
+      setDescontoModo('percentual');
+      setDescontoValorInput((subtotalInicial * descontoInicial) / 100);
 
       // Buscar faixas de preço para os itens carregados
       itens.forEach((item, index) => {
@@ -322,6 +349,12 @@ export default function PropostaForm() {
   }
 
   const onSubmit = async (data: PropostaFormValues) => {
+    const subtotalAtual = data.itens.reduce((total, item) => total + (item.quantidade * item.valor_unitario), 0);
+    const descontoNormalizado =
+      descontoModo === 'valor'
+        ? (subtotalAtual > 0 ? Math.min((Math.max(descontoValorInput || 0, 0) / subtotalAtual) * 100, 100) : 0)
+        : Math.min(Math.max(Number(data.desconto_percentual || 0), 0), 100);
+    const descontoAguardandoAprovacao = !isAdmin && descontoNormalizado > 3;
     // Se for admin e selecionou vendedor válido, usar esse. Se for edição, manter o vendedor atual.
     let vendedorIdFinal: string | undefined;
     if (isAdmin && data.vendedor_id && data.vendedor_id.length > 0) {
@@ -334,6 +367,8 @@ export default function PropostaForm() {
       cliente_id: data.cliente_id,
       status: data.status,
       observacoes: data.observacoes || null,
+      desconto_percentual: descontoNormalizado,
+      desconto_aguardando_aprovacao: descontoAguardandoAprovacao,
       data_follow_up: data.data_follow_up || null,
       motivo_perda: data.motivo_perda || null,
       criar_previa: data.criar_previa,
@@ -421,10 +456,15 @@ export default function PropostaForm() {
   };
 
   const calcularValorTotal = () => {
-    const itens = form.watch('itens');
-    return itens.reduce((total, item) => {
-      return total + (item.quantidade * item.valor_unitario);
-    }, 0);
+    return subtotalProposta;
+  };
+
+  const calcularValorDesconto = () => {
+    return descontoValorNormalizado;
+  };
+
+  const calcularValorFinal = () => {
+    return valorFinalProposta;
   };
 
   const formatCurrency = (value: number) => {
@@ -432,6 +472,22 @@ export default function PropostaForm() {
       style: 'currency',
       currency: 'BRL',
     }).format(value);
+  };
+
+  const handleModoDescontoChange = (modo: 'percentual' | 'valor') => {
+    if (modo === descontoModo) return;
+
+    if (modo === 'valor') {
+      setDescontoValorInput((subtotalProposta * descontoPercentual) / 100);
+    } else {
+      form.setValue('desconto_percentual', descontoPercentualEfetivo, { shouldDirty: true });
+    }
+
+    setDescontoModo(modo);
+  };
+
+  const handleDescontoValorChange = (valor: number) => {
+    setDescontoValorInput(Math.min(Math.max(valor || 0, 0), subtotalProposta));
   };
 
   return (
@@ -605,6 +661,70 @@ export default function PropostaForm() {
                         <SelectItem value="perdida">Perdida</SelectItem>
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="desconto_percentual"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Desconto para pagamento a vista</FormLabel>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <Select
+                        value={descontoModo}
+                        onValueChange={(value) => handleModoDescontoChange(value as 'percentual' | 'valor')}
+                        disabled={camposDesabilitados}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="percentual">Porcentagem (%)</SelectItem>
+                          <SelectItem value="valor">Valor (R$)</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      {descontoModo === 'percentual' ? (
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.1"
+                            value={field.value ?? 0}
+                            onChange={(e) => field.onChange(Math.min(Math.max(parseFloat(e.target.value) || 0, 0), 100))}
+                            disabled={camposDesabilitados}
+                          />
+                        </FormControl>
+                      ) : (
+                        <FormControl>
+                          <CurrencyInput
+                            value={descontoValorInput}
+                            onChange={handleDescontoValorChange}
+                            disabled={camposDesabilitados}
+                          />
+                        </FormControl>
+                      )}
+                    </div>
+                    <FormDescription>
+                      Use apenas quando o cliente pagar o valor integral no momento do pedido (a vista). Se nao for a vista, mantenha 0%.
+                      Ate 3% liberado para vendedor; acima disso exige aprovacao do administrador.
+                    </FormDescription>
+                    {descontoModo === 'valor' && descontoValorNormalizado > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Equivale a {descontoPercentualEfetivo.toFixed(2)}% sobre o subtotal.
+                      </p>
+                    )}
+                    {descontoAcimaLimite && (
+                      <p className="text-sm font-medium text-amber-600">
+                        Desconto a vista acima de 3%: sera marcado como pendente para aprovacao do administrador.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1049,9 +1169,17 @@ export default function PropostaForm() {
                 Adicionar Produto
               </Button>
 
-              <div className="text-right">
+              <div className="text-right space-y-1">
+                <p className="text-sm text-muted-foreground">
+                  Subtotal: {formatCurrency(calcularValorTotal())}
+                </p>
+                {descontoValorNormalizado > 0 && (
+                  <p className="text-sm text-green-600">
+                    Desconto ({descontoPercentualEfetivo.toFixed(2)}%): -{formatCurrency(calcularValorDesconto())}
+                  </p>
+                )}
                 <p className="text-2xl font-bold">
-                  Total Geral: {formatCurrency(calcularValorTotal())}
+                  Total Geral: {formatCurrency(calcularValorFinal())}
                 </p>
               </div>
             </CardContent>

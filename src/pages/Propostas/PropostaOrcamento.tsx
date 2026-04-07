@@ -35,9 +35,14 @@ export default function PropostaOrcamento() {
     );
   }
 
-  const valorTotal = proposta.itens?.reduce((total: number, item: any) => {
+  const subtotal = proposta.itens?.reduce((total: number, item: any) => {
     return total + (item.quantidade * parseFloat(item.valor_unitario));
   }, 0) || 0;
+  const descontoPercentual = Number((proposta as any).desconto_percentual || 0);
+  const valorDesconto = subtotal * (descontoPercentual / 100);
+  const valorTotal = subtotal - valorDesconto;
+  const temDescontoGeral = descontoPercentual > 0;
+  const descontoAguardandoAprovacao = Boolean((proposta as any).desconto_aguardando_aprovacao);
 
   // Usar a data da proposta (created_at) para calcular validade
   const dataProposta = proposta.created_at 
@@ -224,6 +229,12 @@ export default function PropostaOrcamento() {
                   <span className="font-semibold">Validade:</span>{' '}
                   {format(dataValidade, 'dd/MM/yyyy', { locale: ptBR })}
                 </p>
+                {temDescontoGeral && (
+                  <p className="text-sm print:text-[9px] print:leading-tight">
+                    <span className="font-semibold">Desconto à vista:</span> {descontoPercentual.toFixed(1)}%
+                    {descontoAguardandoAprovacao ? ' (pendente aprovacao)' : ''}
+                  </p>
+                )}
               </div>
 
               {/* Dados do Cliente */}
@@ -263,7 +274,7 @@ export default function PropostaOrcamento() {
                         Unit.
                       </th>
                       <th className="border border-border p-3 print:p-1 text-right text-sm print:text-[9px] font-semibold">
-                        Unit. c/ Desc
+                        {temDescontoGeral ? 'Unit. c/ Desc' : 'Unit. Venda'}
                       </th>
                       {temObservacoes && (
                         <th className="border border-border p-3 print:p-1 text-left text-sm print:text-[9px] font-semibold">
@@ -296,7 +307,9 @@ export default function PropostaOrcamento() {
                             {valorBase ? formatCurrency(valorBase) : '-'}
                           </td>
                           <td className="border border-border p-3 print:p-1 text-right text-sm print:text-[9px]">
-                            {desconto ? (
+                            {!temDescontoGeral ? (
+                              <span>{formatCurrency(valorUnitario)}</span>
+                            ) : desconto ? (
                               <div className="flex flex-col print:flex-row items-end print:items-center gap-1 print:gap-0">
                                 <span className="font-semibold text-green-600">
                                   {formatCurrency(valorUnitario)}
@@ -320,6 +333,26 @@ export default function PropostaOrcamento() {
                         </tr>
                       );
                     })}
+                    {temDescontoGeral && (
+                      <tr className="bg-muted/50">
+                        <td colSpan={temObservacoes ? 5 : 4} className="border border-border p-3 print:p-1 text-right text-sm print:text-[9px] font-bold">
+                          SUBTOTAL
+                        </td>
+                        <td className="border border-border p-3 print:p-1 text-right text-sm print:text-[10px] font-bold">
+                          {formatCurrency(subtotal)}
+                        </td>
+                      </tr>
+                    )}
+                    {temDescontoGeral && (
+                      <tr className="bg-green-50">
+                        <td colSpan={temObservacoes ? 5 : 4} className="border border-border p-3 print:p-1 text-right text-sm print:text-[9px] font-bold text-green-700">
+                          DESCONTO A VISTA ({descontoPercentual.toFixed(1)}%)
+                        </td>
+                        <td className="border border-border p-3 print:p-1 text-right text-sm print:text-[10px] font-bold text-green-700">
+                          -{formatCurrency(valorDesconto)}
+                        </td>
+                      </tr>
+                    )}
                     <tr className="bg-muted/50">
                       <td colSpan={temObservacoes ? 5 : 4} className="border border-border p-3 print:p-1 text-right text-sm print:text-[9px] font-bold">
                         VALOR TOTAL

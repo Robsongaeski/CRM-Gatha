@@ -180,6 +180,11 @@ export default function PropostaDetalhes() {
   }
 
   const config = statusConfig[proposta.status as keyof typeof statusConfig];
+  const valorSubtotal = Number(proposta.valor_total || 0);
+  const descontoPercentual = Number((proposta as any).desconto_percentual || 0);
+  const valorDesconto = valorSubtotal * (descontoPercentual / 100);
+  const valorFinal = valorSubtotal - valorDesconto;
+  const descontoAguardandoAprovacao = Boolean((proposta as any).desconto_aguardando_aprovacao);
 
   return (
     <div className="space-y-6">
@@ -237,9 +242,33 @@ export default function PropostaDetalhes() {
             <Separator />
 
             <div>
-              <p className="text-sm text-muted-foreground">Valor Total</p>
-              <p className="text-2xl font-bold">{formatCurrency(proposta.valor_total)}</p>
+              <p className="text-sm text-muted-foreground">
+                {descontoPercentual > 0 ? 'Subtotal' : 'Valor Total'}
+              </p>
+              <p className="text-2xl font-bold">{formatCurrency(valorSubtotal)}</p>
             </div>
+
+            {descontoPercentual > 0 && (
+              <>
+                <Separator />
+                <div>
+                  <p className="text-sm text-muted-foreground">Desconto à Vista Aplicado</p>
+                  <p className="font-medium text-green-600">
+                    {descontoPercentual.toFixed(1)}% (-{formatCurrency(valorDesconto)})
+                  </p>
+                  {descontoAguardandoAprovacao && (
+                    <p className="text-xs font-medium text-amber-600 mt-1">
+                      Aguardando aprovacao do administrador.
+                    </p>
+                  )}
+                </div>
+                <Separator />
+                <div>
+                  <p className="text-sm text-muted-foreground">Valor Final</p>
+                  <p className="text-2xl font-bold">{formatCurrency(valorFinal)}</p>
+                </div>
+              </>
+            )}
 
             {proposta.data_follow_up && (
               <>
@@ -483,8 +512,19 @@ export default function PropostaDetalhes() {
 
           <div className="mt-4 flex justify-end">
             <div className="text-right">
-              <p className="text-sm text-muted-foreground">Valor Total da Proposta</p>
-              <p className="text-2xl font-bold">{formatCurrency(proposta.valor_total)}</p>
+              <p className="text-sm text-muted-foreground">
+                {descontoPercentual > 0 ? 'Subtotal da Proposta' : 'Valor Total da Proposta'}
+              </p>
+              <p className="text-2xl font-bold">{formatCurrency(valorSubtotal)}</p>
+              {descontoPercentual > 0 && (
+                <>
+                  <p className="text-sm text-green-600">
+                    Desconto à vista ({descontoPercentual.toFixed(1)}%): -{formatCurrency(valorDesconto)}
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">Valor Final da Proposta</p>
+                  <p className="text-2xl font-bold">{formatCurrency(valorFinal)}</p>
+                </>
+              )}
             </div>
           </div>
         </CardContent>

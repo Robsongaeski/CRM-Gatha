@@ -256,7 +256,7 @@ export default function PedidoDetalhes() {
           <AlertTitle className="text-warning">⚠️ Pedido Aguardando Aprovação</AlertTitle>
           <AlertDescription className="text-muted-foreground">
             <div className="space-y-2 mt-2">
-              <p>Este pedido contém itens com preços abaixo do mínimo permitido e está aguardando aprovação administrativa.</p>
+              <p>Este pedido está aguardando aprovação por política comercial (preço e/ou desconto à vista).</p>
               {aprovacao?.motivo_solicitacao && (
                 <div className="mt-2">
                   <strong>Motivo:</strong> {aprovacao.motivo_solicitacao}

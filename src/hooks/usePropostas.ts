@@ -18,6 +18,8 @@ export interface PropostaFormData {
   cliente_id: string;
   status: StatusProposta;
   observacoes?: string | null;
+  desconto_percentual?: number;
+  desconto_aguardando_aprovacao?: boolean;
   data_follow_up?: Date | null;
   motivo_perda?: string | null;
   criar_previa?: boolean;
@@ -102,6 +104,8 @@ export function useCreateProposta() {
         vendedor_id: data.vendedor_id || user.id,
         status: data.status,
         observacoes: data.observacoes || null,
+        desconto_percentual: data.desconto_percentual || 0,
+        desconto_aguardando_aprovacao: data.desconto_aguardando_aprovacao || false,
         data_follow_up: data.data_follow_up ? data.data_follow_up.toISOString() : null,
         motivo_perda: data.motivo_perda || null,
         criar_previa: data.criar_previa || false,
@@ -178,6 +182,8 @@ export function useUpdateProposta(id: string) {
         cliente_id: data.cliente_id,
         status: data.status,
         observacoes: data.observacoes || null,
+        desconto_percentual: data.desconto_percentual || 0,
+        desconto_aguardando_aprovacao: data.desconto_aguardando_aprovacao || false,
         data_follow_up: data.data_follow_up ? data.data_follow_up.toISOString() : null,
         motivo_perda: data.motivo_perda || null,
         criar_previa: data.criar_previa || false,

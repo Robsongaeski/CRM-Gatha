@@ -139,7 +139,7 @@ export function useAprovarRejeitarSolicitacao() {
         // Remove a flag de aprovação do pedido
         await supabase
           .from('pedidos')
-          .update({ requer_aprovacao_preco: false })
+          .update({ requer_aprovacao_preco: false, desconto_aguardando_aprovacao: false })
           .eq('id', solicitacao.pedido_id);
         
         // Invalidar dashboards para que as estatísticas sejam atualizadas
@@ -156,8 +156,8 @@ export function useAprovarRejeitarSolicitacao() {
         // Cancelar o pedido e adicionar observação
         const observacaoAtual = pedidoAtual?.observacao || '';
         const motivoRejeicao = data.observacao_admin 
-          ? `Pedido rejeitado por preços fora da política. Motivo: ${data.observacao_admin}`
-          : 'Pedido rejeitado por preços fora da política comercial.';
+          ? `Pedido rejeitado por divergência na política comercial. Motivo: ${data.observacao_admin}`
+          : 'Pedido rejeitado por divergência na política comercial.';
         
         const novaObservacao = observacaoAtual 
           ? `${observacaoAtual}\n\n${motivoRejeicao}`
@@ -168,7 +168,8 @@ export function useAprovarRejeitarSolicitacao() {
           .update({ 
             status: 'cancelado',
             observacao: novaObservacao,
-            requer_aprovacao_preco: false
+            requer_aprovacao_preco: false,
+            desconto_aguardando_aprovacao: false
           })
           .eq('id', solicitacao.pedido_id);
       }

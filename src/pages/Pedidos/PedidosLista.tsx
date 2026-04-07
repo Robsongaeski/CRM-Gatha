@@ -637,7 +637,7 @@ export default function PedidosLista() {
                                 </Badge>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Pedido com preços abaixo do mínimo - aguardando aprovação administrativa</p>
+                                <p>Pedido aguardando aprovação por política comercial (preço e/ou desconto à vista)</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>

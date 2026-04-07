@@ -47,6 +47,7 @@ const pedidoSchemaBase = z.object({
   data_entrega: z.string(),
   observacao: z.string().optional(),
   caminho_arquivos: z.string().optional(),
+  desconto_percentual: z.number().min(0, 'Desconto minimo: 0%').max(100, 'Desconto maximo: 100%').default(0),
   status: z.enum(['rascunho', 'em_producao', 'pronto', 'entregue', 'cancelado']),
   itens: z.array(
     z.object({
@@ -83,6 +84,13 @@ const pedidoSchema = pedidoSchemaBase.refine((data) => {
 }, { message: 'Adicione pelo menos um item com produto', path: ['itens'] });
 
 const MASTER_ADMIN_EMAIL = 'robsongaeski@gmail.com';
+const normalizarDescontoPercentual = (valor: number) => Math.min(Math.max(valor || 0, 0), 100);
+const calcularSubtotalItens = (itens: Array<{ quantidade: number; valor_unitario: number }>) =>
+  itens.reduce((total, item) => total + (Number(item.quantidade) * Number(item.valor_unitario)), 0);
+const calcularPercentualPorValor = (descontoValor: number, subtotal: number) => {
+  if (subtotal <= 0) return 0;
+  return normalizarDescontoPercentual((Math.max(descontoValor || 0, 0) / subtotal) * 100);
+};
 
 const pedidoToSnapshot = (pedido: any): PedidoFormData => ({
   data_pedido: extractDateOnly(pedido.data_pedido) || '',
@@ -90,6 +98,8 @@ const pedidoToSnapshot = (pedido: any): PedidoFormData => ({
   data_entrega: extractDateOnly(pedido.data_entrega) || undefined,
   observacao: pedido.observacao || '',
   caminho_arquivos: pedido.caminho_arquivos || '',
+  desconto_percentual: Number(pedido.desconto_percentual || 0),
+  desconto_aguardando_aprovacao: Boolean(pedido.desconto_aguardando_aprovacao),
   status: pedido.status,
   itens: (pedido.itens || []).map((item: any) => ({
     id: item.id,
@@ -118,6 +128,7 @@ const getCamposAlterados = (anterior: PedidoFormData, novo: PedidoFormData) => {
   if ((anterior.data_entrega || '') !== (novo.data_entrega || '')) campos.push('data_entrega');
   if ((anterior.observacao || '') !== (novo.observacao || '')) campos.push('observacao');
   if ((anterior.caminho_arquivos || '') !== (novo.caminho_arquivos || '')) campos.push('caminho_arquivos');
+  if (Number(anterior.desconto_percentual || 0) !== Number(novo.desconto_percentual || 0)) campos.push('desconto_percentual');
   if (anterior.status !== novo.status) campos.push('status');
   if (JSON.stringify(anterior.itens || []) !== JSON.stringify(novo.itens || [])) campos.push('itens');
   return campos;
@@ -137,6 +148,8 @@ export default function PedidoForm() {
   const [faixasPreco, setFaixasPreco] = useState<Record<number, any>>({});
   const [validandoPrecos, setValidandoPrecos] = useState(false);
   const [salvandoRascunho, setSalvandoRascunho] = useState(false);
+  const [descontoModo, setDescontoModo] = useState<'percentual' | 'valor'>('percentual');
+  const [descontoValorInput, setDescontoValorInput] = useState(0);
 
   // Verificar permissões específicas
   const podeAlterarStatus = can('pedidos.alterar_status');
@@ -218,6 +231,7 @@ export default function PedidoForm() {
       data_entrega: '',
       observacao: '',
       caminho_arquivos: '',
+      desconto_percentual: 0,
       status: 'em_producao',
       itens: [{ 
         produto_id: '', 
@@ -251,6 +265,7 @@ export default function PedidoForm() {
         data_entrega: extractDateOnly(pedido.data_entrega) || '',
         observacao: pedido.observacao || '',
         caminho_arquivos: (pedido as any).caminho_arquivos || '',
+        desconto_percentual: Number((pedido as any).desconto_percentual || 0),
         status: pedido.status,
         itens: pedido.itens?.map((item: any) => ({
           id: item.id,
@@ -279,6 +294,7 @@ export default function PedidoForm() {
         data_entrega: '',
         observacao: proposta.observacoes || '',
         caminho_arquivos: proposta.caminho_arquivos || '',
+        desconto_percentual: Number((proposta as any).desconto_percentual || 0),
         status: 'em_producao',
         itens: proposta.itens?.map((item: any, index: number) => ({
           produto_id: item.produto_id,
@@ -299,6 +315,7 @@ export default function PedidoForm() {
         data_entrega: '',
         observacao: pedidoDuplicar.observacao || '',
         caminho_arquivos: (pedidoDuplicar as any).caminho_arquivos || '',
+        desconto_percentual: Number((pedidoDuplicar as any).desconto_percentual || 0),
         status: 'rascunho',
         itens: pedidoDuplicar.itens?.map((item: any) => ({
           produto_id: item.produto_id,
@@ -319,6 +336,11 @@ export default function PedidoForm() {
         })) || [],
       });
     }
+
+    const descontoInicial = normalizarDescontoPercentual(Number(form.getValues('desconto_percentual') || 0));
+    const subtotalInicial = calcularSubtotalItens(form.getValues('itens') || []);
+    setDescontoModo('percentual');
+    setDescontoValorInput((subtotalInicial * descontoInicial) / 100);
   }, [pedido, proposta, pedidoDuplicar, isEditing, propostaId, duplicarDeId, form]);
 
   // Buscar faixas de preço quando pedido for carregado em modo de edição
@@ -372,6 +394,13 @@ export default function PedidoForm() {
       }
 
       // NOVA VALIDAÇÃO: Se modo "apenas status", verificar se apenas status mudou
+      const subtotalAtual = calcularSubtotalItens(data.itens);
+      const descontoNormalizado =
+        descontoModo === 'valor'
+          ? calcularPercentualPorValor(descontoValorInput, subtotalAtual)
+          : normalizarDescontoPercentual(Number(data.desconto_percentual || 0));
+      const descontoAguardandoAprovacao = !isAdmin && descontoNormalizado > 3;
+
       if (modoEdicao.apenasStatus && pedido) {
         // Verificar se algo além do status foi alterado
         const statusMudou = data.status !== pedido.status;
@@ -380,6 +409,7 @@ export default function PedidoForm() {
           data.cliente_id !== pedido.cliente_id ||
           data.data_entrega !== (extractDateOnly(pedido.data_entrega) || '') ||
           data.observacao !== (pedido.observacao || '') ||
+          Number(descontoNormalizado) !== Number((pedido as any).desconto_percentual || 0) ||
           JSON.stringify(data.itens) !== JSON.stringify(pedido.itens?.map((item: any) => ({
             produto_id: item.produto_id,
             quantidade: item.quantidade,
@@ -413,6 +443,8 @@ export default function PedidoForm() {
           data_entrega: data.data_entrega || undefined,
           observacao: data.observacao,
           caminho_arquivos: data.caminho_arquivos,
+          desconto_percentual: descontoNormalizado,
+          desconto_aguardando_aprovacao: descontoAguardandoAprovacao,
           status: data.status,
           itens: data.itens.map(item => ({
             id: item.id,
@@ -441,6 +473,8 @@ export default function PedidoForm() {
         data_entrega: data.data_entrega || undefined,
         observacao: data.observacao,
         caminho_arquivos: data.caminho_arquivos,
+        desconto_percentual: descontoNormalizado,
+        desconto_aguardando_aprovacao: descontoAguardandoAprovacao,
         // Se era rascunho e está salvando normalmente, ativar para em_producao
         status: data.status === 'rascunho' ? 'em_producao' : data.status,
         itens: data.itens.map(item => ({
@@ -525,7 +559,9 @@ export default function PedidoForm() {
       }
 
       setItemsAbaixoMinimo(problemas);
-      const requerAprovacao = problemas.length > 0;
+      const requerAprovacaoPreco = problemas.length > 0;
+      const requerAprovacaoDesconto = descontoAguardandoAprovacao;
+      const requerAprovacao = requerAprovacaoPreco || requerAprovacaoDesconto;
 
     let pedidoId: string;
     
@@ -546,9 +582,19 @@ export default function PedidoForm() {
           return `${produto?.nome} (Qtd: ${item.quantidade}, Preço: ${formatCurrency(item.valor_unitario)}, Mínimo: ${formatCurrency(faixa?.preco_minimo || 0)})`;
         }).join('; ');
 
+        const motivosSolicitacao: string[] = [];
+        if (requerAprovacaoPreco) {
+          motivosSolicitacao.push(`Precos abaixo do minimo permitido: ${itensProblema}`);
+        }
+        if (requerAprovacaoDesconto) {
+          motivosSolicitacao.push(
+            `Desconto a vista acima do limite do vendedor: ${descontoNormalizado.toFixed(2)}% (limite: 3,00%)`
+          );
+        }
+
         await createSolicitacao.mutateAsync({
           pedido_id: pedidoId,
-          motivo_solicitacao: `Preços abaixo do mínimo permitido: ${itensProblema}`,
+          motivo_solicitacao: motivosSolicitacao.join(' | '),
           solicitado_por: user.id,
         });
 
@@ -562,7 +608,7 @@ export default function PedidoForm() {
         if (requerAprovacao && isEditing && !pedido?.requer_aprovacao_preco) {
           toast({
             title: '⚠️ Pedido enviado para nova aprovação',
-            description: 'Você alterou preços para valores abaixo do mínimo. O pedido será enviado novamente para aprovação administrativa.',
+            description: 'Ha pendencia de politica comercial (preco e/ou desconto a vista). O pedido sera enviado novamente para aprovacao administrativa.',
             variant: 'default',
           });
         }
@@ -708,14 +754,39 @@ export default function PedidoForm() {
     return () => clearTimeout(timer);
   }, [faixasPreco, form.watch('itens')]);
 
-  const calcularValorTotal = () => {
-    const itens = form.watch('itens');
-    return itens.reduce((total, item) => {
-      return total + (item.quantidade * item.valor_unitario);
-    }, 0);
+  const itensFormulario = form.watch('itens');
+  const subtotalPedido = calcularSubtotalItens(itensFormulario);
+  const descontoPercentualForm = normalizarDescontoPercentual(Number(form.watch('desconto_percentual') || 0));
+  const descontoValorNormalizado =
+    descontoModo === 'valor'
+      ? Math.min(Math.max(descontoValorInput || 0, 0), subtotalPedido)
+      : (subtotalPedido * descontoPercentualForm) / 100;
+  const descontoPercentualEfetivo =
+    subtotalPedido > 0 ? calcularPercentualPorValor(descontoValorNormalizado, subtotalPedido) : 0;
+  const descontoAcimaLimite = !isAdmin && descontoPercentualEfetivo > 3;
+  const valorTotal = Math.max(subtotalPedido - descontoValorNormalizado, 0);
+
+  useEffect(() => {
+    if (descontoModo === 'valor' && descontoValorInput > subtotalPedido) {
+      setDescontoValorInput(subtotalPedido);
+    }
+  }, [descontoModo, descontoValorInput, subtotalPedido]);
+
+  const handleModoDescontoChange = (modo: 'percentual' | 'valor') => {
+    if (modo === descontoModo) return;
+
+    if (modo === 'valor') {
+      setDescontoValorInput((subtotalPedido * descontoPercentualForm) / 100);
+    } else {
+      form.setValue('desconto_percentual', descontoPercentualEfetivo, { shouldDirty: true });
+    }
+
+    setDescontoModo(modo);
   };
 
-  const valorTotal = calcularValorTotal();
+  const handleDescontoValorChange = (valor: number) => {
+    setDescontoValorInput(Math.min(Math.max(valor || 0, 0), subtotalPedido));
+  };
 
   const appendItem = () => {
     append({
@@ -839,8 +910,8 @@ export default function PedidoForm() {
           <AlertDescription className="text-warning">
             <strong>Este pedido esta aguardando aprovacao administrativa</strong>
             <p className="mt-2 text-sm text-muted-foreground">
-              Ha itens com precos abaixo do minimo permitido. Voce pode editar os valores para corrigir.
-              Se todos os itens ficarem dentro da faixa permitida, a solicitacao de aprovacao sera removida automaticamente.
+              Ha pendencia de politica comercial (preco e/ou desconto a vista). Voce pode ajustar os valores para corrigir.
+              Se os precos ficarem dentro da faixa permitida e o desconto a vista ficar em ate 3%, a solicitacao sera removida automaticamente.
             </p>
           </AlertDescription>
         </Alert>
@@ -961,6 +1032,71 @@ export default function PedidoForm() {
                     <FormControl>
                       <Textarea {...field} placeholder="Observações do pedido..." disabled={camposDesabilitados} />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="desconto_percentual"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Desconto para pagamento a vista</FormLabel>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <Select
+                        value={descontoModo}
+                        onValueChange={(value) => handleModoDescontoChange(value as 'percentual' | 'valor')}
+                        disabled={camposDesabilitados}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="percentual">Porcentagem (%)</SelectItem>
+                          <SelectItem value="valor">Valor (R$)</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <div className="md:col-span-2">
+                        {descontoModo === 'percentual' ? (
+                          <Input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.1"
+                            value={field.value ?? 0}
+                            onChange={(e) =>
+                              field.onChange(normalizarDescontoPercentual(Number.parseFloat(e.target.value) || 0))
+                            }
+                            disabled={camposDesabilitados}
+                          />
+                        ) : (
+                          <CurrencyInput
+                            value={descontoValorInput}
+                            onChange={handleDescontoValorChange}
+                            disabled={camposDesabilitados}
+                          />
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Use somente para pagamento integral no ato do pedido (a vista). Ate 3% e liberado para vendedor.
+                      Acima disso, o pedido fica aguardando aprovacao do administrador.
+                    </p>
+                    {descontoModo === 'valor' && descontoValorNormalizado > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Equivale a {descontoPercentualEfetivo.toFixed(2)}% sobre o subtotal.
+                      </p>
+                    )}
+                    {descontoAcimaLimite && (
+                      <p className="text-xs font-medium text-amber-600">
+                        Desconto a vista acima de 3%: este pedido sera enviado para aprovacao.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1207,26 +1343,41 @@ export default function PedidoForm() {
               {/* Card de Resumo do Valor Total */}
               <Card className="bg-muted">
                 <CardContent className="p-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-lg font-semibold">Valor Total do Pedido</span>
-                    <span className="text-2xl font-bold text-primary">
-                      {new Intl.NumberFormat('pt-BR', { 
-                        style: 'currency', 
-                        currency: 'BRL' 
-                      }).format(valorTotal)}
-                    </span>
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center text-sm text-muted-foreground">
+                      <span>Subtotal</span>
+                      <span>{formatCurrency(subtotalPedido)}</span>
+                    </div>
+                    {descontoValorNormalizado > 0 && (
+                      <div className="flex justify-between items-center text-sm text-green-600">
+                        <span>Desconto ({descontoPercentualEfetivo.toFixed(2)}%)</span>
+                        <span>-{formatCurrency(descontoValorNormalizado)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <span className="text-lg font-semibold">Valor Total do Pedido</span>
+                      <span className="text-2xl font-bold text-primary">
+                        {formatCurrency(valorTotal)}
+                      </span>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
             </CardContent>
           </Card>
 
-          {itemsAbaixoMinimo.length > 0 && (
+          {(itemsAbaixoMinimo.length > 0 || descontoAcimaLimite) && (
             <Alert variant="destructive" className="border-warning bg-warning/10">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                <strong>Atenção:</strong> {itemsAbaixoMinimo.length} item(ns) com preço abaixo do mínimo.
-                Este pedido será enviado para aprovação do administrador.
+                <strong>Atencao:</strong> politica comercial fora do limite.
+                {itemsAbaixoMinimo.length > 0 && (
+                  <span> {itemsAbaixoMinimo.length} item(ns) com preco abaixo do minimo.</span>
+                )}
+                {descontoAcimaLimite && (
+                  <span> Desconto a vista equivalente a {descontoPercentualEfetivo.toFixed(2)}% (limite do vendedor: 3%).</span>
+                )}
+                <span> Este pedido sera enviado para aprovacao do administrador.</span>
               </AlertDescription>
             </Alert>
           )}
@@ -1261,12 +1412,19 @@ export default function PedidoForm() {
                 setSalvandoRascunho(true);
                 try {
                   const data = form.getValues();
+                  const subtotalRascunho = calcularSubtotalItens(data.itens);
+                  const descontoPercentualRascunho =
+                    descontoModo === 'valor'
+                      ? calcularPercentualPorValor(descontoValorInput, subtotalRascunho)
+                      : normalizarDescontoPercentual(Number(data.desconto_percentual || 0));
                   const formData = {
                     data_pedido: data.data_pedido,
                     cliente_id: data.cliente_id || '',
                     data_entrega: data.data_entrega || undefined,
                     observacao: data.observacao,
                     caminho_arquivos: data.caminho_arquivos,
+                    desconto_percentual: descontoPercentualRascunho,
+                    desconto_aguardando_aprovacao: !isAdmin && descontoPercentualRascunho > 3,
                     status: 'rascunho' as const,
                     itens: data.itens.map(item => ({
                       id: item.id,

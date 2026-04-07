@@ -38,6 +38,8 @@ export interface PedidoFormData {
   data_entrega?: string;
   observacao?: string;
   caminho_arquivos?: string;
+  desconto_percentual?: number;
+  desconto_aguardando_aprovacao?: boolean;
   status: StatusPedido;
   itens: PedidoItem[];
 }
@@ -568,13 +570,17 @@ export const useUpdatePedido = (id: string) => {
       // Buscar se o pedido tinha flag de aprovacao
       const { data: pedidoAtual } = await supabase
         .from('pedidos')
-        .select('requer_aprovacao_preco')
+        .select('requer_aprovacao_preco, desconto_percentual')
         .eq('id', id)
         .single();
 
       if (pedidoAtual?.requer_aprovacao_preco) {
         // Verificar se todos os precos estao dentro da faixa agora
         let todosOk = true;
+        const descontoAtual = Number(
+          (pedidoData as any).desconto_percentual ?? pedidoAtual.desconto_percentual ?? 0
+        );
+        const descontoDentroLimite = descontoAtual <= 3;
 
         for (const item of itens || []) {
           const { data: faixaData } = await supabase.rpc('buscar_faixa_preco', {
@@ -594,9 +600,12 @@ export const useUpdatePedido = (id: string) => {
           }
         }
 
-        // Se todos os precos estao OK, remover flag e aprovar automaticamente
-        if (todosOk) {
-          await supabase.from('pedidos').update({ requer_aprovacao_preco: false }).eq('id', id);
+        // Se todos os precos estao OK e desconto dentro do limite, remover flag e aprovar automaticamente
+        if (todosOk && descontoDentroLimite) {
+          await supabase
+            .from('pedidos')
+            .update({ requer_aprovacao_preco: false, desconto_aguardando_aprovacao: false })
+            .eq('id', id);
 
           // Buscar solicitacao pendente e aprovar automaticamente
           const { data: solicitacaoPendente } = await supabase
@@ -633,9 +642,9 @@ export const useUpdatePedido = (id: string) => {
           }
 
           toast({
-            title: 'Precos corrigidos!',
+            title: 'Politica comercial regularizada!',
             description:
-              'Todos os precos estao dentro da faixa permitida. A solicitacao de aprovacao foi removida automaticamente.',
+              'Precos e desconto estao dentro da politica permitida. A solicitacao de aprovacao foi removida automaticamente.',
           });
         }
       }
