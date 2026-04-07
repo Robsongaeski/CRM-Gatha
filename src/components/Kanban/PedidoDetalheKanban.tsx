@@ -47,9 +47,14 @@ const ETAPAS_APROVACAO = [
 interface PedidoDetalheKanbanProps {
   pedidoId: string | null;
   onClose: () => void;
+  onOpenPedidoDetalheCompleto?: (pedidoId: string) => void;
 }
 
-export function PedidoDetalheKanban({ pedidoId, onClose }: PedidoDetalheKanbanProps) {
+export function PedidoDetalheKanban({
+  pedidoId,
+  onClose,
+  onOpenPedidoDetalheCompleto,
+}: PedidoDetalheKanbanProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: pedido, isLoading } = usePedido(pedidoId || '');
@@ -583,7 +588,13 @@ export function PedidoDetalheKanban({ pedidoId, onClose }: PedidoDetalheKanbanPr
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => navigate(`/pedidos/${pedidoId}`)}
+                  onClick={() => {
+                    if (onOpenPedidoDetalheCompleto) {
+                      onOpenPedidoDetalheCompleto(pedidoId);
+                      return;
+                    }
+                    navigate(`/pedidos/${pedidoId}`);
+                  }}
                   className="gap-2"
                 >
                   <ExternalLink className="h-4 w-4" />

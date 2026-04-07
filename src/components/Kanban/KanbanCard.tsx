@@ -2,7 +2,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, Package, DollarSign, Clock } from 'lucide-react';
+import { Calendar, Package, DollarSign, Printer } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -26,9 +26,10 @@ interface KanbanCardProps {
     pedido_tags: { id: string; nome: string; cor: string }[];
   };
   onClick: () => void;
+  onPrint?: () => void;
 }
 
-export function KanbanCard({ pedido, onClick }: KanbanCardProps) {
+export function KanbanCard({ pedido, onClick, onPrint }: KanbanCardProps) {
   const {
     attributes,
     listeners,
@@ -88,7 +89,30 @@ export function KanbanCard({ pedido, onClick }: KanbanCardProps) {
                 </div>
               )}
             </div>
-            <div className="flex gap-0.5">
+            <div className="flex items-center gap-1">
+              {onPrint && (
+                <button
+                  type="button"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background/90 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  title="Imprimir ficha do pedido"
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onTouchStart={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPrint();
+                  }}
+                >
+                  <Printer className="h-3 w-3" />
+                </button>
+              )}
+              <div className="flex gap-0.5">
               {pedido.pedido_tags.slice(0, 3).map((tag) => (
                 <div
                   key={tag.id}
@@ -97,6 +121,7 @@ export function KanbanCard({ pedido, onClick }: KanbanCardProps) {
                   title={tag.nome}
                 />
               ))}
+              </div>
             </div>
           </div>
 

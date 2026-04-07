@@ -24,12 +24,16 @@ import { PedidoDetalheKanban } from '@/components/Kanban/PedidoDetalheKanban';
 import { PropostaCardKanban } from '@/components/Kanban/PropostaCardKanban';
 import { PropostaDetalheKanban } from '@/components/Kanban/PropostaDetalheKanban';
 import { GerenciarColunasDialog } from '@/components/Kanban/GerenciarColunasDialog';
+import PedidoDetalheDialog from '@/components/WhatsApp/PedidoDetalheDialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
+import { printPedidoFichaById } from '@/lib/pedidoPrint';
+import { sanitizeError } from '@/lib/errorHandling';
 
 export default function Kanban() {
   const [filtros, setFiltros] = useState<FiltrosKanban>({});
   const [pedidoSelecionado, setPedidoSelecionado] = useState<string | null>(null);
+  const [pedidoDetalheCompletoId, setPedidoDetalheCompletoId] = useState<string | null>(null);
   const [propostaSelecionada, setPropostaSelecionada] = useState<string | null>(null);
   const [gerenciarColunasOpen, setGerenciarColunasOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -77,6 +81,17 @@ export default function Kanban() {
   const activeProposta = activeId?.startsWith('proposta-') 
     ? propostas.find((p) => `proposta-${p.id}` === activeId) 
     : null;
+  const pedidoDetalheCompleto = pedidoDetalheCompletoId
+    ? pedidos.find((p) => p.id === pedidoDetalheCompletoId) || null
+    : null;
+
+  const handlePrintPedido = async (pedidoId: string) => {
+    try {
+      await printPedidoFichaById(pedidoId);
+    } catch (error) {
+      toast.error(sanitizeError(error));
+    }
+  };
 
   // Drag handlers
   const handleDragStart = (event: DragStartEvent) => {
@@ -268,6 +283,9 @@ export default function Kanban() {
                   key={pedido.id}
                   pedido={pedido}
                   onClick={() => setPedidoSelecionado(pedido.id)}
+                  onPrint={() => {
+                    void handlePrintPedido(pedido.id);
+                  }}
                 />
               ))}
             </KanbanColumn>
@@ -286,6 +304,9 @@ export default function Kanban() {
                   key={pedido.id}
                   pedido={pedido}
                   onClick={() => setPedidoSelecionado(pedido.id)}
+                  onPrint={() => {
+                    void handlePrintPedido(pedido.id);
+                  }}
                 />
               ))}
             </KanbanColumn>
@@ -308,11 +329,34 @@ export default function Kanban() {
       <PedidoDetalheKanban
         pedidoId={pedidoSelecionado}
         onClose={() => setPedidoSelecionado(null)}
+        onOpenPedidoDetalheCompleto={(pedidoId) => {
+          setPedidoSelecionado(null);
+          setPedidoDetalheCompletoId(pedidoId);
+        }}
       />
 
       <PropostaDetalheKanban
         propostaId={propostaSelecionada}
         onClose={() => setPropostaSelecionada(null)}
+      />
+
+      <PedidoDetalheDialog
+        open={!!pedidoDetalheCompletoId}
+        onOpenChange={(open) => {
+          if (!open) setPedidoDetalheCompletoId(null);
+        }}
+        pedido={
+          pedidoDetalheCompleto
+            ? {
+                id: pedidoDetalheCompleto.id,
+                numero_pedido: pedidoDetalheCompleto.numero_pedido,
+                data_pedido: pedidoDetalheCompleto.data_pedido,
+                valor_total: Number(pedidoDetalheCompleto.valor_total || 0),
+                status: pedidoDetalheCompleto.status,
+                etapa_producao_id: pedidoDetalheCompleto.etapa_producao_id,
+              }
+            : null
+        }
       />
 
       <GerenciarColunasDialog
