@@ -184,6 +184,7 @@ export const usePedido = (id?: string) => {
           *,
           cliente:clientes(*),
           vendedor:profiles(*),
+          etapa_producao:etapa_producao(id, nome_etapa, cor_hex),
           itens:pedido_itens(
             *,
             produto:produtos(*),

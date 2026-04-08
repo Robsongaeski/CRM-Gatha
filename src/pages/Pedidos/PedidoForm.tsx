@@ -91,6 +91,18 @@ const calcularPercentualPorValor = (descontoValor: number, subtotal: number) => 
   if (subtotal <= 0) return 0;
   return normalizarDescontoPercentual((Math.max(descontoValor || 0, 0) / subtotal) * 100);
 };
+const ETAPAS_PERMITIDAS_SOLICITACAO_ALTERACAO = new Set([
+  'entrada',
+  'aguardando aprovacao',
+  'alteracao',
+  'pedido aprovado',
+]);
+const normalizarTexto = (valor: string) =>
+  valor
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
 
 const pedidoToSnapshot = (pedido: any): PedidoFormData => ({
   data_pedido: extractDateOnly(pedido.data_pedido) || '',
@@ -156,7 +168,7 @@ export default function PedidoForm() {
   const isMasterAdmin = user?.email?.toLowerCase() === MASTER_ADMIN_EMAIL;
   const isAdmin = isRoleAdmin || isMasterAdmin;
   const podeEditarPedidoCompleto = isAdmin || canAny('pedidos.editar', 'pedidos.editar_todos');
-  const podeSolicitarAlteracaoFechado = isAdmin || can('pedidos.alteracoes.solicitar');
+  const podeSolicitarAlteracaoAprovacao = isAdmin || can('pedidos.alteracoes.solicitar');
   const podeApenasAlterarStatus = podeAlterarStatus && !podeEditarPedidoCompleto;
 
   const { data: pedido } = usePedido(isEditing ? id : undefined);
@@ -171,12 +183,29 @@ export default function PedidoForm() {
   const { data: solicitacaoAlteracaoPendente } = usePedidoAlteracaoPendente(isEditing ? id : undefined);
 
   const pedidoEmRascunho = isEditing && pedido?.status === 'rascunho';
-  const pedidoFechado = isEditing && ['entregue', 'cancelado'].includes(pedido?.status || '');
-  const fluxoSolicitacaoPedidoFechado =
-    isEditing && pedidoFechado && !podeEditarPedidoCompleto && podeSolicitarAlteracaoFechado;
-  const bloqueioPedidoFechado =
-    isEditing && pedidoFechado && !podeEditarPedidoCompleto && !podeSolicitarAlteracaoFechado;
-  const bloqueioPorPagamento = isEditing && !pedidoEmRascunho && !fluxoSolicitacaoPedidoFechado && podeEditar === false;
+  const etapaAtualNome = ((pedido as any)?.etapa_producao?.nome_etapa || '') as string;
+  const pedidoEmEtapaElegivelSolicitacao =
+    isEditing &&
+    !!etapaAtualNome &&
+    ETAPAS_PERMITIDAS_SOLICITACAO_ALTERACAO.has(normalizarTexto(etapaAtualNome));
+  const fluxoSolicitacaoPedidoAprovacao =
+    isEditing &&
+    pedidoEmEtapaElegivelSolicitacao &&
+    !podeEditarPedidoCompleto &&
+    podeSolicitarAlteracaoAprovacao;
+  const bloqueioPorEtapaForaFluxo =
+    isEditing &&
+    !pedidoEmEtapaElegivelSolicitacao &&
+    !podeEditarPedidoCompleto &&
+    podeSolicitarAlteracaoAprovacao &&
+    !podeApenasAlterarStatus;
+  const bloqueioSemPermissao =
+    isEditing &&
+    !podeEditarPedidoCompleto &&
+    !podeSolicitarAlteracaoAprovacao &&
+    !podeApenasAlterarStatus &&
+    !pedidoEmRascunho;
+  const bloqueioPorPagamento = isEditing && !pedidoEmRascunho && !fluxoSolicitacaoPedidoAprovacao && podeEditar === false;
   const podeEditarRascunho = pedidoEmRascunho && podeAlterarStatus;
 
   // Determinar modo de edição baseado em permissões + pagamentos
@@ -184,16 +213,18 @@ export default function PedidoForm() {
     completo:
       isEditing &&
       !bloqueioPorPagamento &&
-      !bloqueioPedidoFechado &&
-      (podeEditarPedidoCompleto || podeEditarRascunho || fluxoSolicitacaoPedidoFechado),
+      !bloqueioPorEtapaForaFluxo &&
+      !bloqueioSemPermissao &&
+      (podeEditarPedidoCompleto || podeEditarRascunho || fluxoSolicitacaoPedidoAprovacao),
     apenasStatus:
       isEditing &&
       !bloqueioPorPagamento &&
-      !bloqueioPedidoFechado &&
-      !fluxoSolicitacaoPedidoFechado &&
+      !bloqueioPorEtapaForaFluxo &&
+      !bloqueioSemPermissao &&
+      !fluxoSolicitacaoPedidoAprovacao &&
       podeApenasAlterarStatus &&
       !pedidoEmRascunho,
-    bloqueado: bloqueioPorPagamento || bloqueioPedidoFechado,
+    bloqueado: bloqueioPorPagamento || bloqueioPorEtapaForaFluxo || bloqueioSemPermissao,
   };
 
   // Campos desabilitados se modo "apenas status" ou bloqueado
@@ -385,9 +416,11 @@ export default function PedidoForm() {
       if (modoEdicao.bloqueado) {
         toast({
           title: 'Operação não permitida',
-          description: bloqueioPedidoFechado
-            ? 'Este pedido está fechado e você não possui permissão para editar ou solicitar alteração.'
-            : 'Este pedido possui pagamentos aprovados e não pode ser editado.',
+          description: bloqueioPorPagamento
+            ? 'Este pedido possui pagamentos aprovados e nao pode ser editado.'
+            : bloqueioPorEtapaForaFluxo
+              ? 'Este pedido nao esta em etapa elegivel para solicitacao de alteracao.'
+              : 'Voce nao possui permissao para editar este pedido.',
           variant: 'destructive',
         });
         return;
@@ -490,7 +523,7 @@ export default function PedidoForm() {
         })),
       };
 
-      if (fluxoSolicitacaoPedidoFechado && isEditing && pedido) {
+      if (fluxoSolicitacaoPedidoAprovacao && isEditing && pedido) {
         if (!user) {
           throw new Error('Usuário não autenticado para solicitar alteração.');
         }
@@ -498,8 +531,8 @@ export default function PedidoForm() {
         const dadosAnteriores = pedidoToSnapshot(pedido);
         const camposAlterados = getCamposAlterados(dadosAnteriores, formData);
         const motivoSolicitacao = camposAlterados.length
-          ? `Alteração solicitada em pedido fechado. Campos alterados: ${camposAlterados.join(', ')}.`
-          : 'Alteração solicitada em pedido fechado.';
+          ? `Alteracao solicitada para aprovacao. Campos alterados: ${camposAlterados.join(', ')}.`
+          : 'Alteracao solicitada para aprovacao.';
 
         await createSolicitacaoAlteracao.mutateAsync({
           pedido_id: id!,
@@ -850,25 +883,30 @@ export default function PedidoForm() {
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            {bloqueioPedidoFechado ? (
-              <>
-                <strong>Atencao:</strong> Este pedido esta fechado e voce nao possui permissao para editar nem solicitar alteracao.
-              </>
-            ) : (
+            {bloqueioPorPagamento ? (
               <>
                 <strong>Atencao:</strong> Este pedido possui pagamentos aprovados e nao pode ser editado.
                 Apenas administradores podem modificar pedidos com pagamentos aprovados.
+              </>
+            ) : bloqueioPorEtapaForaFluxo ? (
+              <>
+                <strong>Atencao:</strong> Este pedido nao esta em etapa elegivel para solicitar alteracao.
+                Etapas permitidas: Entrada, Aguardando Aprovacao, Alteracao e Pedido Aprovado.
+              </>
+            ) : (
+              <>
+                <strong>Atencao:</strong> Voce nao possui permissao para editar este pedido.
               </>
             )}
           </AlertDescription>
         </Alert>
       )}
 
-      {isEditing && fluxoSolicitacaoPedidoFechado && (
+      {isEditing && fluxoSolicitacaoPedidoAprovacao && (
         <Alert className="border-amber-500 bg-amber-50">
           <AlertTriangle className="h-4 w-4 text-amber-700" />
           <AlertDescription className="text-amber-900">
-            <strong>Pedido fechado com edicao por aprovacao</strong>
+            <strong>Pedido em etapa de aprovacao</strong>
             <p className="mt-1 text-sm">
               Voce pode editar os dados e salvar para enviar uma solicitacao.
               A alteracao so sera aplicada apos aprovacao.
@@ -1397,7 +1435,7 @@ export default function PedidoForm() {
             <Button type="button" variant="outline" onClick={() => navigate('/pedidos')}>
               Cancelar
             </Button>
-            {!fluxoSolicitacaoPedidoFechado && (
+            {!fluxoSolicitacaoPedidoAprovacao && (
               <Button 
                 type="button"
                 variant="secondary"
@@ -1477,7 +1515,7 @@ export default function PedidoForm() {
             >
               {validandoPrecos ? 'Validando preços...' : 
                createPedido.isPending || updatePedido.isPending ? 'Salvando...' : 
-               fluxoSolicitacaoPedidoFechado ? 'Enviar para Aprovação' :
+               fluxoSolicitacaoPedidoAprovacao ? 'Enviar para Aprovação' :
                (isEditing && pedido?.status === 'rascunho' ? 'Ativar Pedido' : 'Salvar Pedido')}
             </Button>
           </div>
