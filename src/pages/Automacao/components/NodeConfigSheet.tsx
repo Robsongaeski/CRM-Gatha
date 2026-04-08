@@ -197,6 +197,81 @@ function toStringArray(value: unknown): string[] {
   return value.map((item) => String(item)).filter(Boolean);
 }
 
+const WHATSAPP_PREVIEW_ALIASES: Record<string, string> = {
+  nome_cliente: 'nome',
+  cliente_nome: 'nome',
+  primeiro_nome: 'primeiro_nome',
+  numero_pedido: 'numero_pedido',
+  order_number: 'numero_pedido',
+  valor_total: 'valor',
+  valor_pedido: 'valor',
+  status_pedido: 'status',
+  nome_atendente: 'nome_atendente',
+  attendant_name: 'nome_atendente',
+  saudacao: 'saudacao',
+};
+
+function normalizeTemplateVariable(value: string): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function getPreviewGreeting(now = new Date()): string {
+  const hour = now.getHours();
+  if (hour < 12) return 'Bom dia';
+  if (hour < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
+function buildWhatsappPreviewContext(): Record<string, string> {
+  const now = new Date();
+  return {
+    saudacao: getPreviewGreeting(now),
+    nome: 'Maria',
+    primeiro_nome: 'Maria',
+    nome_atendente: 'Carlos',
+    numero_pedido: '12345',
+    valor: 'R$ 249,90',
+    status: 'em atendimento',
+    telefone: '(11) 98888-7777',
+    email: 'maria@cliente.com',
+    data_atual: now.toLocaleDateString('pt-BR'),
+    hora_atual: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+  };
+}
+
+function resolvePreviewVariableValue(rawKey: string, context: Record<string, string>): string {
+  const direct = context[rawKey];
+  if (typeof direct === 'string' && direct.length > 0) return direct;
+
+  const normalizedKey = normalizeTemplateVariable(rawKey);
+  const aliasKey = WHATSAPP_PREVIEW_ALIASES[normalizedKey] || normalizedKey;
+  const normalizedValue = context[aliasKey];
+
+  if (typeof normalizedValue === 'string' && normalizedValue.length > 0) return normalizedValue;
+  return '';
+}
+
+function renderWhatsappTemplatePreview(template: string, context: Record<string, string>): string {
+  const source = String(template || '');
+  if (!source) return '';
+
+  const withBraces = source.replace(/\{([^{}]+)\}/g, (_match, rawKey) => {
+    const resolved = resolvePreviewVariableValue(String(rawKey || ''), context);
+    return resolved;
+  });
+
+  return withBraces.replace(/\[([^\[\]]+)\]/g, (_match, rawKey) => {
+    const resolved = resolvePreviewVariableValue(String(rawKey || ''), context);
+    return resolved;
+  });
+}
+
 function FormSection({ title, children, hint }: { title: string; children: React.ReactNode; hint?: string }) {
   return (
     <div className="space-y-3">
@@ -430,13 +505,29 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
     isLoading: loadingAiAgents,
   } = useAutomationAiAgentOptions(needsAiAgentOptions);
 
+  const normalizedMessages = React.useMemo(() => {
+    const base = Array.isArray(config.messages)
+      ? config.messages.map((item: unknown) => String(item ?? ''))
+      : [];
+
+    if (base.length === 0) {
+      base.push(String(config.message || ''));
+    }
+
+    if (!String(base[0] || '').trim() && String(config.message || '').trim()) {
+      base[0] = String(config.message || '');
+    }
+
+    return base;
+  }, [config.messages, config.message]);
+
   // Inicializar config com valores existentes para suportar formatos antigos
   const normalizedConfig = {
     ...config,
     // Normalizar campos de mensagem
-    message: config.message || (config.messages?.[0] || ''),
-    randomMessages: config.randomMessages || false,
-    messages: config.messages || [],
+    message: config.message || (normalizedMessages[0] || ''),
+    randomMessages: config.randomMessages === true,
+    messages: normalizedMessages,
   };
 
   const selectedEligibleUserIds = toStringArray(config.eligible_user_ids);
@@ -465,6 +556,48 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
     '[data atual]',
     '[hora atual]',
   ];
+
+  const previewContext = React.useMemo(() => buildWhatsappPreviewContext(), []);
+  const previewSourceMessages = React.useMemo(() => {
+    const messages = normalizedConfig.randomMessages
+      ? (Array.isArray(normalizedConfig.messages) ? normalizedConfig.messages : [])
+      : [config.message || ''];
+
+    return messages
+      .map((item) => String(item || '').trim())
+      .filter(Boolean);
+  }, [normalizedConfig.randomMessages, normalizedConfig.messages, config.message]);
+  const alternativeMessages = React.useMemo(
+    () => normalizedConfig.messages.slice(1),
+    [normalizedConfig.messages],
+  );
+
+  const updateRandomMessages = (nextMessages: string[]) => {
+    const safe = nextMessages.length > 0 ? nextMessages : [String(config.message || '')];
+    onUpdate({ ...config, messages: safe, randomMessages: true });
+  };
+
+  const addAlternativeMessage = () => {
+    const next = [...normalizedConfig.messages, ''];
+    updateRandomMessages(next);
+  };
+
+  const updateAlternativeMessage = (alternativeIndex: number, value: string) => {
+    const messageIndex = alternativeIndex + 1;
+    const next = [...normalizedConfig.messages];
+    while (next.length <= messageIndex) next.push('');
+    next[messageIndex] = value;
+    updateRandomMessages(next);
+  };
+
+  const removeAlternativeMessage = (alternativeIndex: number) => {
+    const messageIndex = alternativeIndex + 1;
+    const next = [...normalizedConfig.messages];
+    if (messageIndex < next.length) {
+      next.splice(messageIndex, 1);
+      updateRandomMessages(next);
+    }
+  };
 
   const toggleEligibleUser = (userId: string) => {
     const next = selectedEligibleUserIds.includes(userId)
@@ -678,25 +811,26 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
         <>
           <FormSection
             title="Mensagem Principal"
-            hint="Use variáveis como {nome}, {numero_pedido}, {valor} para personalizar"
+            hint="Use variaveis como {nome}, {numero_pedido}, {valor}, {nome_atendente} ou [nome atendente]"
           >
             <Textarea
               value={normalizedConfig.randomMessages ? (normalizedConfig.messages[0] || '') : (config.message || '')}
               onChange={(e) => {
                 if (normalizedConfig.randomMessages) {
                   const newMessages = [...(normalizedConfig.messages || [])];
+                  if (newMessages.length === 0) newMessages.push('');
                   newMessages[0] = e.target.value;
-                  onUpdate({ ...config, messages: newMessages, randomMessages: true });
+                  updateRandomMessages(newMessages);
                 } else {
                   onUpdate({ ...config, message: e.target.value });
                 }
               }}
               placeholder="Olá {nome}, seu pedido #{numero_pedido} foi confirmado!"
-              rows={4}
-              className="bg-muted/50 resize-none"
+              rows={8}
+              className="bg-muted/50 resize-y min-h-[170px]"
             />
             <div className="flex flex-wrap gap-1.5 mt-2">
-              {['{nome}', '{numero_pedido}', '{valor}', '{status}', '{saudacao}'].map(v => (
+              {['{nome}', '{numero_pedido}', '{valor}', '{status}', '{saudacao}', '{nome_atendente}', '[nome atendente]'].map(v => (
                 <Badge
                   key={v}
                   variant="secondary"
@@ -705,7 +839,7 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
                     if (normalizedConfig.randomMessages) {
                       const newMessages = [...(normalizedConfig.messages || [''])];
                       newMessages[0] = (newMessages[0] || '') + ' ' + v;
-                      onUpdate({ ...config, messages: newMessages, randomMessages: true });
+                      updateRandomMessages(newMessages);
                     } else {
                       onUpdate({ ...config, message: (config.message || '') + ' ' + v });
                     }
@@ -714,6 +848,34 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
                   {v}
                 </Badge>
               ))}
+            </div>
+
+            <div className="mt-3 rounded-xl border bg-muted/20 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-muted-foreground">Pre-visualizacao</span>
+                <span className="text-[11px] text-muted-foreground">
+                  Dados de exemplo ({previewContext.nome}, pedido {previewContext.numero_pedido})
+                </span>
+              </div>
+
+              {previewSourceMessages.length === 0 ? (
+                <div className="text-xs text-muted-foreground rounded-lg border border-dashed p-3">
+                  Digite uma mensagem para ver como o cliente recebera o texto com as variaveis aplicadas.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {previewSourceMessages.map((message, index) => (
+                    <div key={`preview-message-${index}`} className="space-y-1">
+                      {normalizedConfig.randomMessages && (
+                        <p className="text-[11px] text-muted-foreground">Mensagem {index + 1}</p>
+                      )}
+                      <div className="ml-auto max-w-[92%] rounded-2xl rounded-br-md bg-[#DCF8C6] px-3 py-2 text-sm text-zinc-900 whitespace-pre-wrap shadow-sm border border-[#cde8b5]">
+                        {renderWhatsappTemplatePreview(message, previewContext)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </FormSection>
 
@@ -728,13 +890,21 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
                 checked={normalizedConfig.randomMessages}
                 onChange={(e) => {
                   if (e.target.checked) {
+                    const existingMessages = Array.isArray(config.messages)
+                      ? config.messages.map((item: unknown) => String(item ?? ''))
+                      : [];
+                    const firstMessage = String(config.message || existingMessages[0] || '');
+                    const nonEmptyAlternatives = existingMessages
+                      .slice(1)
+                      .map((item) => String(item || '').trim())
+                      .filter(Boolean);
                     onUpdate({
                       ...config,
                       randomMessages: true,
-                      messages: [config.message || '', '', '', '']
+                      messages: [firstMessage, ...nonEmptyAlternatives]
                     });
                   } else {
-                    const firstMessage = config.messages?.[0] || config.message || '';
+                    const firstMessage = normalizedConfig.messages?.[0] || config.message || '';
                     onUpdate({
                       ...config,
                       randomMessages: false,
@@ -752,20 +922,39 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
 
             {normalizedConfig.randomMessages && (
               <div className="space-y-2">
-                {[1, 2, 3].map((idx) => (
-                  <Textarea
-                    key={idx}
-                    value={normalizedConfig.messages[idx] || ''}
-                    onChange={(e) => {
-                      const newMessages = [...(normalizedConfig.messages || ['', '', '', ''])];
-                      newMessages[idx] = e.target.value;
-                      onUpdate({ ...config, messages: newMessages, randomMessages: true });
-                    }}
-                    placeholder={`Mensagem alternativa ${idx + 1} (opcional)`}
-                    rows={2}
-                    className="bg-muted/50 resize-none text-sm"
-                  />
+                {alternativeMessages.map((message, alternativeIndex) => (
+                  <div key={`alternative-message-${alternativeIndex}`} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Mensagem alternativa {alternativeIndex + 1}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeAlternativeMessage(alternativeIndex)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Remover
+                      </Button>
+                    </div>
+                    <Textarea
+                      value={message}
+                      onChange={(e) => updateAlternativeMessage(alternativeIndex, e.target.value)}
+                      placeholder={`Mensagem alternativa ${alternativeIndex + 1}`}
+                      rows={6}
+                      className="bg-muted/50 resize-y min-h-[140px] text-sm"
+                    />
+                  </div>
                 ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={addAlternativeMessage}
+                >
+                  Adicionar mensagem alternativa
+                </Button>
                 <p className="text-xs text-muted-foreground">
                   Uma mensagem será escolhida aleatoriamente a cada envio
                 </p>
@@ -1257,7 +1446,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
     : ['equals', 'not_equals', 'contains', 'greater', 'less', 'is_empty', 'is_not_empty'];
   
   // ==========================================
-  // CONDIÇÃ•ES ESPECIAIS DE TEMPO
+  // CONDIÇÕES ESPECIAIS DE TEMPO
   // ==========================================
   
   if (subtype === 'time_elapsed') {
@@ -1445,7 +1634,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÃ•ES DE INTERAÇÃƒO
+  // CONDIÇÕES DE INTERAÇÃO
   // ==========================================
   
   if (subtype === 'customer_replied') {
@@ -1559,7 +1748,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÃ•ES DE VALOR
+  // CONDIÇÕES DE VALOR
   // ==========================================
   
   if (subtype === 'value_range') {
@@ -1622,7 +1811,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÃ•ES DE RELACIONAMENTO
+  // CONDIÇÕES DE RELACIONAMENTO
   // ==========================================
   
   if (subtype === 'returning_customer') {
@@ -1678,7 +1867,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÃ•ES DE LOGÃSTICA (E-COMMERCE)
+  // CONDIÇÕES DE LOGÍSTICA (E-COMMERCE)
   // ==========================================
   
   if (subtype === 'delivery_delayed') {
@@ -1762,7 +1951,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÃ•ES ESPECIAIS ORIGINAIS
+  // CONDIÇÕES ESPECIAIS ORIGINAIS
   // ==========================================
   
   if (subtype === 'exit_condition') {
@@ -2057,7 +2246,7 @@ function ConditionConfig({ node, onUpdate, entityType }: { node: Node; onUpdate:
   }
   
   // ==========================================
-  // CONDIÇÃƒO PADRÃƒO: comparação de campo
+  // CONDIÇÃO PADRÃO: comparação de campo
   // ==========================================
   
   return (
