@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { getCurrentMonthStart, getNextMonthStart, getPreviousMonthStart } from '@/lib/monthUtils';
 
+const STATUS_PEDIDOS_VALIDOS_DASHBOARD = ['em_producao', 'pronto', 'entregue'] as const;
+
 export interface DashboardGeralData {
   // Métricas Gerais Consolidadas
   total_pedidos_mes: number;
@@ -57,7 +59,7 @@ export function useDashboardGeral() {
       const { data: pedidosMesAtual } = await supabase
         .from('pedidos')
         .select('*, clientes(nome_razao_social)')
-        .neq('status', 'cancelado')
+        .in('status', [...STATUS_PEDIDOS_VALIDOS_DASHBOARD])
         .gte('data_pedido', mesAtual)
         .lt('data_pedido', proximoMesAtual);
 
@@ -65,7 +67,7 @@ export function useDashboardGeral() {
       const { data: pedidosMesAnterior } = await supabase
         .from('pedidos')
         .select('valor_total')
-        .neq('status', 'cancelado')
+        .in('status', [...STATUS_PEDIDOS_VALIDOS_DASHBOARD])
         .gte('data_pedido', mesAnterior)
         .lt('data_pedido', proximoMesAnterior);
 

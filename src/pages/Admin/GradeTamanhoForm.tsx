@@ -3,19 +3,38 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, GripVertical } from "lucide-react";
 import {
+  type GradeTamanhoItem,
   useGradeTamanho,
   useGradeTamanhoItens,
   useCreateGradeTamanho,
   useUpdateGradeTamanho,
   useCreateGradeTamanhoItem,
   useDeleteGradeTamanhoItem,
+  useReorderGradeTamanhoItens,
 } from "@/hooks/useGradesTamanho";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -33,6 +52,50 @@ const itemSchema = z.object({
 type FormData = z.infer<typeof formSchema>;
 type ItemFormData = z.infer<typeof itemSchema>;
 
+interface SortableGradeRowProps {
+  item: GradeTamanhoItem;
+  onDelete: (itemId: string) => void;
+}
+
+function SortableGradeRow({ item, onDelete }: SortableGradeRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: item.id,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    backgroundColor: isDragging ? "hsl(var(--muted))" : undefined,
+  };
+
+  return (
+    <TableRow ref={setNodeRef} style={style}>
+      <TableCell>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing touch-none"
+            aria-label={`Arrastar tamanho ${item.nome}`}
+          >
+            <GripVertical className="h-4 w-4 text-muted-foreground" />
+          </button>
+          <span>{item.ordem}</span>
+        </div>
+      </TableCell>
+      <TableCell className="font-mono font-semibold">{item.codigo}</TableCell>
+      <TableCell>{item.nome}</TableCell>
+      <TableCell className="text-right">
+        <Button variant="ghost" size="icon" onClick={() => onDelete(item.id)}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </TableCell>
+    </TableRow>
+  );
+}
+
 export default function GradeTamanhoForm() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -44,8 +107,10 @@ export default function GradeTamanhoForm() {
   const updateGrade = useUpdateGradeTamanho(id || "");
   const createItem = useCreateGradeTamanhoItem();
   const deleteItem = useDeleteGradeTamanhoItem();
+  const reorderItens = useReorderGradeTamanhoItens();
 
   const [showItemForm, setShowItemForm] = useState(false);
+  const [nomeFoiEditadoManualmente, setNomeFoiEditadoManualmente] = useState(false);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -64,6 +129,15 @@ export default function GradeTamanhoForm() {
     },
   });
 
+  const codigoDigitado = itemForm.watch("codigo");
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
   useEffect(() => {
     if (grade) {
       form.reset({
@@ -72,6 +146,32 @@ export default function GradeTamanhoForm() {
       });
     }
   }, [grade, form]);
+
+  useEffect(() => {
+    if (!showItemForm || nomeFoiEditadoManualmente) return;
+    itemForm.setValue("nome", codigoDigitado, { shouldValidate: true });
+  }, [codigoDigitado, itemForm, nomeFoiEditadoManualmente, showItemForm]);
+
+  const openItemForm = () => {
+    const proximaOrdem = (itens?.length ?? 0) + 1;
+    itemForm.reset({
+      codigo: "",
+      nome: "",
+      ordem: proximaOrdem,
+    });
+    setNomeFoiEditadoManualmente(false);
+    setShowItemForm(true);
+  };
+
+  const closeItemForm = () => {
+    setShowItemForm(false);
+    itemForm.reset({
+      codigo: "",
+      nome: "",
+      ordem: 0,
+    });
+    setNomeFoiEditadoManualmente(false);
+  };
 
   const onSubmit = async (data: FormData) => {
     try {
@@ -102,8 +202,7 @@ export default function GradeTamanhoForm() {
         nome: data.nome,
         ordem: data.ordem,
       });
-      itemForm.reset();
-      setShowItemForm(false);
+      closeItemForm();
     } catch (error) {
       console.error("Erro ao adicionar tamanho:", error);
     }
@@ -112,6 +211,28 @@ export default function GradeTamanhoForm() {
   const handleDeleteItem = (itemId: string) => {
     if (!id) return;
     deleteItem.mutate({ id: itemId, gradeId: id });
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    if (!id || !itens) return;
+
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = itens.findIndex((item) => item.id === active.id);
+    const newIndex = itens.findIndex((item) => item.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const itensReordenados = arrayMove(itens, oldIndex, newIndex);
+    const updates = itensReordenados.map((item, index) => ({
+      id: item.id,
+      ordem: index + 1,
+    }));
+
+    await reorderItens.mutateAsync({
+      gradeId: id,
+      updates,
+    });
   };
 
   if (isLoading) {
@@ -200,10 +321,10 @@ export default function GradeTamanhoForm() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>Tamanhos da Grade</CardTitle>
-                <CardDescription>Adicione os tamanhos disponíveis nesta grade</CardDescription>
+                <CardDescription>Adicione e reordene os tamanhos disponíveis nesta grade</CardDescription>
               </div>
               {!showItemForm && (
-                <Button onClick={() => setShowItemForm(true)} size="sm">
+                <Button onClick={openItemForm} size="sm">
                   <Plus className="mr-2 h-4 w-4" />
                   Adicionar Tamanho
                 </Button>
@@ -237,7 +358,15 @@ export default function GradeTamanhoForm() {
                           <FormItem>
                             <FormLabel>Nome</FormLabel>
                             <FormControl>
-                              <Input placeholder="Pequeno" {...field} />
+                              <Input
+                                placeholder="Pequeno"
+                                {...field}
+                                onChange={(e) => {
+                                  field.onChange(e.target.value);
+                                  const codigoAtual = itemForm.getValues("codigo");
+                                  setNomeFoiEditadoManualmente(e.target.value !== codigoAtual);
+                                }}
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -271,10 +400,7 @@ export default function GradeTamanhoForm() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => {
-                          setShowItemForm(false);
-                          itemForm.reset();
-                        }}
+                        onClick={closeItemForm}
                       >
                         Cancelar
                       </Button>
@@ -289,34 +415,37 @@ export default function GradeTamanhoForm() {
                 Nenhum tamanho cadastrado. Clique em "Adicionar Tamanho" para começar.
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Ordem</TableHead>
-                    <TableHead>Código</TableHead>
-                    <TableHead>Nome</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {itens.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{item.ordem}</TableCell>
-                      <TableCell className="font-mono font-semibold">{item.codigo}</TableCell>
-                      <TableCell>{item.nome}</TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDeleteItem(item.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Arraste pelo ícone para reorganizar a ordem dos tamanhos.
+                </p>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Ordem</TableHead>
+                        <TableHead>Código</TableHead>
+                        <TableHead>Nome</TableHead>
+                        <TableHead className="text-right">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <SortableContext
+                        items={itens.map((item) => item.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {itens.map((item) => (
+                          <SortableGradeRow key={item.id} item={item} onDelete={handleDeleteItem} />
+                        ))}
+                      </SortableContext>
+                    </TableBody>
+                  </Table>
+                </DndContext>
+              </div>
             )}
           </CardContent>
         </Card>

@@ -5,6 +5,8 @@ import { toast } from '@/hooks/use-toast';
 import { sanitizeError } from '@/lib/errorHandling';
 import { getCurrentMonthStart, getNextMonthStart } from '@/lib/monthUtils';
 
+const STATUS_PEDIDOS_VALIDOS_DASHBOARD = ['em_producao', 'pronto', 'entregue'] as const;
+
 export interface Comissao {
   id: string;
   vendedor_id: string;
@@ -107,7 +109,7 @@ export function useDashboardComissao(vendedorIdParam?: string, mesCompetencia?: 
         .from('pedidos')
         .select('valor_total')
         .eq('vendedor_id', vendedorId)
-        .neq('status', 'cancelado')
+        .in('status', [...STATUS_PEDIDOS_VALIDOS_DASHBOARD])
         .gte('data_pedido', mesAtual)
         .lt('data_pedido', proximoMes);
 

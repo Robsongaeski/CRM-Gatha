@@ -3,6 +3,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { getCurrentMonthStart, getNextMonthStart, getPreviousMonthStart } from '@/lib/monthUtils';
 
+const STATUS_PEDIDOS_VALIDOS_DASHBOARD = ['em_producao', 'pronto', 'entregue'] as const;
+
 export interface DashboardVendedorData {
   // Métricas Gerais
   total_pedidos_mes: number;
@@ -61,7 +63,7 @@ export function useDashboardVendedor(vendedorIdParam?: string) {
         .from('pedidos')
         .select('*')
         .eq('vendedor_id', vendedorId)
-        .neq('status', 'cancelado')
+        .in('status', [...STATUS_PEDIDOS_VALIDOS_DASHBOARD])
         .gte('data_pedido', mesAtual)
         .lt('data_pedido', proximoMesAtual);
 
@@ -70,7 +72,7 @@ export function useDashboardVendedor(vendedorIdParam?: string) {
         .from('pedidos')
         .select('valor_total')
         .eq('vendedor_id', vendedorId)
-        .neq('status', 'cancelado')
+        .in('status', [...STATUS_PEDIDOS_VALIDOS_DASHBOARD])
         .gte('data_pedido', mesAnterior)
         .lt('data_pedido', proximoMesAnterior);
 

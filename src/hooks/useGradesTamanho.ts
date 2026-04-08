@@ -227,6 +227,41 @@ export function useDeleteGradeTamanhoItem() {
   });
 }
 
+// Reordenar itens da grade
+export function useReorderGradeTamanhoItens() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      gradeId,
+      updates,
+    }: {
+      gradeId: string;
+      updates: Array<{ id: string; ordem: number }>;
+    }) => {
+      for (const update of updates) {
+        const { error } = await supabase
+          .from("grade_tamanho_itens")
+          .update({ ordem: update.ordem })
+          .eq("id", update.id)
+          .eq("grade_id", gradeId);
+
+        if (error) throw error;
+      }
+      return gradeId;
+    },
+    onSuccess: (gradeId) => {
+      queryClient.invalidateQueries({ queryKey: ["grade-tamanho-itens", gradeId] });
+      queryClient.invalidateQueries({ queryKey: ["grade-tamanho", gradeId] });
+      toast.success("Ordem dos tamanhos atualizada!");
+    },
+    onError: (error) => {
+      console.error("Erro ao reordenar tamanhos:", error);
+      toast.error("Erro ao atualizar ordem dos tamanhos");
+    },
+  });
+}
+
 // Buscar grades de um item do pedido
 export function usePedidoItemGrades(pedidoItemId: string | undefined) {
   return useQuery({
