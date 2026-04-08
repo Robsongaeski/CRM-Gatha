@@ -27,3 +27,4 @@ dist-ssr
 supabase/.temp/
 supabase/tmp_*.sql
 supabase/migrations_history_backup_*.json
+.vercel

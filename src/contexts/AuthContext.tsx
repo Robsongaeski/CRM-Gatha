@@ -187,7 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Garante atualizaÃ§Ã£o imediata do estado local, mesmo se o evento demorar.
+      // Garante atualização imediata do estado local, mesmo se o evento demorar.
       setSession(null);
       setUser(null);
       toast.success('Logout realizado com sucesso');

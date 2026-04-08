@@ -122,7 +122,7 @@ export function useCreateWhatsappInstance() {
         .maybeSingle();
 
       if (existingByName?.is_active) {
-        throw new Error(`JÃ¡ existe uma instÃ¢ncia ativa com o nome "${data.instance_name}".`);
+        throw new Error(`Já existe uma instância ativa com o nome "${data.instance_name}".`);
       }
 
       if (existingByName && !existingByName.is_active) {
@@ -270,7 +270,7 @@ export function useCreateUazapiInstance() {
         .maybeSingle();
 
       if (existingByName?.is_active) {
-        throw new Error(`JÃ¡ existe uma instÃ¢ncia ativa com o nome "${data.instance_name}".`);
+        throw new Error(`Já existe uma instância ativa com o nome "${data.instance_name}".`);
       }
 
       if (existingByName && !existingByName.is_active) {

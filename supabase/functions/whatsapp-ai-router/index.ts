@@ -530,25 +530,25 @@ function buildCollectBeforeHandoffReply(
   const firstName = extractFirstName(asString(contactName));
 
   if (missingProduct && missingQuantity && missingStamp) {
-    return `${firstName ? `Oi, ${firstName}! ` : ""}Claro, eu adianto para o comercial. Me confirma produto, quantidade aproximada e se vai ter estampa/logo.`;
+    return `${firstName ? `Oi, ${firstName}! ` : ""}Ja estou montando seu orcamento. Me fala o produto, a quantidade aproximada e se vai ter estampa/logo.`;
   }
   if (missingProduct && missingQuantity) {
-    return "Perfeito. Para eu te encaminhar com tudo certo, me confirma o produto e a quantidade aproximada.";
+    return "Perfeito. Me ajuda com dois pontos: produto e quantidade aproximada.";
   }
   if (missingProduct) {
-    return "Perfeito. Para seguir com o orcamento, me confirma qual produto voce quer.";
+    return "Perfeito. Me diz qual produto voce quer para eu seguir com seu orcamento.";
   }
   if (missingQuantity && missingStamp) {
-    return "Perfeito, para adiantar com o comercial me confirma a quantidade aproximada e se vai ter estampa/logo.";
+    return "Perfeito, me diz a quantidade aproximada e se vai ter estampa/logo.";
   }
   if (missingQuantity) {
-    return "Perfeito, me confirma a quantidade aproximada para eu encaminhar certinho ao comercial.";
+    return "Perfeito, me passa a quantidade aproximada para eu fechar essa parte.";
   }
   if (missingStamp) {
-    return "Perfeito. So preciso confirmar se vai ter estampa/logo para te encaminhar ao comercial.";
+    return "Perfeito. Me diz se vai ter estampa/logo (frente e/ou costas).";
   }
 
-  return "Perfeito! Ja vou te encaminhar para a equipe comercial continuar com voce.";
+  return "Perfeito! Ja estou com os dados e vou montar seu orcamento pra te passar certinho.";
 }
 
 function buildHeuristicDecisionFromIncoming(
@@ -592,9 +592,9 @@ function buildHeuristicDecisionFromIncoming(
 
   if (asksHuman) {
     const variants = [
-      "Claro! Vou te encaminhar para nosso atendente comercial dar continuidade, tudo bem?",
-      "Combinado! Ja vou te passar para nossa equipe comercial continuar com voce.",
-      "Sem problema! Vou te transferir agora para um atendente da equipe comercial.",
+      "Claro! Ja peguei seu pedido e vou seguir com voce por aqui para montar tudo certinho.",
+      "Combinado! Ja estou cuidando disso e te passo os proximos detalhes.",
+      "Perfeito, pode deixar comigo. Ja vou organizar seu orcamento agora.",
     ];
     return {
       action: "handoff",
@@ -609,9 +609,9 @@ function buildHeuristicDecisionFromIncoming(
 
   if (mentionsProduct && hasQuantity && mentionsStamp) {
     const variants = [
-      "Otimo, com essas informacoes ja consigo adiantar. Vou te encaminhar para a equipe comercial passar valores e prazos certinhos.",
-      "Perfeito, ja temos os dados principais. Vou te transferir para o comercial fechar valores e prazo com voce.",
-      "Excelente! Ja vou encaminhar para nosso time comercial te retornar com o orcamento completo.",
+      "Otimo, com essas informacoes ja consigo montar seu orcamento e te passar tudo certinho.",
+      "Perfeito, ja temos os dados principais. Agora vou fechar os valores e prazo para voce.",
+      "Excelente! Ja vou preparar seu orcamento completo e te retorno na sequencia.",
     ];
     return {
       action: "handoff",
@@ -627,8 +627,8 @@ function buildHeuristicDecisionFromIncoming(
   if (productAlreadyKnown && asksMinimumQuantity && !hasQuantity) {
     const variants = [
       "Boa pergunta. A quantidade minima pode variar por modelo e personalizacao.",
-      "Para eu adiantar com o comercial, me confirma quantas unidades voce imagina e se vai ter estampa/logo.",
-      "Se preferir, ja te encaminho para o comercial te confirmar o minimo certinho.",
+      "Me diz quantas unidades voce imagina e se vai ter estampa/logo para eu validar certinho.",
+      "Se quiser, me passa produto + quantidade que eu ja monto seu cenario aqui.",
     ];
     return {
       action: "reply",
@@ -645,7 +645,7 @@ function buildHeuristicDecisionFromIncoming(
     const variants = [
       "Claro, como o produto ja esta definido, me confirma a quantidade aproximada e se vai ter estampa/logo.",
       "Perfeito, me passa so a quantidade aproximada e se tera personalizacao para eu adiantar seu atendimento.",
-      "Combinado! Agora so preciso da quantidade e se vai ter estampa para deixar tudo encaminhado.",
+      "Combinado! Agora so preciso da quantidade e se vai ter estampa para deixar tudo certinho.",
     ];
     return {
       action: "reply",
@@ -745,7 +745,7 @@ function buildHeuristicDecisionFromIncoming(
 
   const variants = [
     "Claro, para eu adiantar seu atendimento, me diz qual produto voce precisa, a quantidade aproximada e se vai ter estampa/logo.",
-    "Combinado! Me passa produto, quantidade e se vai ter personalizacao para eu deixar tudo encaminhado.",
+    "Combinado! Me passa produto, quantidade e se vai ter personalizacao para eu deixar tudo certinho.",
     "Pode contar comigo. Me confirma produto, quantidade e estampa/logo para eu organizar seu atendimento.",
   ];
   return {
@@ -1000,8 +1000,28 @@ async function callProvider(params: {
 }
 
 function sanitizeReplyText(input: string): string {
-  const normalized = String(input || "").replace(/\s+/g, " ").trim();
+  let normalized = String(input || "")
+    .replace(/[—–]/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim();
+
   if (!normalized) return "";
+
+  // Evita linguagem robotica repetitiva no mesmo texto.
+  normalized = normalized.replace(/\b[sS][oó]\s+para\s+confirmar:?\s*/g, "Me ajuda com um detalhe: ");
+  normalized = normalized.replace(/(?:Me ajuda com um detalhe:\s*){2,}/g, "Me ajuda com um detalhe: ");
+
+  // Nao precisa mencionar que recebeu midia (audio/foto/arquivo), ir direto ao ponto.
+  normalized = normalized.replace(
+    /\b(?:recebi|vi)\s+(?:seu|sua)\s+(?:audio|áudio|foto|imagem|arquivo|documento)\b[^.?!]*[.?!]?\s*/gi,
+    "",
+  );
+
+  normalized = normalized
+    .replace(/^[,;:\-\s]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
   return normalized.slice(0, 1200);
 }
 
@@ -1368,6 +1388,19 @@ serve(async (req) => {
     const conversationHistory = buildConversationSection([...(recentMessages || [])].reverse());
     const knowledgeSection = buildKnowledgeSection((knowledgeItems || []) as Array<{ title: string | null; content: string }>);
 
+    const isComercialAgent = asString(cfg.agent_key).toLowerCase() === "comercial_v1";
+    const agentSpecificStyleLines = isComercialAgent
+      ? [
+          "Estilo adicional para atendimento comercial:",
+          "- Nao use travessao (— ou –).",
+          "- Evite repetir 'So para confirmar'.",
+          "- Nao diga que recebeu audio/foto/arquivo; va direto para a proxima pergunta util.",
+          "- Nao diga que vai encaminhar/transferir para o comercial.",
+          "- Fale naturalmente como atendente humana e use: 'vou montar seu orcamento e ja te passo'.",
+          "- Se houver duvida real, faca handoff para atendente humano sem insistir.",
+        ].join("\n")
+      : "";
+
     const systemPrompt = [
       "Voce e um agente de atendimento inicial no WhatsApp.",
       "Responda sempre em portugues do Brasil.",
@@ -1376,6 +1409,7 @@ serve(async (req) => {
       "Retorne estritamente JSON com os campos:",
       "action (reply|handoff|ignore), reply_text, confidence (0..1), intent, handoff_reason, handoff_mode (round_robin|specific_user), handoff_user_id.",
       "Nao inclua markdown, texto fora do JSON ou comentarios.",
+      agentSpecificStyleLines,
       cfg.system_prompt || "",
       knowledgeSection ? `Base de conhecimento:\n${knowledgeSection}` : "",
     ].filter(Boolean).join("\n\n");

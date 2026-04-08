@@ -216,7 +216,7 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
       {subtype === 'keyword_auto_reply' && (
         <>
           <div className="space-y-2">
-            <Label>CorrespondÃªncia PadrÃ£o</Label>
+            <Label>Correspondência Padrão</Label>
             <Select
               value={config.match_type || 'contains'}
               onValueChange={(value) => onUpdate({ ...config, match_type: value })}
@@ -225,9 +225,9 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="contains">ContÃ©m</SelectItem>
+                <SelectItem value="contains">Contém</SelectItem>
                 <SelectItem value="exact">Exata</SelectItem>
-                <SelectItem value="starts_with">ComeÃ§a com</SelectItem>
+                <SelectItem value="starts_with">Começa com</SelectItem>
                 <SelectItem value="ends_with">Termina com</SelectItem>
               </SelectContent>
             </Select>
@@ -276,7 +276,7 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
               onChange={(e) => onUpdate({ ...config, case_sensitive: e.target.checked })}
               className="h-4 w-4 rounded border-gray-300"
             />
-            Diferenciar maiÃºsculas e minÃºsculas
+            Diferenciar maiúsculas e minúsculas
           </label>
 
           <div className="space-y-3">
@@ -294,7 +294,7 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
                 <Textarea
                   value={String(rule.response || '')}
                   onChange={(e) => updateRule(index, { response: e.target.value })}
-                  placeholder="Resposta automÃ¡tica"
+                  placeholder="Resposta automática"
                   rows={3}
                 />
                 <Button
@@ -345,7 +345,7 @@ function ActionConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any) 
 
       {!knownActionSubtypes.has(String(subtype || '').trim()) && (
         <div className="text-xs text-muted-foreground border border-dashed rounded-md p-3">
-          Este subtipo nÃ£o possui configuraÃ§Ãµes neste painel. Subtipo atual: <code>{String(subtype || '(vazio)')}</code>.
+          Este subtipo não possui configurações neste painel. Subtipo atual: <code>{String(subtype || '(vazio)')}</code>.
         </div>
       )}
     </div>

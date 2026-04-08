@@ -52,6 +52,7 @@ const basicConditionNodes: NodeItem[] = [
 
 // Condições de tempo
 const timeConditionNodes: NodeItem[] = [
+  { type: 'condition', subtype: 'time_condition', label: 'Horário e Dias', icon: <Clock className="h-4 w-4" />, description: 'Verifica horário e dias da semana' },
   { type: 'condition', subtype: 'time_elapsed', label: 'Tempo Decorrido', icon: <Timer className="h-4 w-4" />, description: 'Passou X tempo desde criação' },
   { type: 'condition', subtype: 'business_hours', label: 'Horário Comercial', icon: <Clock className="h-4 w-4" />, description: 'Está dentro do horário comercial' },
   { type: 'condition', subtype: 'weekday', label: 'Dia da Semana', icon: <Calendar className="h-4 w-4" />, description: 'É dia útil, fim de semana, etc.' },

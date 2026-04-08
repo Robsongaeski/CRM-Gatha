@@ -44,7 +44,7 @@ import GuiaSistema from "./pages/Docs/GuiaSistema";
 import EntregaPedidos from "./pages/Pedidos/EntregaPedidos";
 import GradesProva from "./pages/Vendas/GradesProva";
 
-// PCP - MÃ³dulo de ProduÃ§Ã£o
+// PCP - Módulo de Produção
 import DashboardPCP from './pages/PCP/Dashboard';
 import CadastrosHub from './pages/PCP/CadastrosHub';
 import MaquinasEstampasLista from './pages/PCP/Cadastros/MaquinasEstampasLista';
@@ -60,7 +60,7 @@ import ResumoImpressao from './pages/PCP/ResumoImpressao';
 import QuantidadesDashboard from './pages/PCP/QuantidadesDashboard';
 import QuantidadesRelatorio from './pages/PCP/QuantidadesRelatorio';
 
-// Trocas e DevoluÃ§Ãµes (componentes usados nas rotas de suporte E-commerce)
+// Trocas e Devoluções (componentes usados nas rotas de suporte E-commerce)
 import {
   TrocasLista,
   TrocaForm,
@@ -91,7 +91,7 @@ import CarrinhosAbandonados from './pages/Ecommerce/CarrinhosAbandonados';
 import EcommerceLojas from './pages/Admin/EcommerceLojas';
 import WhatsAppApiConfig from './pages/Admin/WhatsAppApiConfig';
 
-// WhatsApp (mÃ³dulo independente)
+// WhatsApp (módulo independente)
 import { 
   WhatsAppHub, 
   Atendimento as WhatsAppAtendimento, 
@@ -99,13 +99,13 @@ import {
   Configuracoes as WhatsAppConfiguracoes 
 } from './pages/WhatsApp';
 
-// AutomaÃ§Ã£o
+// Automação
 import { FluxosLista, FluxoEditor, AgentesIA } from './pages/Automacao';
 
 // Tarefas
 import { TarefasLista, TarefaDetalhes } from './pages/Tarefas';
 
-// RH - GestÃ£o de Colaboradores
+// RH - Gestão de Colaboradores
 import { 
   DashboardRH, 
   ColaboradoresLista, 
@@ -119,6 +119,21 @@ import {
   CalendarioCorporativo,
   RelatoriosRH
 } from './pages/RH';
+
+// Suprimentos - Fornecedores e Compras
+import {
+  SuprimentosDashboard,
+  FornecedoresLista,
+  FornecedorForm,
+  InsumosLista,
+  InsumoForm,
+  ComprasLista,
+  CompraForm,
+  CompraDetalhe,
+  HistoricoPrecos,
+  ComposicoesLista,
+  RelatoriosSuprimentos,
+} from './pages/Suprimentos';
 
 const queryClient = new QueryClient();
 
@@ -176,7 +191,7 @@ const App = () => (
             <Route path="/admin/ecommerce-lojas" element={<ProtectedRoute requireAdmin><AppLayout><EcommerceLojas /></AppLayout></ProtectedRoute>} />
             <Route path="/admin/whatsapp-api" element={<ProtectedRoute requireAdmin><AppLayout><WhatsAppApiConfig /></AppLayout></ProtectedRoute>} />
             
-            {/* PCP - MÃ³dulo de ProduÃ§Ã£o */}
+            {/* PCP - Módulo de Produção */}
             <Route path="/pcp" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'pcp']} allowedPermissions={['pcp.dashboard']}><AppLayout><DashboardPCP /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/pcp/cadastros" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'pcp']} allowedPermissions={['pcp.cadastros.visualizar']}><AppLayout><CadastrosHub /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/pcp/cadastros/maquinas-estampas" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'pcp']} allowedPermissions={['pcp.cadastros.visualizar']}><AppLayout><MaquinasEstampasLista /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
@@ -204,10 +219,10 @@ const App = () => (
             <Route path="/ecommerce/envios/atrasados" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['ecommerce.envios.visualizar']}><AppLayout><EnviosAtrasados /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/ecommerce/envios/relatorios" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['ecommerce.envios.relatorios']}><AppLayout><EnviosRelatorios /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             
-            {/* E-commerce - RelatÃ³rios */}
+            {/* E-commerce - Relatórios */}
             <Route path="/ecommerce/relatorios" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['ecommerce.relatorios.visualizar']}><AppLayout><RelatoriosEcommerce /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             
-            {/* E-commerce - Suporte (Trocas e DevoluÃ§Ãµes) */}
+            {/* E-commerce - Suporte (Trocas e Devoluções) */}
             <Route path="/ecommerce/suporte" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['ecommerce.suporte.visualizar']}><AppLayout><SuporteDashboard /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/ecommerce/suporte/chamados" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['ecommerce.suporte.problemas']}><AppLayout><ProblemasLista /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/ecommerce/suporte/chamados/novo" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['ecommerce.suporte.problemas']}><AppLayout><ProblemaForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
@@ -226,7 +241,7 @@ const App = () => (
             <Route path="/ecommerce/suporte/motivos/novo" element={<ProtectedRoute requireAdmin><AppLayout><MotivoForm /></AppLayout></ProtectedRoute>} />
             <Route path="/ecommerce/suporte/motivos/:id/editar" element={<ProtectedRoute requireAdmin><AppLayout><MotivoForm /></AppLayout></ProtectedRoute>} />
             
-            {/* WhatsApp - MÃ³dulo Independente */}
+            {/* WhatsApp - Módulo Independente */}
             <Route path="/whatsapp" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['whatsapp.visualizar']}><AppLayout><WhatsAppHub /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/whatsapp/atendimento" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['whatsapp.atender']}><AppLayout><WhatsAppAtendimento /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/whatsapp/dashboard" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['whatsapp.dashboard', 'whatsapp.visualizar']}><AppLayout><WhatsAppDashboard /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
@@ -238,17 +253,33 @@ const App = () => (
             <Route path="/ecommerce/whatsapp/dashboard" element={<Navigate to="/whatsapp/dashboard" replace />} />
             <Route path="/ecommerce/whatsapp/configuracoes" element={<Navigate to="/whatsapp/configuracoes" replace />} />
             
-            {/* AutomaÃ§Ã£o */}
+            {/* Automação */}
             <Route path="/automacao" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin']} allowedPermissions={['automacao.visualizar']}><AppLayout><FluxosLista /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/automacao/agentes-ia" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin']} allowedPermissions={['automacao.visualizar']}><AppLayout><AgentesIA /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/automacao/novo" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin']} allowedPermissions={['automacao.criar']}><AppLayout><FluxoEditor /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/automacao/:id" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin']} allowedPermissions={['automacao.visualizar']}><AppLayout><FluxoEditor /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+
+            {/* Suprimentos - Fornecedores e Compras */}
+            <Route path="/suprimentos" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.module.view', 'procurement.suppliers.view', 'procurement.products.view', 'procurement.purchases.view']}><AppLayout><SuprimentosDashboard /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/fornecedores" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.suppliers.view']}><AppLayout><FornecedoresLista /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/fornecedores/novo" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.suppliers.create']}><AppLayout><FornecedorForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/fornecedores/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.suppliers.edit']}><AppLayout><FornecedorForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/insumos" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.products.view']}><AppLayout><InsumosLista /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/insumos/novo" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.products.create']}><AppLayout><InsumoForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/insumos/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.products.edit']}><AppLayout><InsumoForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/compras" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.purchases.view']}><AppLayout><ComprasLista /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/compras/nova" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.purchases.create']}><AppLayout><CompraForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/compras/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.purchases.edit']}><AppLayout><CompraForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/compras/:id" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.purchases.view']}><AppLayout><CompraDetalhe /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/historico-precos" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.prices.view']}><AppLayout><HistoricoPrecos /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/composicoes" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.compositions.manage']}><AppLayout><ComposicoesLista /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/suprimentos/relatorios" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['procurement.reports.view']}><AppLayout><RelatoriosSuprimentos /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             
             {/* Tarefas */}
             <Route path="/tarefas" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['tarefas.visualizar']}><AppLayout><TarefasLista /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/tarefas/:id" element={<ProtectedRoute><RoleProtectedRoute allowedPermissions={['tarefas.visualizar']}><AppLayout><TarefaDetalhes /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             
-            {/* RH - GestÃ£o de Colaboradores */}
+            {/* RH - Gestão de Colaboradores */}
             <Route path="/rh" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin']} allowedPermissions={['rh.colaboradores.visualizar']}><AppLayout><DashboardRH /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/rh/colaboradores" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin']} allowedPermissions={['rh.colaboradores.visualizar']}><AppLayout><ColaboradoresLista /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/rh/colaboradores/novo" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin']} allowedPermissions={['rh.colaboradores.criar']}><AppLayout><ColaboradorForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />

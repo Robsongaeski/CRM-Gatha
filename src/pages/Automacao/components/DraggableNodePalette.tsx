@@ -59,6 +59,9 @@ const actionNodes: NodeItem[] = [
 ];
 
 const conditionNodes: NodeItem[] = [
+  { type: 'condition', subtype: 'time_condition', label: 'Horário e Dias', icon: <Clock className="h-4 w-4" />, description: 'Decisão por dia da semana e horário' },
+  { type: 'condition', subtype: 'business_hours', label: 'Horário Comercial', icon: <Clock className="h-4 w-4" />, description: 'Dentro ou fora do horário comercial' },
+  { type: 'condition', subtype: 'weekday', label: 'Dia da Semana', icon: <Calendar className="h-4 w-4" />, description: 'Dia útil, fim de semana ou dia específico' },
   { type: 'condition', subtype: 'check_field', label: 'Verificar Campo', icon: <GitBranch className="h-4 w-4" />, description: 'Verifica valor' },
   { type: 'condition', subtype: 'check_status', label: 'Verificar Status', icon: <GitBranch className="h-4 w-4" />, description: 'Verifica status' },
   { type: 'condition', subtype: 'check_value', label: 'Comparar Valor', icon: <GitBranch className="h-4 w-4" />, description: 'Compara números' },

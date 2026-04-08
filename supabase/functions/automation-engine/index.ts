@@ -367,12 +367,21 @@ async function processAction(
       )
       const conversationId = String(context.conversation_id || context.entity_id || '')
 
-      let message: string
+      let message = ''
       if (config.randomMessages && Array.isArray(config.messages) && config.messages.length > 0) {
-        const randomIndex = Math.floor(Math.random() * config.messages.length)
-        message = resolveTemplate(config.messages[randomIndex] as string, templateContext)
-      } else {
-        message = resolveTemplate(config.message as string, templateContext)
+        // Ignora alternativas vazias no sorteio.
+        const candidateMessages = config.messages
+          .map((item) => resolveTemplate(String(item || ''), templateContext).trim())
+          .filter(Boolean)
+
+        if (candidateMessages.length > 0) {
+          const randomIndex = Math.floor(Math.random() * candidateMessages.length)
+          message = candidateMessages[randomIndex]
+        }
+      }
+
+      if (!message) {
+        message = resolveTemplate(String(config.message || ''), templateContext).trim()
       }
 
       if (!remoteJid || !message || !instanceId) {
@@ -1032,32 +1041,51 @@ async function processCondition(
       console.log(`Checking for ${interactionType} within ${withinHours} hours`)
       return { success: true, nextHandle: 'no' }
     }
-    
     case 'time_condition': {
-      // Verifica se está dentro do horário
-      const startTime = config.startTime as string || '08:00'
-      const endTime = config.endTime as string || '18:00'
-      const days = config.days as string[] || ['mon', 'tue', 'wed', 'thu', 'fri']
-      
-      const now = new Date()
-      const currentHour = now.getHours()
-      const currentMinutes = now.getMinutes()
-      const currentTime = currentHour * 60 + currentMinutes
-      
-      const [startH, startM] = startTime.split(':').map(Number)
-      const [endH, endM] = endTime.split(':').map(Number)
-      const startMinutes = startH * 60 + startM
-      const endMinutes = endH * 60 + endM
-      
-      const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-      const currentDay = dayNames[now.getDay()]
-      
-      const isWithinTime = currentTime >= startMinutes && currentTime <= endMinutes
+      // Horário + dias da semana
+      const timezone = getSafeTimezone(
+        config.timezone || context.timezone || context.fuso_horario || Deno.env.get('AUTOMATION_TIMEZONE'),
+      )
+      const { day: currentDay, minutes: currentMinutes } = getCurrentDayAndMinutesForTimezone(new Date(), timezone)
+
+      const startMinutes = parseTimeToMinutes(config.startTime, 8 * 60)
+      const endMinutes = parseTimeToMinutes(config.endTime, 18 * 60)
+      const days = normalizeDaysList(config.days, ['mon', 'tue', 'wed', 'thu', 'fri'])
+
+      const isWithinTime = isMinutesInRange(currentMinutes, startMinutes, endMinutes)
       const isWithinDays = days.includes(currentDay)
-      
+
       return { success: true, nextHandle: (isWithinTime && isWithinDays) ? 'yes' : 'no' }
     }
-    
+
+    case 'business_hours': {
+      const timezone = getSafeTimezone(
+        config.timezone || context.timezone || context.fuso_horario || Deno.env.get('AUTOMATION_TIMEZONE'),
+      )
+      const { day: currentDay, minutes: currentMinutes } = getCurrentDayAndMinutesForTimezone(new Date(), timezone)
+
+      const startMinutes = parseTimeToMinutes(config.startHour ?? config.startTime, 8 * 60)
+      const endMinutes = parseTimeToMinutes(config.endHour ?? config.endTime, 18 * 60)
+
+      const configuredDays = normalizeDaysList(config.days, [])
+      const isWithinDays = configuredDays.length > 0
+        ? configuredDays.includes(currentDay)
+        : evaluateDayTypeCondition(config.dayType, currentDay)
+
+      const isWithinTime = isMinutesInRange(currentMinutes, startMinutes, endMinutes)
+      return { success: true, nextHandle: (isWithinTime && isWithinDays) ? 'yes' : 'no' }
+    }
+
+    case 'weekday': {
+      const timezone = getSafeTimezone(
+        config.timezone || context.timezone || context.fuso_horario || Deno.env.get('AUTOMATION_TIMEZONE'),
+      )
+      const { day: currentDay } = getCurrentDayAndMinutesForTimezone(new Date(), timezone)
+      const matches = evaluateDayTypeCondition(config.dayType, currentDay)
+
+      return { success: true, nextHandle: matches ? 'yes' : 'no' }
+    }
+
     case 'field_contains': {
       const field = config.field as string
       const value = config.value as string
@@ -1202,6 +1230,176 @@ function processControl(
   }
 }
 
+type WeekDayKey = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat'
+
+function normalizeDayKey(value: unknown): WeekDayKey | null {
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
+  if (!raw) return null
+
+  const aliases: Record<string, WeekDayKey> = {
+    sun: 'sun',
+    sunday: 'sun',
+    dom: 'sun',
+    domingo: 'sun',
+
+    mon: 'mon',
+    monday: 'mon',
+    seg: 'mon',
+    segunda: 'mon',
+    'segunda-feira': 'mon',
+    segunda_feira: 'mon',
+
+    tue: 'tue',
+    tues: 'tue',
+    tuesday: 'tue',
+    ter: 'tue',
+    terca: 'tue',
+    'terca-feira': 'tue',
+    terca_feira: 'tue',
+
+    wed: 'wed',
+    wednesday: 'wed',
+    qua: 'wed',
+    quarta: 'wed',
+    'quarta-feira': 'wed',
+    quarta_feira: 'wed',
+
+    thu: 'thu',
+    thur: 'thu',
+    thurs: 'thu',
+    thursday: 'thu',
+    qui: 'thu',
+    quinta: 'thu',
+    'quinta-feira': 'thu',
+    quinta_feira: 'thu',
+
+    fri: 'fri',
+    friday: 'fri',
+    sex: 'fri',
+    sexta: 'fri',
+    'sexta-feira': 'fri',
+    sexta_feira: 'fri',
+
+    sat: 'sat',
+    saturday: 'sat',
+    sab: 'sat',
+    sabado: 'sat',
+  }
+
+  return aliases[raw] || null
+}
+
+function normalizeDaysList(value: unknown, fallback: WeekDayKey[]): WeekDayKey[] {
+  if (!Array.isArray(value)) return [...fallback]
+
+  const days = value
+    .map((item) => normalizeDayKey(item))
+    .filter((item): item is WeekDayKey => item !== null)
+
+  if (days.length === 0) return [...fallback]
+  return Array.from(new Set(days))
+}
+
+function parseTimeToMinutes(value: unknown, fallback: number): number {
+  const raw = String(value || '').trim()
+  const match = raw.match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) return fallback
+
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return fallback
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return fallback
+
+  return hour * 60 + minute
+}
+
+function isMinutesInRange(current: number, start: number, end: number): boolean {
+  // Mesmo valor = janela de 24h para simplificar configurações.
+  if (start === end) return true
+  if (start < end) return current >= start && current <= end
+  // Janela que cruza meia-noite (ex: 22:00 -> 06:00).
+  return current >= start || current <= end
+}
+
+function getCurrentDayAndMinutesForTimezone(
+  now: Date,
+  timezone: string,
+): { day: WeekDayKey; minutes: number } {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    const parts = formatter.formatToParts(now)
+    const weekdayRaw = parts.find((part) => part.type === 'weekday')?.value
+    const hourRaw = parts.find((part) => part.type === 'hour')?.value
+    const minuteRaw = parts.find((part) => part.type === 'minute')?.value
+
+    const dayNames: WeekDayKey[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+    const fallbackDay = dayNames[now.getDay()] || 'mon'
+
+    const normalizedDay = normalizeDayKey(weekdayRaw) || fallbackDay
+    const hour = Number(hourRaw)
+    const minute = Number(minuteRaw)
+    const safeHour = Number.isFinite(hour) ? Math.min(23, Math.max(0, hour)) : now.getHours()
+    const safeMinute = Number.isFinite(minute) ? Math.min(59, Math.max(0, minute)) : now.getMinutes()
+
+    return {
+      day: normalizedDay,
+      minutes: safeHour * 60 + safeMinute,
+    }
+  } catch {
+    const dayNames: WeekDayKey[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+    return {
+      day: dayNames[now.getDay()] || 'mon',
+      minutes: now.getHours() * 60 + now.getMinutes(),
+    }
+  }
+}
+
+function evaluateDayTypeCondition(dayType: unknown, currentDay: WeekDayKey): boolean {
+  const normalizedDayType = String(dayType || 'dia_util')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
+  const weekdays: WeekDayKey[] = ['mon', 'tue', 'wed', 'thu', 'fri']
+
+  switch (normalizedDayType) {
+    case 'dia_util':
+    case 'dias_uteis':
+      return weekdays.includes(currentDay)
+    case 'fim_de_semana':
+      return currentDay === 'sat' || currentDay === 'sun'
+    case 'segunda':
+      return currentDay === 'mon'
+    case 'terca':
+      return currentDay === 'tue'
+    case 'quarta':
+      return currentDay === 'wed'
+    case 'quinta':
+      return currentDay === 'thu'
+    case 'sexta':
+      return currentDay === 'fri'
+    case 'sabado':
+      return currentDay === 'sat'
+    case 'domingo':
+      return currentDay === 'sun'
+    default: {
+      const normalizedDay = normalizeDayKey(normalizedDayType)
+      return normalizedDay ? normalizedDay === currentDay : weekdays.includes(currentDay)
+    }
+  }
+}
 function resolveVariable(template: string, context: Record<string, unknown>): string {
   if (!template) return ''
   return template.replace(/\{(\w+)\}/g, (_, key) => {
@@ -1479,7 +1677,7 @@ function resolveTemplate(template: string, context: Record<string, unknown>): st
     return ''
   }
 
-  const withBraces = template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_match, key) => {
+  const withBraces = template.replace(/\{([^{}]+)\}/g, (_match, key) => {
     return resolveToken(String(key))
   })
 

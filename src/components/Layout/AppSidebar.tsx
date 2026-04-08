@@ -69,11 +69,21 @@ const financeiroItems = [
   { title: 'Histórico Financeiro', url: '/financeiro/historico', icon: History },
 ];
 
+const suprimentosItems = [
+  { title: 'Dashboard', url: '/suprimentos', icon: LayoutDashboard, permission: 'procurement.module.view' },
+  { title: 'Fornecedores', url: '/suprimentos/fornecedores', icon: Building2, permission: 'procurement.suppliers.view' },
+  { title: 'Produtos / Insumos', url: '/suprimentos/insumos', icon: Package, permission: 'procurement.products.view' },
+  { title: 'Compras', url: '/suprimentos/compras', icon: ShoppingCart, permission: 'procurement.purchases.view' },
+  { title: 'Histórico de Preços', url: '/suprimentos/historico-precos', icon: TrendingUp, permission: 'procurement.prices.view' },
+  { title: 'Composições', url: '/suprimentos/composicoes', icon: Workflow, permission: 'procurement.compositions.manage' },
+  { title: 'Relatórios', url: '/suprimentos/relatorios', icon: FileSpreadsheet, permission: 'procurement.reports.view' },
+];
+
 const atendimentoItems = [
   { title: 'Entrega de Pedidos', url: '/entrega-pedidos', icon: Truck },
 ];
 
-const tarefasItem = { title: 'Tarefas', url: '/tarefas', icon: ListTodo, showBadge: true };
+const tarefasMainItem = { title: 'Minhas Tarefas', url: '/tarefas', icon: ListTodo, showBadge: true };
 
 // Ecommerce items com submenus
 const ecommerceMainItems = [
@@ -160,6 +170,8 @@ function useModuleState() {
       setOpenModules(prev => ({ ...prev, pcp: true }));
     } else if (path.startsWith('/financeiro')) {
       setOpenModules(prev => ({ ...prev, financeiro: true }));
+    } else if (path.startsWith('/suprimentos')) {
+      setOpenModules(prev => ({ ...prev, suprimentos: true }));
     } else if (path.startsWith('/admin')) {
       setOpenModules(prev => ({ ...prev, admin: true }));
     } else if (path === '/produtos' || path.startsWith('/admin/segmentos') || path.startsWith('/admin/grades-tamanho')) {
@@ -182,6 +194,8 @@ function useModuleState() {
       setOpenModules(prev => ({ ...prev, automacao: true }));
     } else if (path.startsWith('/rh')) {
       setOpenModules(prev => ({ ...prev, rh: true }));
+    } else if (path.startsWith('/tarefas')) {
+      setOpenModules(prev => ({ ...prev, tarefas: true }));
     }
   }, [location.pathname]);
 
@@ -219,6 +233,15 @@ export function AppSidebar() {
   const hasEcommerceAccess = can('trocas_devolucoes.visualizar') || can('trocas_devolucoes.criar') || can('trocas_devolucoes.editar') || isAdmin;
   const hasVendasCreateAccess = can('pedidos.criar') || can('propostas.criar') || can('leads.criar');
   const hasWhatsAppAccess = can('whatsapp.visualizar') || can('whatsapp.atender') || can('whatsapp.dashboard') || can('whatsapp.configurar') || isAdmin || isAtendente;
+  const hasProcurementAccess =
+    isAdmin ||
+    can('procurement.module.view') ||
+    can('procurement.suppliers.view') ||
+    can('procurement.products.view') ||
+    can('procurement.purchases.view') ||
+    can('procurement.prices.view') ||
+    can('procurement.reports.view') ||
+    can('procurement.compositions.manage');
 
   const showVendas = isAdmin || isVendedor || hasVendasCreateAccess;
   const showFinanceiro = isFinanceiro || isAdmin;
@@ -229,6 +252,7 @@ export function AppSidebar() {
   const showAutomacao = isAdmin || can('automacao.visualizar');
   const showRH = isAdmin || isRH || can('rh.colaboradores.visualizar');
   const showAdmin = isAdmin || can('aprovacoes.aprovar') || can('pedidos.alteracoes.aprovar');
+  const filteredSuprimentosItems = suprimentosItems.filter((item) => isAdmin || can(item.permission));
   const filteredAdminItems = adminItems.filter((item) => {
     if (isAdmin) return true;
     if (item.url === '/admin/aprovar-pedidos') {
@@ -347,6 +371,22 @@ export function AppSidebar() {
           </Collapsible>
         )}
 
+        {/* Módulo Suprimentos */}
+        {hasProcurementAccess && (
+          <Collapsible open={openModules.suprimentos} onOpenChange={() => toggleModule('suprimentos')}>
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                {renderModuleHeader('Suprimentos', openModules.suprimentos, Building2)}
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>{filteredSuprimentosItems.map((item) => renderMenuItem(item))}</SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
         {/* Módulo Atendimento */}
         {showAtendimento && (
           <Collapsible open={openModules.atendimento} onOpenChange={() => toggleModule('atendimento')}>
@@ -361,17 +401,6 @@ export function AppSidebar() {
               </CollapsibleContent>
             </SidebarGroup>
           </Collapsible>
-        )}
-
-        {/* Tarefas - Item fixo com badge */}
-        {showTarefas && (
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {renderMenuItem(tarefasItem, tarefasCount?.total || 0, 'destructive')}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
         )}
 
         {/* Módulo WhatsApp (Independente) */}
@@ -499,7 +528,27 @@ export function AppSidebar() {
             </SidebarGroup>
           </Collapsible>
         )}
+
+        {/* Módulo Tarefas */}
+        {showTarefas && (
+          <Collapsible open={openModules.tarefas} onOpenChange={() => toggleModule('tarefas')}>
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                {renderModuleHeader('Tarefas', openModules.tarefas, ListTodo)}
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {renderMenuItem(tarefasMainItem, tarefasCount?.total || 0, 'destructive')}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
       </SidebarContent>
     </Sidebar>
   );
 }
+
+

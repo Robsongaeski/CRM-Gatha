@@ -1,0 +1,11 @@
+﻿export { default as SuprimentosDashboard } from './Dashboard';
+export { default as FornecedoresLista } from './FornecedoresLista';
+export { default as FornecedorForm } from './FornecedorForm';
+export { default as InsumosLista } from './InsumosLista';
+export { default as InsumoForm } from './InsumoForm';
+export { default as ComprasLista } from './ComprasLista';
+export { default as CompraForm } from './CompraForm';
+export { default as CompraDetalhe } from './CompraDetalhe';
+export { default as HistoricoPrecos } from './HistoricoPrecos';
+export { default as ComposicoesLista } from './ComposicoesLista';
+export { default as RelatoriosSuprimentos } from './Relatorios';
