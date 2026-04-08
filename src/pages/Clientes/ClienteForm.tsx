@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -14,9 +15,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { CpfCnpjInput } from '@/components/ui/cpf-cnpj-input';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
 import { sanitizeError } from '@/lib/errorHandling';
+import { buscarClienteDuplicado, type ClienteDuplicadoEncontrado } from '@/lib/cliente-duplicidade';
 
 const clienteSchema = z.object({
   responsavel: z.string().max(200).optional(),
@@ -84,68 +87,11 @@ export default function ClienteForm() {
     } : undefined,
   });
 
-  // Função para normalizar telefone (apenas dígitos)
-  const normalizarTelefone = (tel: string | null | undefined): string => {
-    if (!tel) return '';
-    return tel.replace(/\D/g, '');
-  };
-
-  // Verificar duplicidade antes de salvar
-  const verificarDuplicidade = async (data: ClienteFormData): Promise<string | null> => {
-    const nomeNormalizado = data.nome_razao_social.trim().toLowerCase();
-    const telefoneNormalizado = normalizarTelefone(data.telefone);
-    const cpfCnpjNormalizado = data.cpf_cnpj?.replace(/\D/g, '') || '';
-
-    // Buscar clientes com nome similar
-    let query = supabase
-      .from('clientes')
-      .select('id, nome_razao_social, telefone, whatsapp, cpf_cnpj');
-    
-    // Excluir o próprio cliente se estiver editando
-    if (isEditing && id) {
-      query = query.neq('id', id);
-    }
-
-    const { data: clientesExistentes, error } = await query;
-    
-    if (error) {
-      console.error('Erro ao verificar duplicidade:', error);
-      return null; // Permitir continuar se a verificação falhar
-    }
-
-    for (const cliente of clientesExistentes || []) {
-      const nomeClienteNorm = cliente.nome_razao_social.trim().toLowerCase();
-      const telClienteNorm = normalizarTelefone(cliente.telefone);
-      const whatsClienteNorm = normalizarTelefone(cliente.whatsapp);
-      const cpfClienteNorm = cliente.cpf_cnpj?.replace(/\D/g, '') || '';
-
-      // Verificar duplicidade por CPF/CNPJ (mais confiável)
-      if (cpfCnpjNormalizado && cpfClienteNorm && cpfCnpjNormalizado === cpfClienteNorm) {
-        return `Já existe um cliente cadastrado com este CPF/CNPJ: ${cliente.nome_razao_social}`;
-      }
-
-      // Verificar duplicidade por nome + telefone (comparando com telefone e whatsapp existentes)
-      if (nomeNormalizado === nomeClienteNorm && telefoneNormalizado) {
-        if (telClienteNorm && telefoneNormalizado === telClienteNorm) {
-          return `Já existe um cliente com o mesmo nome e telefone: ${cliente.nome_razao_social}`;
-        }
-        if (whatsClienteNorm && telefoneNormalizado === whatsClienteNorm) {
-          return `Já existe um cliente com o mesmo nome e este número: ${cliente.nome_razao_social}`;
-        }
-      }
-    }
-
-    return null; // Sem duplicidade
-  };
+  const [clienteDuplicado, setClienteDuplicado] = useState<ClienteDuplicadoEncontrado | null>(null);
+  const [dadosPendentes, setDadosPendentes] = useState<ClienteFormData | null>(null);
 
   const mutation = useMutation({
     mutationFn: async (data: ClienteFormData) => {
-      // Verificar duplicidade primeiro
-      const duplicidadeMsg = await verificarDuplicidade(data);
-      if (duplicidadeMsg) {
-        throw new Error(duplicidadeMsg);
-      }
-
       const submitData = {
         responsavel: data.responsavel || null,
         nome_razao_social: data.nome_razao_social,
@@ -178,12 +124,6 @@ export default function ClienteForm() {
     },
     onError: (error: unknown) => {
       const dbError = (error ?? {}) as { message?: string; code?: string };
-      // Tratar erro de duplicata customizado
-      if (dbError.message && !dbError.code) {
-        toast.error(dbError.message);
-        return;
-      }
-      // Tratar erro de duplicata (unique constraint violation)
       if (dbError.code === '23505') {
         if (dbError.message?.includes('cpf_cnpj')) {
           toast.error('Já existe um cliente cadastrado com este CPF/CNPJ');
@@ -198,8 +138,44 @@ export default function ClienteForm() {
     },
   });
 
-  const onSubmit = (data: ClienteFormData) => {
+  const onSubmit = async (data: ClienteFormData) => {
+    if (!isEditing) {
+      try {
+        const duplicado = await buscarClienteDuplicado({
+          cpfCnpj: data.cpf_cnpj,
+          telefone: data.telefone,
+        });
+
+        if (duplicado) {
+          setClienteDuplicado(duplicado);
+          setDadosPendentes(data);
+          return;
+        }
+      } catch (error) {
+        console.error('Erro ao verificar cliente duplicado:', error);
+        toast.error('Nao foi possivel validar se o cliente ja existe. Tente novamente.');
+        return;
+      }
+    }
+
     mutation.mutate(data);
+  };
+
+  const limparDuplicidade = () => {
+    setClienteDuplicado(null);
+    setDadosPendentes(null);
+  };
+
+  const selecionarClienteExistente = () => {
+    if (!clienteDuplicado) return;
+    limparDuplicidade();
+    navigate(`/clientes/${clienteDuplicado.cliente.id}`);
+  };
+
+  const continuarNovoCadastro = () => {
+    if (!dadosPendentes) return;
+    mutation.mutate(dadosPendentes);
+    limparDuplicidade();
   };
 
   // VERIFICAÇÕES DE PERMISSÃO APÓS TODOS OS HOOKS
@@ -394,6 +370,33 @@ export default function ClienteForm() {
           </Form>
         </CardContent>
       </Card>
+
+      <Dialog open={!!clienteDuplicado} onOpenChange={(open) => !open && limparDuplicidade()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cliente ja cadastrado</DialogTitle>
+            <DialogDescription>
+              {clienteDuplicado?.motivo === 'cpf_cnpj'
+                ? 'Ja existe um cliente com este CPF/CNPJ.'
+                : 'Ja existe um cliente com este telefone/WhatsApp.'}
+              {' '}
+              Cliente encontrado: <strong>{clienteDuplicado?.cliente.nome_razao_social}</strong>.
+              Deseja selecionar este cliente?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={limparDuplicidade}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="secondary" onClick={continuarNovoCadastro} disabled={mutation.isPending}>
+              Continuar Novo
+            </Button>
+            <Button type="button" onClick={selecionarClienteExistente}>
+              Selecionar Existente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

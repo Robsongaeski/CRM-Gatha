@@ -9,6 +9,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -24,6 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { PhoneInput } from '@/components/ui/phone-input';
 import { CpfCnpjInput } from '@/components/ui/cpf-cnpj-input';
+import { buscarClienteDuplicado, type ClienteDuplicadoEncontrado } from '@/lib/cliente-duplicidade';
 
 const clienteQuickSchema = z.object({
   nome_razao_social: z.string().trim().min(1, 'Nome é obrigatório'),
@@ -48,6 +50,8 @@ interface ClienteQuickAddProps {
 export function ClienteQuickAdd({ open, onOpenChange, onClienteCreated }: ClienteQuickAddProps) {
   const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
+  const [clienteDuplicado, setClienteDuplicado] = useState<ClienteDuplicadoEncontrado | null>(null);
+  const [dadosPendentes, setDadosPendentes] = useState<ClienteQuickFormData | null>(null);
 
   const form = useForm<ClienteQuickFormData>({
     resolver: zodResolver(clienteQuickSchema),
@@ -110,7 +114,12 @@ export function ClienteQuickAdd({ open, onOpenChange, onClienteCreated }: Client
     },
   });
 
-  const onSubmit = async (data: ClienteQuickFormData) => {
+  const limparEstadoDuplicidade = () => {
+    setClienteDuplicado(null);
+    setDadosPendentes(null);
+  };
+
+  const executarCadastro = async (data: ClienteQuickFormData) => {
     setIsLoading(true);
     try {
       await createCliente.mutateAsync(data);
@@ -119,8 +128,66 @@ export function ClienteQuickAdd({ open, onOpenChange, onClienteCreated }: Client
     }
   };
 
+  const onSubmit = async (data: ClienteQuickFormData) => {
+    try {
+      const duplicado = await buscarClienteDuplicado({
+        cpfCnpj: data.cpf_cnpj,
+        telefone: data.telefone,
+      });
+
+      if (duplicado) {
+        setClienteDuplicado(duplicado);
+        setDadosPendentes(data);
+        return;
+      }
+    } catch (error) {
+      console.error('Erro ao verificar cliente duplicado:', error);
+      toast({
+        title: 'Erro na verificacao',
+        description: 'Nao foi possivel validar se o cliente ja existe. Tente novamente.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    await executarCadastro(data);
+  };
+
+  const handleSelecionarExistente = () => {
+    if (!clienteDuplicado) return;
+
+    onClienteCreated(clienteDuplicado.cliente.id);
+    toast({
+      title: 'Cliente existente selecionado',
+      description: clienteDuplicado.cliente.nome_razao_social,
+    });
+
+    limparEstadoDuplicidade();
+    form.reset();
+    onOpenChange(false);
+  };
+
+  const handleContinuarNovoCadastro = async () => {
+    if (!dadosPendentes) return;
+    limparEstadoDuplicidade();
+    await executarCadastro(dadosPendentes);
+  };
+
+  const motivoDuplicidade = clienteDuplicado?.motivo === 'cpf_cnpj'
+    ? 'Já existe um cliente com este CPF/CNPJ.'
+    : 'Já existe um cliente com este telefone/WhatsApp.';
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          onOpenChange(nextOpen);
+          if (!nextOpen) {
+            limparEstadoDuplicidade();
+          }
+        }}
+      >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Cadastro Rápido de Cliente</DialogTitle>
@@ -217,7 +284,33 @@ export function ClienteQuickAdd({ open, onOpenChange, onClienteCreated }: Client
           </form>
         </Form>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      <Dialog open={!!clienteDuplicado} onOpenChange={(isOpen) => !isOpen && limparEstadoDuplicidade()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cliente ja cadastrado</DialogTitle>
+            <DialogDescription>
+              {motivoDuplicidade}
+              {' '}
+              Cliente encontrado: <strong>{clienteDuplicado?.cliente.nome_razao_social}</strong>.
+              Deseja selecionar este cliente?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={limparEstadoDuplicidade}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="secondary" onClick={handleContinuarNovoCadastro} disabled={isLoading}>
+              Continuar Novo
+            </Button>
+            <Button type="button" onClick={handleSelecionarExistente}>
+              Selecionar Existente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
