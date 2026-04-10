@@ -798,45 +798,63 @@ serve(async (req) => {
     }
 
     // Buscar ou criar conversa
-    // Priorizar remote_jid canônico, depois remote_jid bruto e por fim contact_phone.
     let conversation;
     let existingConversation = null;
     
-    // Busca 1: pelo remote_jid canônico
-    const { data: byCanonicalJid } = await supabase
+    // --- INICIO HOTFIX: Nono digito no Brasil ---
+    let jidCandidates = [canonicalRemoteJid];
+    if (remoteJid && remoteJid !== canonicalRemoteJid) {
+      jidCandidates.push(remoteJid);
+    }
+    let phoneCandidates = normalizedSenderPhone ? [normalizedSenderPhone] : [];
+    
+    if (normalizedSenderPhone && normalizedSenderPhone.startsWith("55")) {
+      const len = normalizedSenderPhone.length;
+      if (len === 12 || len === 13) {
+         const ddd = normalizedSenderPhone.slice(2, 4);
+         const last8 = normalizedSenderPhone.slice(-8);
+         const variant8 = `55${ddd}${last8}`;
+         const variant9 = `55${ddd}9${last8}`;
+         
+         if (!phoneCandidates.includes(variant8)) phoneCandidates.push(variant8);
+         if (!phoneCandidates.includes(variant9)) phoneCandidates.push(variant9);
+         
+         const jid8 = `${variant8}@s.whatsapp.net`;
+         const jid9 = `${variant9}@s.whatsapp.net`;
+         
+         if (canonicalRemoteJid.endsWith("@s.whatsapp.net")) {
+           if (!jidCandidates.includes(jid8)) jidCandidates.push(jid8);
+           if (!jidCandidates.includes(jid9)) jidCandidates.push(jid9);
+         }
+      }
+    }
+    // --- FIM HOTFIX ---
+
+    // Busca 1: pelos candidatos de JID
+    const { data: byJidList } = await supabase
       .from('whatsapp_conversations')
       .select('*')
       .eq('instance_id', instance.id)
-      .eq('remote_jid', canonicalRemoteJid)
-      .maybeSingle();
+      .in('remote_jid', jidCandidates)
+      .order('last_message_at', { ascending: false })
+      .limit(1);
     
-    existingConversation = byCanonicalJid;
-
-    if (!existingConversation && remoteJid && remoteJid !== canonicalRemoteJid) {
-      const { data: byRawJid } = await supabase
-        .from('whatsapp_conversations')
-        .select('*')
-        .eq('instance_id', instance.id)
-        .eq('remote_jid', remoteJid)
-        .maybeSingle();
-      existingConversation = byRawJid;
+    if (byJidList && byJidList.length > 0) {
+      existingConversation = byJidList[0];
     }
     
-    // Busca 2: Se não achou e temos um telefone válido (não é grupo), buscar pelo contact_phone
-    const normalizedPhone = normalizedSenderPhone;
-    if (!existingConversation && !isGroup && normalizedPhone) {
-      const { data: byPhone } = await supabase
+    // Busca 2: Se não achou e temos telefone (não é grupo), buscar pelos candidatos de contact_phone
+    if (!existingConversation && !isGroup && phoneCandidates.length > 0) {
+      const { data: byPhoneList } = await supabase
         .from('whatsapp_conversations')
         .select('*')
         .eq('instance_id', instance.id)
-        .eq('contact_phone', normalizedPhone)
+        .in('contact_phone', phoneCandidates)
         .order('last_message_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      
-      if (byPhone) {
-        existingConversation = byPhone;
-        console.log('Conversa encontrada pelo contact_phone:', normalizedPhone, 'id:', byPhone.id);
+        .limit(1);
+        
+      if (byPhoneList && byPhoneList.length > 0) {
+        existingConversation = byPhoneList[0];
       }
     }
 
