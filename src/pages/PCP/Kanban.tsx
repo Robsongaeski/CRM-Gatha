@@ -211,7 +211,7 @@ export default function Kanban() {
   }
 
   return (
-    <div className="w-full px-4 py-6 space-y-4">
+    <div className="w-full px-4 py-6 space-y-4 flex flex-col h-[calc(100vh-100px)]">
       <div>
         <h1 className="text-3xl font-bold">Kanban de Produção</h1>
         <p className="text-muted-foreground">
@@ -229,7 +229,7 @@ export default function Kanban() {
       {/* Container de scroll horizontal com drag-to-scroll */}
       <div 
         ref={dragScrollRef}
-        className="w-full flex gap-4 overflow-x-auto pb-4 items-start min-h-[calc(100vh-220px)]"
+        className="w-full flex gap-4 overflow-x-auto pb-4 items-start flex-1 min-h-0"
       >
         <DndContext
           sensors={sensors}

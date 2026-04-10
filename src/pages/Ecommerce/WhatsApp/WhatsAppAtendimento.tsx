@@ -325,7 +325,7 @@ export default function WhatsAppAtendimento() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-112px)] overflow-hidden bg-[#f0f2f5] -m-6">
+    <div className="flex h-[calc(100vh-140px)] md:h-[calc(100vh-120px)] overflow-hidden bg-[#f0f2f5] -m-6">
       {/* Lista de conversas */}
       <div className="w-[380px] flex-shrink-0 border-r border-[#d1d7db] flex flex-col h-full">
         <ConversationList

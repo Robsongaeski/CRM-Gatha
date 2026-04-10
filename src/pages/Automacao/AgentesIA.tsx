@@ -699,8 +699,8 @@ export default function AgentesIA() {
                 </TabsContent>
 
                 {/* ABA 2: PERSONALIDADE E PROMPT */}
-                <TabsContent value="personalidade" className="m-0 space-y-6 animate-in slide-in-from-right-4 duration-300 h-full flex flex-col">
-                  <div className="grid gap-6 md:grid-cols-[1fr,250px] flex-1">
+                <TabsContent value="personalidade" className="m-0 space-y-6 animate-in slide-in-from-right-4 duration-300">
+                  <div className="grid gap-6 md:grid-cols-[1fr,250px]">
                     <Card className="flex flex-col border-muted/40">
                       <CardHeader className="pb-3 flex-row items-center justify-between pointer-events-none">
                         <div>
@@ -709,8 +709,8 @@ export default function AgentesIA() {
                         </div>
                         <Sparkles className="h-5 w-5 text-primary opacity-20" />
                       </CardHeader>
-                      <CardContent className="flex-1 p-0">
-                         <div className="relative h-full px-4 pb-4 min-h-[400px]">
+                      <CardContent className="p-0">
+                         <div className="relative h-[500px] px-4 pb-4">
                            <Textarea 
                              className="h-full w-full font-mono text-sm leading-relaxed resize-none p-4 bg-muted/20 border-muted focus-visible:ring-primary"
                              placeholder="Ex: Você é um assistente simpático..."
@@ -893,7 +893,7 @@ export default function AgentesIA() {
                 </TabsContent>
 
                 {/* ABA 5: ÁREA DE TESTE (SANDBOX) */}
-                <TabsContent value="testar" className="m-0 space-y-6 animate-in zoom-in-95 duration-300 h-full flex flex-col">
+                <TabsContent value="testar" className="m-0 space-y-6 animate-in zoom-in-95 duration-300 h-[calc(100vh-220px)] flex flex-col">
                   <div className="grid gap-6 md:grid-cols-[1fr,300px] flex-1 min-h-0">
                     <Card className="flex flex-col border-muted/40 overflow-hidden">
                       <CardHeader className="pb-3 border-b flex-row items-center justify-between">
