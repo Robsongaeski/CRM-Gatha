@@ -161,21 +161,27 @@ serve(async (req) => {
     let rawResult: any = {};
 
     if (provider === "openai") {
+      const payload: any = {
+        model,
+        messages: [
+          { role: "system", content: system_prompt },
+          { role: "user", content: user_message }
+        ]
+      };
+      
+      const isReasoningModel = model.startsWith("o1") || model.startsWith("o3");
+      if (!isReasoningModel) {
+        payload.temperature = temperature;
+        payload.response_format = { type: "json_object" };
+      }
+
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${openAiKey}`,
         },
-        body: JSON.stringify({
-          model,
-          temperature,
-          messages: [
-            { role: "system", content: system_prompt },
-            { role: "user", content: user_message }
-          ],
-          response_format: { type: "json_object" }
-        }),
+        body: JSON.stringify(payload),
       });
       rawResult = await response.json();
       

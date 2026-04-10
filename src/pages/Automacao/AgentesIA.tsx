@@ -902,7 +902,7 @@ export default function AgentesIA() {
                 </TabsContent>
 
                 {/* ABA 5: ÁREA DE TESTE (SANDBOX) */}
-                <TabsContent value="testar" className="m-0 animate-in zoom-in-95 duration-300 h-[calc(100vh-220px)] data-[state=active]:flex flex-col data-[state=inactive]:hidden">
+                <TabsContent value="testar" className="m-0 animate-in zoom-in-95 duration-300 h-[550px] data-[state=active]:flex flex-col data-[state=inactive]:hidden">
                   <div className="grid gap-6 md:grid-cols-[1fr,300px] flex-1 min-h-0">
                     <Card className="flex flex-col border-muted/40 overflow-hidden">
                       <CardHeader className="pb-3 border-b flex-row items-center justify-between">
