@@ -103,6 +103,149 @@ const normalizarTexto = (valor: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
     .toLowerCase();
+const aguardar = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const dispararCelebracaoFechamentoPedido = () => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const reduzirMovimento = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const styleId = 'pedido-celebracao-confete-style';
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      @keyframes pedido-confete-cair {
+        0% {
+          transform: translate3d(0, -10vh, 0) rotate(0deg);
+          opacity: 1;
+        }
+        100% {
+          transform: translate3d(var(--drift), 110vh, 0) rotate(720deg);
+          opacity: 0;
+        }
+      }
+      @keyframes pedido-confete-explodir {
+        0% {
+          transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+          opacity: 1;
+        }
+        100% {
+          transform: translate3d(var(--dx), var(--dy), 0) rotate(540deg) scale(0.9);
+          opacity: 0;
+        }
+      }
+      @keyframes pedido-felicitacoes-entrada {
+        0% {
+          transform: translate(-50%, -50%) scale(0.82);
+          opacity: 0;
+          filter: blur(1px);
+        }
+        100% {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 1;
+          filter: blur(0);
+        }
+      }
+      @keyframes pedido-felicitacoes-saida {
+        0% {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 1;
+        }
+        100% {
+          transform: translate(-50%, -50%) scale(0.96);
+          opacity: 0;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  const container = document.createElement('div');
+  container.setAttribute('aria-hidden', 'true');
+  container.style.position = 'fixed';
+  container.style.inset = '0';
+  container.style.pointerEvents = 'none';
+  container.style.overflow = 'hidden';
+  container.style.zIndex = '9999';
+  document.body.appendChild(container);
+
+  const overlay = document.createElement('div');
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.style.position = 'fixed';
+  overlay.style.left = '50%';
+  overlay.style.top = '50%';
+  overlay.style.transform = 'translate(-50%, -50%)';
+  overlay.style.padding = '16px 22px';
+  overlay.style.borderRadius = '14px';
+  overlay.style.background = 'linear-gradient(135deg, rgba(22,163,74,0.97), rgba(37,99,235,0.95))';
+  overlay.style.color = '#ffffff';
+  overlay.style.textAlign = 'center';
+  overlay.style.boxShadow = '0 12px 36px rgba(0,0,0,0.28)';
+  overlay.style.zIndex = '10000';
+  overlay.style.pointerEvents = 'none';
+  overlay.style.animation = reduzirMovimento
+    ? 'none'
+    : 'pedido-felicitacoes-entrada 320ms ease-out forwards';
+  overlay.innerHTML = '<div style="font-size:18px;font-weight:800;line-height:1.1;">Parabéns!</div><div style="font-size:13px;margin-top:4px;opacity:0.96;">Pedido lançado com sucesso</div>';
+  document.body.appendChild(overlay);
+
+  if (!reduzirMovimento) {
+    const cores = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#14b8a6', '#a855f7', '#eab308'];
+    const totalQueda = window.innerWidth < 768 ? 120 : 190;
+    const totalExplosao = window.innerWidth < 768 ? 40 : 70;
+
+    for (let i = 0; i < totalQueda; i++) {
+      const particula = document.createElement('span');
+      const largura = 4 + Math.random() * 6;
+      const altura = 7 + Math.random() * 11;
+      particula.style.position = 'absolute';
+      particula.style.top = '-12vh';
+      particula.style.left = `${Math.random() * 100}vw`;
+      particula.style.width = `${largura}px`;
+      particula.style.height = `${altura}px`;
+      particula.style.backgroundColor = cores[Math.floor(Math.random() * cores.length)];
+      particula.style.opacity = '0.96';
+      particula.style.borderRadius = Math.random() > 0.6 ? '999px' : '2px';
+      particula.style.transform = `rotate(${Math.random() * 360}deg)`;
+      particula.style.setProperty('--drift', `${(Math.random() - 0.5) * 420}px`);
+      particula.style.animation = `pedido-confete-cair ${1.7 + Math.random() * 1.3}s cubic-bezier(0.22, 0.61, 0.36, 1) forwards`;
+      particula.style.animationDelay = `${Math.random() * 0.28}s`;
+      container.appendChild(particula);
+    }
+
+    for (let i = 0; i < totalExplosao; i++) {
+      const particula = document.createElement('span');
+      const origemEsquerda = i % 2 === 0;
+      const anguloBase = origemEsquerda ? -25 : 205;
+      const angulo = (anguloBase + (Math.random() * 70)) * (Math.PI / 180);
+      const distancia = 180 + Math.random() * 320;
+      particula.style.position = 'absolute';
+      particula.style.left = origemEsquerda ? '8vw' : '92vw';
+      particula.style.top = `${35 + Math.random() * 20}vh`;
+      particula.style.width = `${4 + Math.random() * 6}px`;
+      particula.style.height = `${7 + Math.random() * 10}px`;
+      particula.style.backgroundColor = cores[Math.floor(Math.random() * cores.length)];
+      particula.style.borderRadius = Math.random() > 0.5 ? '999px' : '2px';
+      particula.style.opacity = '0.95';
+      particula.style.setProperty('--dx', `${Math.cos(angulo) * distancia}px`);
+      particula.style.setProperty('--dy', `${Math.sin(angulo) * distancia}px`);
+      particula.style.animation = `pedido-confete-explodir ${1 + Math.random() * 0.7}s ease-out forwards`;
+      particula.style.animationDelay = `${Math.random() * 0.16}s`;
+      container.appendChild(particula);
+    }
+  }
+
+  window.setTimeout(() => {
+    if (!reduzirMovimento) {
+      overlay.style.animation = 'pedido-felicitacoes-saida 260ms ease-in forwards';
+    }
+  }, 1650);
+
+  window.setTimeout(() => {
+    container.remove();
+    overlay.remove();
+  }, 2350);
+};
 
 const pedidoToSnapshot = (pedido: any): PedidoFormData => ({
   data_pedido: extractDateOnly(pedido.data_pedido) || '',
@@ -647,12 +790,25 @@ export default function PedidoForm() {
         }
       }
 
-      toast({
-        title: modoEdicao.apenasStatus ? 'Status atualizado!' : 'Pedido salvo!',
-        description: isEditing 
-          ? (modoEdicao.apenasStatus ? 'O status do pedido foi alterado com sucesso.' : 'Pedido atualizado com sucesso.')
-          : 'Pedido criado com sucesso.',
-      });
+      const pedidoLancadoAgora =
+        !isEditing &&
+        formData.status !== 'rascunho' &&
+        formData.status !== 'cancelado';
+      if (pedidoLancadoAgora) {
+        dispararCelebracaoFechamentoPedido();
+        toast({
+          title: 'Pedido lançado com sucesso!',
+          description: 'Parabéns! O pedido foi registrado no sistema.',
+        });
+        await aguardar(1700);
+      } else {
+        toast({
+          title: modoEdicao.apenasStatus ? 'Status atualizado!' : 'Pedido salvo!',
+          description: isEditing 
+            ? (modoEdicao.apenasStatus ? 'O status do pedido foi alterado com sucesso.' : 'Pedido atualizado com sucesso.')
+            : 'Pedido criado com sucesso.',
+        });
+      }
 
       navigate('/pedidos');
     } finally {

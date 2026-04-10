@@ -56,3 +56,6 @@ verify_jwt = false
 
 [functions.whatsapp-ai-router]
 verify_jwt = true
+
+[functions.whatsapp-ai-sandbox]
+verify_jwt = true
