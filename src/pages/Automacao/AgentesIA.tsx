@@ -397,9 +397,18 @@ export default function AgentesIA() {
       if (error) throw error;
 
       if (data.success) {
+        let finalContent = data.decision.reply_text || data.text;
+        
+        // Se a IA decidiu transferir sem mandar uma mensagem textual específica
+        if (!finalContent && data.decision.action === 'handoff') {
+          finalContent = '[A IA decidiu transferir este atendimento para um humano diretamente]';
+        } else if (!finalContent) {
+          finalContent = 'A IA não gerou uma resposta textual. Verifique o seu Prompt.';
+        }
+
         setTestMessages(prev => [...prev, { 
           role: 'assistant', 
-          content: data.decision.reply_text || data.text || 'A IA não gerou uma resposta textual.',
+          content: finalContent,
           decision: data.decision
         }]);
       } else {
@@ -893,7 +902,7 @@ export default function AgentesIA() {
                 </TabsContent>
 
                 {/* ABA 5: ÁREA DE TESTE (SANDBOX) */}
-                <TabsContent value="testar" className="m-0 space-y-6 animate-in zoom-in-95 duration-300 h-[calc(100vh-220px)] flex flex-col">
+                <TabsContent value="testar" className="m-0 animate-in zoom-in-95 duration-300 h-[calc(100vh-220px)] data-[state=active]:flex flex-col data-[state=inactive]:hidden">
                   <div className="grid gap-6 md:grid-cols-[1fr,300px] flex-1 min-h-0">
                     <Card className="flex flex-col border-muted/40 overflow-hidden">
                       <CardHeader className="pb-3 border-b flex-row items-center justify-between">

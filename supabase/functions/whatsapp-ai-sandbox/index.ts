@@ -102,7 +102,7 @@ serve(async (req) => {
 
   try {
     const { 
-      system_prompt, 
+      system_prompt: rawSystemPrompt, 
       user_message, 
       temperature = 0.4, 
       model = "gpt-4o-mini", 
@@ -110,8 +110,52 @@ serve(async (req) => {
       confidence_threshold = 0.7
     } = await req.json();
 
-    const openAiKey = Deno.env.get("OPENAI_API_KEY");
-    const geminiKey = Deno.env.get("GEMINI_API_KEY");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    let openAiKey = Deno.env.get("OPENAI_API_KEY") || "";
+    let geminiKey = Deno.env.get("GEMINI_API_KEY") || "";
+
+    try {
+      const { data } = await supabase
+        .from("system_config")
+        .select("key, value")
+        .in("key", ["openai_api_key", "gemini_api_key"]);
+
+      const keyMap: Record<string, string> = {};
+      for (const row of data || []) {
+        if (row.key) keyMap[row.key] = String(row.value).trim();
+      }
+      if (keyMap.openai_api_key) openAiKey = keyMap.openai_api_key;
+      if (keyMap.gemini_api_key) geminiKey = keyMap.gemini_api_key;
+    } catch (err) {
+      console.error("Erro ao buscar keys do DB:", err);
+    }
+
+    if (provider === "openai" && !openAiKey) {
+      return new Response(JSON.stringify({ success: false, error: "OpenAI API Key não configurada no sistema." }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (provider === "gemini" && !geminiKey) {
+      return new Response(JSON.stringify({ success: false, error: "Gemini API Key não configurada no sistema." }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Injetar instruções de decisão JSON para que o simulador funcione como a produção
+    const system_prompt = [
+      "Voce e um agente de atendimento no WhatsApp.",
+      "Responda sempre em portugues do Brasil.",
+      "Retorne estritamente JSON com os campos:",
+      "action (reply|handoff|ignore), reply_text, confidence (0..1), intent, handoff_reason, handoff_mode (round_robin|specific_user), handoff_user_id.",
+      "Nao inclua markdown, texto fora do JSON ou comentarios.",
+      rawSystemPrompt || "",
+    ].filter(Boolean).join("\n\n");
 
     let text = "";
     let rawResult: any = {};
@@ -134,6 +178,14 @@ serve(async (req) => {
         }),
       });
       rawResult = await response.json();
+      
+      if (rawResult.error) {
+         return new Response(JSON.stringify({ success: false, error: rawResult.error.message || "Erro OpenAI", raw: rawResult }), {
+           status: 200,
+           headers: { ...corsHeaders, "Content-Type": "application/json" },
+         });
+      }
+      
       text = extractOpenAiText(rawResult);
     } else {
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
@@ -147,6 +199,14 @@ serve(async (req) => {
         }),
       });
       rawResult = await response.json();
+      
+      if (rawResult.error) {
+         return new Response(JSON.stringify({ success: false, error: rawResult.error.message || "Erro Gemini", raw: rawResult }), {
+           status: 200,
+           headers: { ...corsHeaders, "Content-Type": "application/json" },
+         });
+      }
+      
       text = extractGeminiText(rawResult);
     }
 
