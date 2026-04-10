@@ -1942,29 +1942,57 @@ serve(async (req) => {
         const contentText = typeof content === "string" ? content : String(content ?? "");
 
         let conversation: any;
-        const { data: byJid } = await supabase
+        
+        // --- INICIO HOTFIX: Nono digito no Brasil ---
+        let jidCandidates = [canonicalRemoteJid];
+        let phoneCandidates = normalizedPhone ? [normalizedPhone] : [];
+        
+        if (normalizedPhone && normalizedPhone.startsWith("55")) {
+          const len = normalizedPhone.length;
+          if (len === 12 || len === 13) {
+             const ddd = normalizedPhone.slice(2, 4);
+             const last8 = normalizedPhone.slice(-8);
+             const variant8 = `55${ddd}${last8}`;
+             const variant9 = `55${ddd}9${last8}`;
+             
+             if (!phoneCandidates.includes(variant8)) phoneCandidates.push(variant8);
+             if (!phoneCandidates.includes(variant9)) phoneCandidates.push(variant9);
+             
+             const jid8 = `${variant8}@s.whatsapp.net`;
+             const jid9 = `${variant9}@s.whatsapp.net`;
+             
+             if (canonicalRemoteJid.endsWith("@s.whatsapp.net")) {
+               if (!jidCandidates.includes(jid8)) jidCandidates.push(jid8);
+               if (!jidCandidates.includes(jid9)) jidCandidates.push(jid9);
+             }
+          }
+        }
+        // --- FIM HOTFIX ---
+
+        const { data: byJidList } = await supabase
           .from("whatsapp_conversations")
           .select("*")
           .eq("instance_id", instance.id)
-          .eq("remote_jid", canonicalRemoteJid)
-          .maybeSingle();
+          .in("remote_jid", jidCandidates)
+          .order("last_message_at", { ascending: false })
+          .limit(1);
 
-        let existingConversation = byJid;
+        let existingConversation = byJidList && byJidList.length > 0 ? byJidList[0] : null;
         let conversationSource: "remote_jid" | "contact_phone" | "created" = "created";
 
         if (existingConversation) {
           conversationSource = "remote_jid";
-        } else if (!isGroup && normalizedPhone) {
-          const { data: byPhone } = await supabase
+        } else if (!isGroup && phoneCandidates.length > 0) {
+          const { data: byPhoneList } = await supabase
             .from("whatsapp_conversations")
             .select("*")
             .eq("instance_id", instance.id)
-            .eq("contact_phone", normalizedPhone)
+            .in("contact_phone", phoneCandidates)
             .order("last_message_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (byPhone) {
-            existingConversation = byPhone;
+            .limit(1);
+            
+          if (byPhoneList && byPhoneList.length > 0) {
+            existingConversation = byPhoneList[0];
             conversationSource = "contact_phone";
           }
         }
