@@ -96,6 +96,7 @@ export default function ProdutosLista() {
           nome: `${produtoOriginal.nome} (Cópia)`,
           tipo: produtoOriginal.tipo,
           observacoes_padrao: produtoOriginal.observacoes_padrao,
+          quantidade_minima_venda: (produtoOriginal as any).quantidade_minima_venda ?? null,
           valor_base: produtoOriginal.valor_base,
         }])
         .select()

@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { format } from 'date-fns';
-import { CalendarIcon, Plus, Trash2, AlertTriangle, Copy } from 'lucide-react';
+import { CalendarIcon, Plus, Trash2, AlertTriangle, Copy, ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -22,6 +25,7 @@ import { useProposta } from '@/hooks/usePropostas';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ClienteQuickAddButton } from '@/components/Pedidos/ClienteQuickAddButton';
 import { FotoModeloUpload } from '@/components/Pedidos/FotoModeloUpload';
 import { GradeTamanhosSelectorWrapper } from '@/components/Pedidos/GradeTamanhosSelectorWrapper';
@@ -104,8 +108,82 @@ const normalizarTexto = (valor: string) =>
     .trim()
     .toLowerCase();
 const aguardar = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+const getQuantidadeMinimaAviso = (produto: any) => {
+  const minimo = Number(produto?.quantidade_minima_venda);
+  return Number.isFinite(minimo) && minimo >= 1 ? minimo : null;
+};
 
-const dispararCelebracaoFechamentoPedido = () => {
+interface SortablePedidoItemCardProps {
+  itemId: string;
+  header: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+  highlightClassName?: string;
+}
+
+function SortablePedidoItemCard({
+  itemId,
+  header,
+  actions,
+  children,
+  highlightClassName,
+}: SortablePedidoItemCardProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: itemId });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <Card
+        className={cn(
+          'overflow-hidden border-l-4 transition-colors',
+          highlightClassName,
+          isDragging && 'opacity-70 shadow-lg'
+        )}
+      >
+        <div className="flex flex-col gap-3 border-b bg-muted/30 px-4 py-3 md:flex-row md:items-start md:justify-between">
+          <div className="flex flex-1 items-start gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="mt-0.5 h-8 w-8 cursor-grab text-muted-foreground active:cursor-grabbing"
+              {...attributes}
+              {...listeners}
+              onClick={(e) => e.preventDefault()}
+              title="Arrastar para reordenar"
+            >
+              <GripVertical className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0 flex-1">{header}</div>
+          </div>
+
+          {actions && <div className="flex items-center gap-1 md:pl-2">{actions}</div>}
+        </div>
+
+        <div className="p-4">{children}</div>
+      </Card>
+    </div>
+  );
+}
+
+const dispararCelebracaoFechamentoPedido = ({
+  titulo = 'Parabens, vendedor!',
+  mensagem = 'Seu pedido foi lancado com sucesso!',
+}: {
+  titulo?: string;
+  mensagem?: string;
+} = {}) => {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
   const reduzirMovimento = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -136,9 +214,12 @@ const dispararCelebracaoFechamentoPedido = () => {
       }
       @keyframes pedido-felicitacoes-entrada {
         0% {
-          transform: translate(-50%, -50%) scale(0.82);
+          transform: translate(-50%, -50%) scale(0.72);
           opacity: 0;
-          filter: blur(1px);
+          filter: blur(2px);
+        }
+        70% {
+          transform: translate(-50%, -50%) scale(1.04);
         }
         100% {
           transform: translate(-50%, -50%) scale(1);
@@ -175,29 +256,36 @@ const dispararCelebracaoFechamentoPedido = () => {
   overlay.style.left = '50%';
   overlay.style.top = '50%';
   overlay.style.transform = 'translate(-50%, -50%)';
-  overlay.style.padding = '16px 22px';
-  overlay.style.borderRadius = '14px';
-  overlay.style.background = 'linear-gradient(135deg, rgba(22,163,74,0.97), rgba(37,99,235,0.95))';
+  overlay.style.width = 'min(92vw, 640px)';
+  overlay.style.padding = '30px 32px';
+  overlay.style.borderRadius = '24px';
+  overlay.style.border = '1px solid rgba(255,255,255,0.34)';
+  overlay.style.background = 'linear-gradient(135deg, rgba(21,128,61,0.98), rgba(37,99,235,0.96) 58%, rgba(14,165,233,0.94))';
   overlay.style.color = '#ffffff';
   overlay.style.textAlign = 'center';
-  overlay.style.boxShadow = '0 12px 36px rgba(0,0,0,0.28)';
+  overlay.style.boxShadow = '0 24px 80px rgba(0,0,0,0.38), 0 0 0 10px rgba(255,255,255,0.08)';
+  overlay.style.backdropFilter = 'blur(10px)';
   overlay.style.zIndex = '10000';
   overlay.style.pointerEvents = 'none';
   overlay.style.animation = reduzirMovimento
     ? 'none'
-    : 'pedido-felicitacoes-entrada 320ms ease-out forwards';
-  overlay.innerHTML = '<div style="font-size:18px;font-weight:800;line-height:1.1;">Parabéns!</div><div style="font-size:13px;margin-top:4px;opacity:0.96;">Pedido lançado com sucesso</div>';
+    : 'pedido-felicitacoes-entrada 420ms cubic-bezier(0.22, 1, 0.36, 1) forwards';
+  overlay.innerHTML = `
+    <div style="font-size:15px;font-weight:700;letter-spacing:0.24em;text-transform:uppercase;opacity:0.92;">Parabens pela venda</div>
+    <div style="font-size:36px;font-weight:900;line-height:1.05;margin-top:10px;">${titulo}</div>
+    <div style="font-size:20px;font-weight:600;line-height:1.35;margin-top:12px;opacity:0.98;">${mensagem}</div>
+  `;
   document.body.appendChild(overlay);
 
   if (!reduzirMovimento) {
     const cores = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#14b8a6', '#a855f7', '#eab308'];
-    const totalQueda = window.innerWidth < 768 ? 120 : 190;
-    const totalExplosao = window.innerWidth < 768 ? 40 : 70;
+    const totalQueda = window.innerWidth < 768 ? 170 : 280;
+    const totalExplosao = window.innerWidth < 768 ? 65 : 120;
 
     for (let i = 0; i < totalQueda; i++) {
       const particula = document.createElement('span');
-      const largura = 4 + Math.random() * 6;
-      const altura = 7 + Math.random() * 11;
+      const largura = 6 + Math.random() * 10;
+      const altura = 10 + Math.random() * 16;
       particula.style.position = 'absolute';
       particula.style.top = '-12vh';
       particula.style.left = `${Math.random() * 100}vw`;
@@ -207,9 +295,9 @@ const dispararCelebracaoFechamentoPedido = () => {
       particula.style.opacity = '0.96';
       particula.style.borderRadius = Math.random() > 0.6 ? '999px' : '2px';
       particula.style.transform = `rotate(${Math.random() * 360}deg)`;
-      particula.style.setProperty('--drift', `${(Math.random() - 0.5) * 420}px`);
-      particula.style.animation = `pedido-confete-cair ${1.7 + Math.random() * 1.3}s cubic-bezier(0.22, 0.61, 0.36, 1) forwards`;
-      particula.style.animationDelay = `${Math.random() * 0.28}s`;
+      particula.style.setProperty('--drift', `${(Math.random() - 0.5) * 540}px`);
+      particula.style.animation = `pedido-confete-cair ${2 + Math.random() * 1.5}s cubic-bezier(0.22, 0.61, 0.36, 1) forwards`;
+      particula.style.animationDelay = `${Math.random() * 0.35}s`;
       container.appendChild(particula);
     }
 
@@ -218,19 +306,19 @@ const dispararCelebracaoFechamentoPedido = () => {
       const origemEsquerda = i % 2 === 0;
       const anguloBase = origemEsquerda ? -25 : 205;
       const angulo = (anguloBase + (Math.random() * 70)) * (Math.PI / 180);
-      const distancia = 180 + Math.random() * 320;
+      const distancia = 220 + Math.random() * 420;
       particula.style.position = 'absolute';
       particula.style.left = origemEsquerda ? '8vw' : '92vw';
       particula.style.top = `${35 + Math.random() * 20}vh`;
-      particula.style.width = `${4 + Math.random() * 6}px`;
-      particula.style.height = `${7 + Math.random() * 10}px`;
+      particula.style.width = `${6 + Math.random() * 8}px`;
+      particula.style.height = `${10 + Math.random() * 14}px`;
       particula.style.backgroundColor = cores[Math.floor(Math.random() * cores.length)];
       particula.style.borderRadius = Math.random() > 0.5 ? '999px' : '2px';
       particula.style.opacity = '0.95';
       particula.style.setProperty('--dx', `${Math.cos(angulo) * distancia}px`);
       particula.style.setProperty('--dy', `${Math.sin(angulo) * distancia}px`);
-      particula.style.animation = `pedido-confete-explodir ${1 + Math.random() * 0.7}s ease-out forwards`;
-      particula.style.animationDelay = `${Math.random() * 0.16}s`;
+      particula.style.animation = `pedido-confete-explodir ${1.15 + Math.random() * 0.8}s ease-out forwards`;
+      particula.style.animationDelay = `${Math.random() * 0.22}s`;
       container.appendChild(particula);
     }
   }
@@ -239,12 +327,12 @@ const dispararCelebracaoFechamentoPedido = () => {
     if (!reduzirMovimento) {
       overlay.style.animation = 'pedido-felicitacoes-saida 260ms ease-in forwards';
     }
-  }, 1650);
+  }, 2350);
 
   window.setTimeout(() => {
     container.remove();
     overlay.remove();
-  }, 2350);
+  }, 3000);
 };
 
 const pedidoToSnapshot = (pedido: any): PedidoFormData => ({
@@ -305,6 +393,7 @@ export default function PedidoForm() {
   const [salvandoRascunho, setSalvandoRascunho] = useState(false);
   const [descontoModo, setDescontoModo] = useState<'percentual' | 'valor'>('percentual');
   const [descontoValorInput, setDescontoValorInput] = useState(0);
+  const [itensExpandidos, setItensExpandidos] = useState<Record<string, boolean>>({});
 
   // Verificar permissões específicas
   const podeAlterarStatus = can('pedidos.alterar_status');
@@ -420,7 +509,7 @@ export default function PedidoForm() {
     },
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, move } = useFieldArray({
     control: form.control,
     name: 'itens',
   });
@@ -686,6 +775,11 @@ export default function PedidoForm() {
           dados_propostos: formData,
         });
 
+        dispararCelebracaoFechamentoPedido({
+          titulo: 'Pedido enviado para aprovacao!',
+          mensagem: 'Parabens, vendedor! Sua solicitacao foi enviada e agora aguarda liberacao da aprovacao.',
+        });
+        await aguardar(2400);
         toast({
           title: 'Solicitação enviada!',
           description: 'A alteração foi enviada para aprovação. O pedido será atualizado após liberação.',
@@ -794,13 +888,26 @@ export default function PedidoForm() {
         !isEditing &&
         formData.status !== 'rascunho' &&
         formData.status !== 'cancelado';
-      if (pedidoLancadoAgora) {
-        dispararCelebracaoFechamentoPedido();
-        toast({
-          title: 'Pedido lançado com sucesso!',
-          description: 'Parabéns! O pedido foi registrado no sistema.',
+      if (requerAprovacao) {
+        dispararCelebracaoFechamentoPedido({
+          titulo: 'Pedido enviado para aprovacao!',
+          mensagem: 'Parabens, vendedor! O pedido foi salvo e encaminhado para aprovacao administrativa.',
         });
-        await aguardar(1700);
+        toast({
+          title: 'Pedido enviado para aprovacao!',
+          description: 'Parabens! O pedido foi salvo e agora aguarda liberacao administrativa.',
+        });
+        await aguardar(2400);
+      } else if (pedidoLancadoAgora) {
+        dispararCelebracaoFechamentoPedido({
+          titulo: 'Pedido lancado com sucesso!',
+          mensagem: 'Parabens, vendedor! Seu pedido foi gerado e registrado no sistema com sucesso.',
+        });
+        toast({
+          title: 'Pedido lancado com sucesso!',
+          description: 'Parabens! O pedido foi registrado no sistema.',
+        });
+        await aguardar(2400);
       } else {
         toast({
           title: modoEdicao.apenasStatus ? 'Status atualizado!' : 'Pedido salvo!',
@@ -944,6 +1051,23 @@ export default function PedidoForm() {
   }, [faixasPreco, form.watch('itens')]);
 
   const itensFormulario = form.watch('itens');
+  const itensAbaixoQuantidadeMinima = itensFormulario
+    .map((item, index) => {
+      const produto = produtos?.find(p => p.id === item.produto_id);
+      const quantidadeMinima = getQuantidadeMinimaAviso(produto);
+
+      if (!produto || !quantidadeMinima || Number(item.quantidade) >= quantidadeMinima) {
+        return null;
+      }
+
+      return {
+        index,
+        nome: produto.nome,
+        quantidade: Number(item.quantidade) || 0,
+        quantidadeMinima,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
   const subtotalPedido = calcularSubtotalItens(itensFormulario);
   const descontoPercentualForm = normalizarDescontoPercentual(Number(form.watch('desconto_percentual') || 0));
   const descontoValorNormalizado =
@@ -954,6 +1078,30 @@ export default function PedidoForm() {
     subtotalPedido > 0 ? calcularPercentualPorValor(descontoValorNormalizado, subtotalPedido) : 0;
   const descontoAcimaLimite = !isAdmin && descontoPercentualEfetivo > 3;
   const valorTotal = Math.max(subtotalPedido - descontoValorNormalizado, 0);
+
+  const isItemExpandido = (itemId: string) => itensExpandidos[itemId] ?? true;
+  const toggleItemExpandido = (itemId: string) => {
+    setItensExpandidos((prev) => ({
+      ...prev,
+      [itemId]: !(prev[itemId] ?? true),
+    }));
+  };
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = fields.findIndex((item) => item.id === active.id);
+    const newIndex = fields.findIndex((item) => item.id === over.id);
+
+    if (oldIndex < 0 || newIndex < 0) return;
+    move(oldIndex, newIndex);
+  };
 
   useEffect(() => {
     if (descontoModo === 'valor' && descontoValorInput > subtotalPedido) {
@@ -1303,21 +1451,140 @@ export default function PedidoForm() {
             <CardHeader>
               <div className="flex justify-between items-center">
                 <CardTitle>Itens do Pedido</CardTitle>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => append({ produto_id: '', quantidade: 1, valor_unitario: 0, observacoes: '', foto_modelo_url: '' })}
-                  disabled={camposDesabilitados}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Adicionar Item
-                </Button>
+                <div className="flex items-center gap-2">
+                  {fields.length > 1 && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setItensExpandidos(
+                            Object.fromEntries(fields.map((item) => [item.id, true]))
+                          )
+                        }
+                      >
+                        Expandir Todos
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setItensExpandidos(
+                            Object.fromEntries(fields.map((item) => [item.id, false]))
+                          )
+                        }
+                      >
+                        Recolher Todos
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => append({ produto_id: '', quantidade: 1, valor_unitario: 0, observacoes: '', foto_modelo_url: '' })}
+                    disabled={camposDesabilitados}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Adicionar Item
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {fields.map((field, index) => (
-                <Card key={field.id} className="p-4">
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={fields.map((item) => item.id)} strategy={verticalListSortingStrategy}>
+              {fields.map((field, index) => {
+                const itemAtual = itensFormulario[index];
+                const produtoSelecionado = produtos?.find(p => p.id === itemAtual?.produto_id);
+                const quantidadeMinimaAviso = getQuantidadeMinimaAviso(produtoSelecionado);
+                const quantidadeAbaixoMinima =
+                  quantidadeMinimaAviso !== null && Number(itemAtual?.quantidade) < quantidadeMinimaAviso;
+                const itemExpandido = isItemExpandido(field.id);
+                const valorTotalItem =
+                  (Number(itemAtual?.quantidade) || 0) * (Number(itemAtual?.valor_unitario) || 0);
+                const tipoEstampaNome =
+                  tiposEstampa?.find((tipo: any) => tipo.id === itemAtual?.tipo_estampa_id)?.nome_tipo_estampa;
+                const resumoObs = itemAtual?.observacoes?.trim();
+
+                return (
+                <Collapsible
+                  key={field.id}
+                  open={itemExpandido}
+                  onOpenChange={() => toggleItemExpandido(field.id)}
+                >
+                <SortablePedidoItemCard
+                  itemId={field.id}
+                  highlightClassName={index % 2 === 0 ? 'border-l-primary/70 bg-background' : 'border-l-sky-500/70 bg-sky-50/20'}
+                  header={
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        className="flex w-full items-start justify-between gap-3 text-left"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold">Item {index + 1}</span>
+                            {produtoSelecionado?.nome ? (
+                              <span className="text-sm text-foreground">{produtoSelecionado.nome}</span>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">Produto ainda não selecionado</span>
+                            )}
+                            {quantidadeAbaixoMinima && (
+                              <Badge variant="outline" className="border-amber-400 text-amber-700">
+                                Atenção na quantidade
+                              </Badge>
+                            )}
+                            {itemsAbaixoMinimo.includes(index) && (
+                              <Badge variant="outline" className="border-warning text-warning">
+                                Preço abaixo do mínimo
+                              </Badge>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            <span>Qtd: {Number(itemAtual?.quantidade) || 0}</span>
+                            <span>Valor unit.: {formatCurrency(Number(itemAtual?.valor_unitario) || 0)}</span>
+                            <span>Total: {formatCurrency(valorTotalItem)}</span>
+                            {tipoEstampaNome && <span>Estampa: {tipoEstampaNome}</span>}
+                            {resumoObs && <span>Obs: {resumoObs}</span>}
+                          </div>
+                        </div>
+
+                        <div className="mt-0.5 text-muted-foreground">
+                          {itemExpandido ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </div>
+                      </button>
+                    </CollapsibleTrigger>
+                  }
+                  actions={
+                    <>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => duplicarItem(index)}
+                        disabled={camposDesabilitados}
+                        title="Duplicar item"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => remove(index)}
+                        disabled={fields.length === 1 || camposDesabilitados}
+                        title="Excluir item"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </>
+                  }
+                >
+                  <CollapsibleContent>
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                     <div className="md:col-span-3">
                       <FormField
@@ -1359,9 +1626,20 @@ export default function PedidoForm() {
                                   field.onChange(qtd);
                                   handleQuantidadeChange(index, qtd);
                                 }}
+                                className={cn(
+                                  quantidadeAbaixoMinima && 'border-amber-500 focus-visible:ring-amber-500'
+                                )}
                                 disabled={camposDesabilitados}
                               />
                             </FormControl>
+                            {quantidadeAbaixoMinima && (
+                              <div className="flex items-center gap-1 mt-1">
+                                <AlertTriangle className="h-3 w-3 text-amber-600" />
+                                <span className="text-xs text-amber-700">
+                                  Quantidade abaixo do mínimo recomendado de {quantidadeMinimaAviso} peças. Confirme se está correto.
+                                </span>
+                              </div>
+                            )}
                             <FormMessage />
                           </FormItem>
                         )}
@@ -1430,7 +1708,7 @@ export default function PedidoForm() {
                       />
                     </div>
 
-                    <div className="md:col-span-2">
+                    <div className="md:col-span-3">
                       <FormField
                         control={form.control}
                         name={`itens.${index}.observacoes`}
@@ -1446,27 +1724,6 @@ export default function PedidoForm() {
                       />
                     </div>
 
-                    <div className="md:col-span-1 flex items-end gap-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => duplicarItem(index)}
-                        disabled={camposDesabilitados}
-                        title="Duplicar item"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => remove(index)}
-                        disabled={fields.length === 1 || camposDesabilitados}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
                   </div>
 
                   {/* Detalhes Adicionais */}
@@ -1531,8 +1788,12 @@ export default function PedidoForm() {
                       </div>
                     );
                   })()}
-                </Card>
-              ))}
+                  </CollapsibleContent>
+                </SortablePedidoItemCard>
+                </Collapsible>
+              )})}
+                </SortableContext>
+              </DndContext>
 
               {/* Card de Resumo do Valor Total */}
               <Card className="bg-muted">
@@ -1572,6 +1833,15 @@ export default function PedidoForm() {
                   <span> Desconto a vista equivalente a {descontoPercentualEfetivo.toFixed(2)}% (limite do vendedor: 3%).</span>
                 )}
                 <span> Este pedido sera enviado para aprovacao do administrador.</span>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {itensAbaixoQuantidadeMinima.length > 0 && (
+            <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                Atenção: {itensAbaixoQuantidadeMinima.length} item(ns) estão abaixo da quantidade mínima recomendada do produto. O pedido pode ser salvo normalmente, mas vale conferir com cuidado.
               </AlertDescription>
             </Alert>
           )}

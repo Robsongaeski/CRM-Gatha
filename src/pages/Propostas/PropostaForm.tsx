@@ -95,6 +95,11 @@ const propostaSchema = z.object({
 
 type PropostaFormValues = z.infer<typeof propostaSchema>;
 
+const getQuantidadeMinimaAviso = (produto: any) => {
+  const minimo = Number(produto?.quantidade_minima_venda);
+  return Number.isFinite(minimo) && minimo >= 1 ? minimo : null;
+};
+
 export default function PropostaForm() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -224,6 +229,23 @@ export default function PropostaForm() {
   const status = form.watch('status');
   const criarPrevia = form.watch('criar_previa');
   const itensFormulario = form.watch('itens');
+  const itensAbaixoQuantidadeMinima = itensFormulario
+    .map((item, index) => {
+      const produto = produtos.find((p) => p.id === item.produto_id);
+      const quantidadeMinima = getQuantidadeMinimaAviso(produto);
+
+      if (!produto || !quantidadeMinima || Number(item.quantidade) >= quantidadeMinima) {
+        return null;
+      }
+
+      return {
+        index,
+        nome: produto.nome,
+        quantidade: Number(item.quantidade) || 0,
+        quantidadeMinima,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
   const subtotalProposta = itensFormulario.reduce((total, item) => total + (item.quantidade * item.valor_unitario), 0);
   const descontoPercentual = Math.min(Math.max(Number(form.watch('desconto_percentual') || 0), 0), 100);
   const descontoValorNormalizado =
@@ -979,6 +1001,10 @@ export default function PropostaForm() {
               {fields.map((field, index) => {
                 const item = form.watch(`itens.${index}`);
                 const valorTotal = item.quantidade * item.valor_unitario;
+                const produtoSelecionado = produtos.find((p) => p.id === item.produto_id);
+                const quantidadeMinimaAviso = getQuantidadeMinimaAviso(produtoSelecionado);
+                const quantidadeAbaixoMinima =
+                  quantidadeMinimaAviso !== null && Number(item.quantidade) < quantidadeMinimaAviso;
 
                 return (
                   <Card key={field.id} className="border-muted">
@@ -1135,6 +1161,12 @@ export default function PropostaForm() {
                         />
                       </div>
 
+                      {quantidadeAbaixoMinima && (
+                        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                          Atenção: este produto tem quantidade mínima recomendada de {quantidadeMinimaAviso} peças e este item está com {item.quantidade}. Confirme se está correto.
+                        </div>
+                      )}
+
                       <div className="text-sm font-medium">
                         Valor Total: {formatCurrency(valorTotal)}
                       </div>
@@ -1168,6 +1200,14 @@ export default function PropostaForm() {
                 <Plus className="h-4 w-4 mr-2" />
                 Adicionar Produto
               </Button>
+
+              {itensAbaixoQuantidadeMinima.length > 0 && (
+                <Card className="border-amber-300 bg-amber-50">
+                  <CardContent className="p-4 text-sm text-amber-900">
+                    Existem {itensAbaixoQuantidadeMinima.length} item(ns) abaixo da quantidade mínima recomendada. Revise antes de salvar a proposta.
+                  </CardContent>
+                </Card>
+              )}
 
               <div className="text-right space-y-1">
                 <p className="text-sm text-muted-foreground">

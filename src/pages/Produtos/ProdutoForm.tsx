@@ -24,6 +24,13 @@ const produtoSchema = z.object({
   nome: z.string().min(2, 'Nome deve ter no mínimo 2 caracteres').max(200),
   tipo: z.string().max(100).optional(),
   observacoes_padrao: z.string().max(1000).optional(),
+  quantidade_minima_venda: z.string().optional().refine((val) => {
+    if (!val || val.trim() === '') return true;
+    const parsed = Number(val);
+    return Number.isInteger(parsed) && parsed >= 1;
+  }, {
+    message: 'Informe um número inteiro maior ou igual a 1',
+  }),
   valor_base: z.string().refine((val) => !isNaN(Number(val)) && Number(val) >= 0, {
     message: 'Valor deve ser um número válido',
   }),
@@ -93,6 +100,7 @@ export default function ProdutoForm() {
       nome: '',
       tipo: '',
       observacoes_padrao: '',
+      quantidade_minima_venda: '',
       valor_base: '0',
       grade_tamanho_id: '',
     },
@@ -101,6 +109,7 @@ export default function ProdutoForm() {
       nome: produto.nome,
       tipo: produto.tipo || '',
       observacoes_padrao: produto.observacoes_padrao || '',
+      quantidade_minima_venda: (produto as any).quantidade_minima_venda ? String((produto as any).quantidade_minima_venda) : '',
       valor_base: produto.valor_base,
       grade_tamanho_id: (produto as any).grade_tamanho_id || '',
     } : undefined,
@@ -113,6 +122,7 @@ export default function ProdutoForm() {
         nome: data.nome,
         tipo: data.tipo || null,
         observacoes_padrao: data.observacoes_padrao || null,
+        quantidade_minima_venda: data.quantidade_minima_venda ? Number(data.quantidade_minima_venda) : null,
         valor_base: Number(data.valor_base),
         grade_tamanho_id: data.grade_tamanho_id || null,
       };
@@ -280,6 +290,23 @@ export default function ProdutoForm() {
                       <FormControl>
                         <Input {...field} placeholder="Ex: Uniforme, Esportivo" />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="quantidade_minima_venda"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Qtd. Mínima para Aviso</FormLabel>
+                      <FormControl>
+                        <Input {...field} type="number" min="1" step="1" placeholder="Ex: 30" />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Quando proposta ou pedido ficar abaixo dessa quantidade, o sistema apenas exibe um aviso ao vendedor.
+                      </p>
                       <FormMessage />
                     </FormItem>
                   )}
