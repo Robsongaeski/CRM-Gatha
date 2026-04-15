@@ -71,6 +71,7 @@ const conditionNodes: NodeItem[] = [
 const controlNodes: NodeItem[] = [
   { type: 'control', subtype: 'delay', label: 'Aguardar', icon: <Clock className="h-4 w-4" />, description: 'Espera tempo' },
   { type: 'control', subtype: 'schedule', label: 'Agendar', icon: <Calendar className="h-4 w-4" />, description: 'Horário específico' },
+  { type: 'control', subtype: 'business_hours_handoff', label: 'IA -> Distribuir no Horário', icon: <Clock className="h-4 w-4" />, description: 'No horário comercial, envia da IA para Distribuir Lead' },
   { type: 'control', subtype: 'split_ab', label: 'Teste A/B', icon: <Split className="h-4 w-4" />, description: 'Divide fluxo' },
   { type: 'control', subtype: 'limit_rate', label: 'Limitar Taxa', icon: <Gauge className="h-4 w-4" />, description: 'Limita execuções' },
   { type: 'control', subtype: 'stop_flow', label: 'Encerrar', icon: <StopCircle className="h-4 w-4" />, description: 'Finaliza fluxo' },

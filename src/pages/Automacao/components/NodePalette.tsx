@@ -88,6 +88,7 @@ const logisticsConditionNodes: NodeItem[] = [
 const controlNodes: NodeItem[] = [
   { type: 'control', subtype: 'delay', label: 'Aguardar', icon: <Clock className="h-4 w-4" />, description: 'Espera X tempo antes de continuar' },
   { type: 'control', subtype: 'schedule', label: 'Agendar', icon: <Calendar className="h-4 w-4" />, description: 'Executa em horário específico' },
+  { type: 'control', subtype: 'business_hours_handoff', label: 'IA -> Distribuir no Horário', icon: <Clock className="h-4 w-4" />, description: 'No horário comercial, envia da IA para Distribuir Lead' },
   { type: 'control', subtype: 'split_ab', label: 'Teste A/B', icon: <Split className="h-4 w-4" />, description: 'Divide fluxo por percentual' },
   { type: 'control', subtype: 'limit_rate', label: 'Limitar Taxa', icon: <Gauge className="h-4 w-4" />, description: 'Limita execuções por período' },
   { type: 'control', subtype: 'stop_flow', label: 'Encerrar Fluxo', icon: <StopCircle className="h-4 w-4" />, description: 'Finaliza a execução' },

@@ -15,7 +15,6 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
     .filter((p: any) => p.status === 'aprovado' && !p.estornado)
     .reduce((sum: number, p: any) => sum + Number(p.valor), 0);
   const valorPendente = Math.round((valorTotal - valorPago) * 100) / 100;
-  const observacoesGerais = parsePedidoObservacoes(pedido.observacao);
   const temImagemAprovada = Boolean(pedido.imagem_aprovada && pedido.imagem_aprovacao_url);
   const dataEntrega = parseDateString(pedido.data_entrega);
   const dataEntregaProducao = dataEntrega ? format(dataEntrega, 'dd/MM') : 'XX/XX';
@@ -231,43 +230,19 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
         </div>
       </div>
 
-      {(observacoesGerais.length > 0 || temImagemAprovada) && (
+      {temImagemAprovada && (
         <div className="mb-3 page-break">
-          <div className={observacoesGerais.length > 0 && temImagemAprovada ? 'obs-image-grid gap-3' : 'space-y-3'}>
-            {observacoesGerais.length > 0 && (
-              <div className="p-2 bg-orange-50 border-2 border-orange-300 text-[11px] rounded">
-                <h2 className="font-bold uppercase text-orange-800 border-b border-orange-300 pb-1 mb-2">
-                  Observacoes Gerais
-                </h2>
-                <div className="space-y-2">
-                  {observacoesGerais.map((obs, index) => (
-                    <div key={index} className="bg-white border border-orange-200 rounded px-2 py-1.5">
-                      {formatObservacaoData(obs.data) && (
-                        <p className="text-[10px] font-semibold text-orange-900 mb-1">
-                          {formatObservacaoData(obs.data)}
-                        </p>
-                      )}
-                      <p className="text-gray-900 font-medium whitespace-pre-line">{obs.texto}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {temImagemAprovada && (
-              <div>
-                <h2 className="text-[11px] font-bold text-gray-800 border-b-2 border-gray-400 pb-1 mb-2 uppercase">
-                  Imagem Aprovada
-                </h2>
-                <div className="flex justify-center">
-                  <img
-                    src={pedido.imagem_aprovacao_url}
-                    alt="Imagem aprovada do pedido"
-                    className="max-w-full max-h-[260px] object-contain border-2 border-green-500 rounded"
-                  />
-                </div>
-              </div>
-            )}
+          <div>
+            <h2 className="text-[11px] font-bold text-gray-800 border-b-2 border-gray-400 pb-1 mb-2 uppercase">
+              Imagem Aprovada
+            </h2>
+            <div className="flex justify-center">
+              <img
+                src={pedido.imagem_aprovacao_url}
+                alt="Imagem aprovada do pedido"
+                className="max-w-full max-h-[260px] object-contain border-2 border-green-500 rounded"
+              />
+            </div>
           </div>
         </div>
       )}
@@ -334,9 +309,18 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
                     <div className="mt-1 space-y-1">
                       {item.detalhes.map((detalhe: any, dIndex: number) => {
                         const temQuebraLinha = detalhe.valor?.includes('\n');
+                        const labelMap: Record<string, string> = {
+                          nome_numero: 'Nome/Número',
+                          cor_vies: 'Cor do Viés',
+                          tipo_gola: 'Tipo de Gola',
+                        };
+                        const label = labelMap[detalhe.tipo_detalhe] || 
+                          detalhe.tipo_detalhe.charAt(0).toUpperCase() + 
+                          detalhe.tipo_detalhe.slice(1).replace(/_/g, ' ');
+
                         return (
                           <div key={dIndex} className={temQuebraLinha ? "block" : "inline-block mr-4"}>
-                            <b className="capitalize text-blue-800 font-bold">{detalhe.tipo_detalhe}:</b>{' '}
+                            <b className="text-blue-800 font-bold">{label}:</b>{' '}
                             <span className={temQuebraLinha ? "whitespace-pre-line block pl-3 text-gray-900 font-medium bg-white rounded p-1 mt-0.5 border-l-2 border-blue-400" : "text-gray-900 font-semibold"}>
                               {detalhe.valor}
                             </span>

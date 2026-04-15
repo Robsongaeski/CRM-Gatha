@@ -2377,6 +2377,26 @@ function ControlConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any)
   // Normalizar valores - suporta ambos formatos (amount/unit e delay/delayUnit)
   const delayValue = config.delay || config.amount || '';
   const delayUnit = config.delayUnit || config.unit || 'minutes';
+  const handoffDayOptions = [
+    { value: 'mon', label: 'Seg' },
+    { value: 'tue', label: 'Ter' },
+    { value: 'wed', label: 'Qua' },
+    { value: 'thu', label: 'Qui' },
+    { value: 'fri', label: 'Sex' },
+    { value: 'sat', label: 'Sab' },
+    { value: 'sun', label: 'Dom' },
+  ];
+  const defaultBusinessDays = ['mon', 'tue', 'wed', 'thu', 'fri'];
+  const selectedHandoffDays = Array.isArray(config.days) && config.days.length > 0
+    ? config.days.map((item: unknown) => String(item))
+    : defaultBusinessDays;
+
+  const toggleHandoffDay = (day: string) => {
+    const next = selectedHandoffDays.includes(day)
+      ? selectedHandoffDays.filter((item) => item !== day)
+      : [...selectedHandoffDays, day];
+    onUpdate({ ...config, days: next.length > 0 ? next : defaultBusinessDays });
+  };
   
   return (
     <div className="space-y-6">
@@ -2441,6 +2461,109 @@ function ControlConfig({ node, onUpdate }: { node: Node; onUpdate: (config: any)
               onChange={(e) => onUpdate({ ...config, time: e.target.value })}
               className="bg-muted/50"
             />
+          </FormSection>
+        </>
+      )}
+
+      {subtype === 'business_hours_handoff' && (
+        <>
+          <FormSection
+            title="Ativar IA -> Distribuir no Horário"
+            hint="Quando ativo, no horário comercial o sistema busca conversas atendidas pela IA (sem atendente) e envia para o nó Distribuir Lead"
+          >
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={config.enabled !== false}
+                onChange={(e) => onUpdate({ ...config, enabled: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              Habilitar neste fluxo
+            </label>
+          </FormSection>
+
+          <FormSection
+            title="Agenda"
+            hint="Ative para definir dias e horarios neste componente. Se desativado, usa o horario do no de condicao."
+          >
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={config.use_custom_schedule === true}
+                onChange={(e) => onUpdate({ ...config, use_custom_schedule: e.target.checked })}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              Definir dias e horarios aqui
+            </label>
+          </FormSection>
+
+          {config.use_custom_schedule === true && (
+            <>
+              <FormSection title="Horario">
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="time"
+                    value={config.startHour || config.startTime || '08:00'}
+                    onChange={(e) => onUpdate({ ...config, startHour: e.target.value, startTime: e.target.value })}
+                    className="bg-muted/50"
+                  />
+                  <span className="text-muted-foreground">ate</span>
+                  <Input
+                    type="time"
+                    value={config.endHour || config.endTime || '18:00'}
+                    onChange={(e) => onUpdate({ ...config, endHour: e.target.value, endTime: e.target.value })}
+                    className="bg-muted/50"
+                  />
+                </div>
+              </FormSection>
+
+              <FormSection title="Dias">
+                <div className="flex flex-wrap gap-2">
+                  {handoffDayOptions.map((day) => (
+                    <label key={day.value} className="flex items-center gap-1.5 text-sm rounded-md border px-2 py-1 bg-muted/20">
+                      <input
+                        type="checkbox"
+                        checked={selectedHandoffDays.includes(day.value)}
+                        onChange={() => toggleHandoffDay(day.value)}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <span>{day.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </FormSection>
+
+              <FormSection title="Fuso horario">
+                <Input
+                  value={config.timezone || 'America/Sao_Paulo'}
+                  onChange={(e) => onUpdate({ ...config, timezone: e.target.value })}
+                  placeholder="America/Sao_Paulo"
+                  className="bg-muted/50"
+                />
+              </FormSection>
+            </>
+          )}
+
+
+          <FormSection title="Limite por Execução do Scheduler">
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="1"
+                max="300"
+                value={config.limit_per_run ?? config.handoff_limit ?? 80}
+                onChange={(e) => {
+                  const parsed = parseInt(e.target.value, 10);
+                  const safe = Number.isFinite(parsed) ? Math.min(300, Math.max(1, parsed)) : 80;
+                  onUpdate({ ...config, limit_per_run: safe, handoff_limit: safe });
+                }}
+                className="w-24 bg-muted/50"
+              />
+              <span className="text-sm text-muted-foreground">conversas por rodada</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Esse componente não envia mensagem ao cliente. Ele apenas aciona a distribuição para atendente no início do horário comercial.
+            </p>
           </FormSection>
         </>
       )}

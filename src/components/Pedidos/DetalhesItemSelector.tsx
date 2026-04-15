@@ -30,6 +30,7 @@ const TIPOS_DETALHES = [
   { value: "mangas", label: "Mangas" },
   { value: "punho", label: "Punho" },
   { value: "cor_vies", label: "Cor do Viés" },
+  { value: "nome_numero", label: "Nome/Número" },
   { value: "outros", label: "Outros Detalhes" },
 ];
 

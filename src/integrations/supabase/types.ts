@@ -3051,6 +3051,7 @@ export type Database = {
           id: string
           nome: string
           observacoes_padrao: string | null
+          quantidade_minima_venda: number | null
           tipo: string | null
           updated_at: string | null
           valor_base: number
@@ -3063,6 +3064,7 @@ export type Database = {
           id?: string
           nome: string
           observacoes_padrao?: string | null
+          quantidade_minima_venda?: number | null
           tipo?: string | null
           updated_at?: string | null
           valor_base?: number
@@ -3075,6 +3077,7 @@ export type Database = {
           id?: string
           nome?: string
           observacoes_padrao?: string | null
+          quantidade_minima_venda?: number | null
           tipo?: string | null
           updated_at?: string | null
           valor_base?: number

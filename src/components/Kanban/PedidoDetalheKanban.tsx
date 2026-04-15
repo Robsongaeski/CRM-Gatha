@@ -445,11 +445,22 @@ export function PedidoDetalheKanban({
                             <div className="mt-2">
                               <p className="text-xs font-medium mb-1">Detalhes:</p>
                               <div className="space-y-1">
-                                {item.detalhes.map((detalhe: any) => (
-                                  <p key={detalhe.id} className="text-xs text-muted-foreground">
-                                    <span className="font-medium">{detalhe.tipo_detalhe}:</span> {detalhe.valor}
-                                  </p>
-                                ))}
+                                {item.detalhes.map((detalhe: any) => {
+                                  const labelMap: Record<string, string> = {
+                                    nome_numero: 'Nome/Número',
+                                    cor_vies: 'Cor do Viés',
+                                    tipo_gola: 'Tipo de Gola',
+                                  };
+                                  const label = labelMap[detalhe.tipo_detalhe] || 
+                                    detalhe.tipo_detalhe.charAt(0).toUpperCase() + 
+                                    detalhe.tipo_detalhe.slice(1).replace(/_/g, ' ');
+                                  
+                                  return (
+                                    <p key={detalhe.id} className="text-xs text-muted-foreground">
+                                      <span className="font-medium">{label}:</span> {detalhe.valor}
+                                    </p>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}
