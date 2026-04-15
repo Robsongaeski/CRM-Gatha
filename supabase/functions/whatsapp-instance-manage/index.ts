@@ -43,7 +43,7 @@ const uazErr = (data: any, fallback: string) => String(pick(data, ["message", "e
 const isAlreadyExistsError = (message: string) => {
   const normalized = String(message || "").toLowerCase();
   if (!normalized) return false;
-  return ["already exists", "already exist", "duplicate", "duplicado", "ja existe", "jÃ¡ existe", "exists"].some((part) =>
+  return ["already exists", "already exist", "duplicate", "duplicado", "ja existe", "já existe", "exists"].some((part) =>
     normalized.includes(part)
   );
 };
@@ -594,13 +594,24 @@ serve(async (req) => {
     } else if (action === "disconnect" || action === "delete") {
       if (!instanceName) throw new Error("instanceName e obrigatorio");
       if (apiType === "uazapi") {
-        const cfg = await getUazCfg(supabase);
-        const ctx = await resolveUazCtx(supabase, cfg, { instanceId, instanceName, requireToken: action !== "delete" });
-        if (action === "disconnect") {
-          if (ctx.token) await uazReq(cfg, "/instance/disconnect", { method: "POST", token: ctx.token, body: {} });
-        } else if (ctx.token) {
-          const del = await uazReq(cfg, "/instance", { method: "DELETE", token: ctx.token });
-          if (!del.response.ok && del.response.status !== 404) throw new Error(uazErr(del.data, "Erro ao deletar instancia UAZAPI"));
+        try {
+          const cfg = await getUazCfg(supabase);
+          const ctx = await resolveUazCtx(supabase, cfg, { instanceId, instanceName, requireToken: action !== "delete" });
+          if (action === "disconnect") {
+            if (ctx.token) await uazReq(cfg, "/instance/disconnect", { method: "POST", token: ctx.token, body: {} });
+          } else if (ctx.token) {
+            const del = await uazReq(cfg, "/instance", { method: "DELETE", token: ctx.token });
+            if (!del.response.ok && del.response.status !== 404) {
+              const warning = uazErr(del.data, "Erro ao deletar instancia UAZAPI");
+              console.warn("[UAZAPI] delete warning:", warning);
+              result.providerDeleteWarning = warning;
+            }
+          }
+        } catch (providerError: unknown) {
+          if (action === "disconnect") throw providerError;
+          const warning = providerError instanceof Error ? providerError.message : "Falha ao remover no provedor";
+          console.warn("[UAZAPI] delete warning:", warning);
+          result.providerDeleteWarning = warning;
         }
       } else if (evolutionApiUrl && evolutionApiKey) {
         const url = action === "disconnect" ? `${baseUrl}/instance/logout/${instanceName}` : `${baseUrl}/instance/delete/${instanceName}`;

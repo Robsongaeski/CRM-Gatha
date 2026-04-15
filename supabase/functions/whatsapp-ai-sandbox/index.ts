@@ -97,6 +97,26 @@ function extractGeminiText(payload: Record<string, unknown>): string {
   return "";
 }
 
+function isUnsupportedTemperatureError(raw: Record<string, unknown>): boolean {
+  const errObj = (raw?.error || {}) as Record<string, unknown>;
+  const errParam = asString(errObj.param).toLowerCase();
+  const errMessage = asString(errObj.message).toLowerCase();
+  return Boolean(
+    errParam === "temperature" ||
+    errMessage.includes("temperature") ||
+    errMessage.includes("unsupported value"),
+  );
+}
+
+function shouldTryWithoutTemperature(model: string): boolean {
+  const normalized = asString(model).toLowerCase();
+  return (
+    normalized.startsWith("gpt-5") ||
+    normalized.startsWith("o1") ||
+    normalized.startsWith("o3")
+  );
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -161,7 +181,7 @@ serve(async (req) => {
     let rawResult: any = {};
 
     if (provider === "openai") {
-      const payload: any = {
+      const payloadBase: any = {
         model,
         messages: [
           { role: "system", content: system_prompt },
@@ -171,28 +191,60 @@ serve(async (req) => {
       
       const isReasoningModel = model.startsWith("o1") || model.startsWith("o3");
       if (!isReasoningModel) {
-        payload.temperature = temperature;
-        payload.response_format = { type: "json_object" };
+        payloadBase.response_format = { type: "json_object" };
       }
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${openAiKey}`,
-        },
-        body: JSON.stringify(payload),
-      });
-      rawResult = await response.json();
-      
-      if (rawResult.error) {
-         return new Response(JSON.stringify({ success: false, error: rawResult.error.message || "Erro OpenAI", raw: rawResult }), {
-           status: 200,
-           headers: { ...corsHeaders, "Content-Type": "application/json" },
-         });
+      const attemptRequest = async (includeTemperature: boolean) => {
+        const payload: any = { ...payloadBase };
+        if (includeTemperature) payload.temperature = temperature;
+
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${openAiKey}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        const raw = await response.json().catch(() => ({}));
+        return { response, raw };
+      };
+
+      const tryWithoutTemperature = shouldTryWithoutTemperature(model);
+      const attempts = tryWithoutTemperature ? [true, false] : [true];
+
+      let openAiError: string | null = null;
+      for (let index = 0; index < attempts.length; index++) {
+        const includeTemperature = attempts[index];
+        const { raw } = await attemptRequest(includeTemperature);
+        rawResult = raw;
+
+        if (!rawResult.error) {
+          text = extractOpenAiText(rawResult);
+          openAiError = null;
+          break;
+        }
+
+        const canRetryWithoutTemperature =
+          includeTemperature &&
+          tryWithoutTemperature &&
+          isUnsupportedTemperatureError(rawResult as Record<string, unknown>);
+
+        if (canRetryWithoutTemperature) {
+          continue;
+        }
+
+        openAiError = asString((rawResult as Record<string, unknown>)?.error && (rawResult as any).error.message)
+          || "Erro OpenAI";
+        break;
       }
-      
-      text = extractOpenAiText(rawResult);
+
+      if (openAiError) {
+        return new Response(JSON.stringify({ success: false, error: openAiError, raw: rawResult }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     } else {
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
       const response = await fetch(endpoint, {

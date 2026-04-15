@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 const subtypeIcons: Record<string, React.ReactNode> = {
   delay: <Clock className="h-4 w-4" />,
   schedule: <Calendar className="h-4 w-4" />,
+  business_hours_handoff: <Clock className="h-4 w-4" />,
   split_ab: <Split className="h-4 w-4" />,
   limit_rate: <Gauge className="h-4 w-4" />,
   stop_flow: <StopCircle className="h-4 w-4" />,
@@ -40,6 +41,11 @@ export const ControlNode = memo(({ data, selected }: NodeProps) => {
     }
     if (subtype === 'limit_rate' && config.limit) {
       return `Máx ${config.limit}/${config.period || 'hour'}`;
+    }
+    if (subtype === 'business_hours_handoff') {
+      const enabled = config.enabled !== false;
+      const limit = Math.max(1, Number(config.limit_per_run || config.handoff_limit || 80) || 80);
+      return `${enabled ? 'Ativo' : 'Inativo'} • Limite ${limit}`;
     }
     return null;
   };
