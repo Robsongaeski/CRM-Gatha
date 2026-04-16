@@ -7,10 +7,11 @@ import ConversationList from '@/components/WhatsApp/ConversationList';
 import ChatArea from '@/components/WhatsApp/ChatArea';
 import ConversationInfo from '@/components/WhatsApp/ConversationInfo';
 import SelecionarInstanciaDialog from '@/components/WhatsApp/SelecionarInstanciaDialog';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { sanitizeError } from '@/lib/errorHandling';
+import { usePermissions } from '@/hooks/usePermissions';
 
 interface DeepLinkData {
   telefone: string;
@@ -19,8 +20,13 @@ interface DeepLinkData {
   existingConversationId: string | null;
 }
 
+const INITIAL_CONVERSATION_LIMIT = 100;
+const CONVERSATION_LIMIT_STEP = 100;
+const FOLLOWUP_OVERDUE_HOURS = 24;
+
 export default function WhatsAppAtendimento() {
   const queryClient = useQueryClient();
+  const { canAny, isAdmin } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
   const processedPhoneRef = useRef<string | null>(null);
   
@@ -29,6 +35,7 @@ export default function WhatsAppAtendimento() {
     status: 'active',
     search: '',
   });
+  const [conversationLimit, setConversationLimit] = useState(INITIAL_CONVERSATION_LIMIT);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedGroup, setSelectedGroup] = useState<GroupedConversation | null>(null);
   const [activeInstanceId, setActiveInstanceId] = useState<string | null>(null);
@@ -37,6 +44,13 @@ export default function WhatsAppAtendimento() {
   const [instanceSelectDialog, setInstanceSelectDialog] = useState(false);
   const [deepLinkData, setDeepLinkData] = useState<DeepLinkData | null>(null);
   const [creatingConversation, setCreatingConversation] = useState(false);
+  const canFilterByAttendant = isAdmin || canAny(
+    'whatsapp.visualizar',
+    'ecommerce.whatsapp.visualizar',
+    'whatsapp.configurar',
+    'ecommerce.whatsapp.configurar',
+    'whatsapp.instancias.gerenciar'
+  );
 
   // Buscar instâncias que o usuário tem acesso
   const { data: userInstances = [], isLoading: loadingInstances } = useUserInstances();
@@ -53,14 +67,76 @@ export default function WhatsAppAtendimento() {
     [userInstances]
   );
 
+  const { data: attendants = [] } = useQuery({
+    queryKey: ['whatsapp-attendants', allowedInstanceIds],
+    queryFn: async () => {
+      if (allowedInstanceIds.length === 0) return [];
+
+      const { data: instanceUsers, error: instanceUsersError } = await supabase
+        .from('whatsapp_instance_users')
+        .select('user_id')
+        .in('instance_id', allowedInstanceIds);
+
+      if (instanceUsersError) throw instanceUsersError;
+
+      const userIds = Array.from(new Set((instanceUsers || []).map((item) => item.user_id).filter(Boolean)));
+      if (userIds.length === 0) return [];
+
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, nome')
+        .in('id', userIds)
+        .eq('ativo', true)
+        .order('nome');
+
+      if (profilesError) throw profilesError;
+      return profiles || [];
+    },
+    enabled: canFilterByAttendant && allowedInstanceIds.length > 0,
+  });
+
   // Buscar conversas apenas das instâncias permitidas
   const { data: conversations = [], isLoading: loadingConversations } = useWhatsappConversations(
     filters,
     allowedInstanceIds,
-    { limit: 100, searchLimit: 5000 },
+    { limit: conversationLimit, searchLimit: 5000 },
+    canFilterByAttendant,
   );
+
+  const isSearching = filters.search.trim().length > 0;
+  const hasMoreConversations = !isSearching && conversations.length >= conversationLimit;
+
+  useEffect(() => {
+    setConversationLimit(INITIAL_CONVERSATION_LIMIT);
+  }, [filters.assignment, filters.status, filters.search, filters.instanceId, filters.assignedUserId]);
+
+  useEffect(() => {
+    if (!canFilterByAttendant && (filters.assignment === 'all' || filters.assignedUserId)) {
+      setFilters((prev) => ({
+        ...prev,
+        assignment: 'mine_and_new',
+        assignedUserId: undefined,
+      }));
+    }
+  }, [canFilterByAttendant, filters.assignment, filters.assignedUserId]);
   
   const groupedConversations = useGroupedConversations(conversations);
+  const isFollowupOverdue = useCallback((flaggedAt: string | null) => {
+    if (!flaggedAt) return false;
+    const flaggedTime = new Date(flaggedAt).getTime();
+    if (Number.isNaN(flaggedTime)) return false;
+    return Date.now() - flaggedTime >= FOLLOWUP_OVERDUE_HOURS * 60 * 60 * 1000;
+  }, []);
+
+  const pendingFollowupsCount = useMemo(
+    () => groupedConversations.filter((group) => group.hasFollowup).length,
+    [groupedConversations]
+  );
+
+  const overdueFollowupsCount = useMemo(
+    () => groupedConversations.filter((group) => group.hasFollowup && isFollowupOverdue(group.followupFlaggedAt)).length,
+    [groupedConversations, isFollowupOverdue]
+  );
 
   const buildTemporaryGroup = useCallback((conv: WhatsappConversation): GroupedConversation => {
     const contactPhone = conv.contact_phone || conv.remote_jid?.replace('@s.whatsapp.net', '') || '';
@@ -289,7 +365,18 @@ export default function WhatsAppAtendimento() {
   const allInstances = userInstances;
 
   // Ordenar conversas agrupadas
-  const sortedGroups = [...groupedConversations].sort((a, b) => {
+  const visibleGroups = groupedConversations.filter((group) => {
+    if (filters.status === 'followup_pending') return group.hasFollowup;
+    return true;
+  });
+
+  const sortedGroups = [...visibleGroups].sort((a, b) => {
+    if (filters.status === 'followup_pending') {
+      const aTime = a.followupFlaggedAt ? new Date(a.followupFlaggedAt).getTime() : 0;
+      const bTime = b.followupFlaggedAt ? new Date(b.followupFlaggedAt).getTime() : 0;
+      return aTime - bTime;
+    }
+
     const dateA = new Date(a.lastMessageAt).getTime();
     const dateB = new Date(b.lastMessageAt).getTime();
     return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
@@ -325,15 +412,49 @@ export default function WhatsAppAtendimento() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-140px)] md:h-[calc(100vh-120px)] overflow-hidden bg-[#f0f2f5] -m-6">
+    <div className="flex flex-col h-[calc(100vh-140px)] md:h-[calc(100vh-120px)] overflow-hidden bg-[#f0f2f5] -m-6">
+      {pendingFollowupsCount > 0 && (
+        <div className="flex items-center justify-between gap-3 border-b border-red-200 bg-white px-4 py-2">
+          <div className="text-sm text-red-600">
+            <button
+              type="button"
+              onClick={() => setFilters((prev) => ({ ...prev, status: 'followup_pending' }))}
+              className={`hover:underline ${filters.status === 'followup_pending' ? 'font-semibold underline text-red-700' : ''}`}
+            >
+              Você tem {pendingFollowupsCount} retorno{pendingFollowupsCount !== 1 ? 's' : ''} pendente{pendingFollowupsCount !== 1 ? 's' : ''}
+            </button>
+            {overdueFollowupsCount > 0 && (
+              <span>, {overdueFollowupsCount} atrasado{overdueFollowupsCount !== 1 ? 's' : ''}</span>
+            )}
+            {filters.status === 'followup_pending' && (
+              <>
+                <span>, </span>
+                <button
+                  type="button"
+                  onClick={() => setFilters((prev) => ({ ...prev, status: 'active' }))}
+                  className="text-slate-600 hover:underline"
+                >
+                  Limpar
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      <div className="flex flex-1 overflow-hidden">
       {/* Lista de conversas */}
       <div className="w-[380px] flex-shrink-0 border-r border-[#d1d7db] flex flex-col h-full">
         <ConversationList
           conversations={conversations}
           groupedConversations={sortedGroups}
           loading={loadingConversations || loadingInstances}
+          loadingMore={loadingConversations && conversationLimit > INITIAL_CONVERSATION_LIMIT}
+          hasMore={hasMoreConversations}
+          onLoadMore={() => setConversationLimit((prev) => prev + CONVERSATION_LIMIT_STEP)}
           filters={filters}
           onFiltersChange={setFilters}
+          canFilterByAttendant={canFilterByAttendant}
+          attendants={attendants}
           selectedGroupKey={selectedGroup?.groupKey}
           onSelectGroup={handleSelectGroup}
           instances={allInstances}
@@ -391,6 +512,7 @@ export default function WhatsAppAtendimento() {
         onConfirm={handleDialogConfirm}
         loading={creatingConversation}
       />
+      </div>
     </div>
   );
 }

@@ -29,6 +29,17 @@ type AgentConfig = {
   pricing_output_usd_per_1m: number | null;
   fallback_pricing_input_usd_per_1m: number | null;
   fallback_pricing_output_usd_per_1m: number | null;
+  metadata: {
+    features?: {
+      humanize_style?: boolean;
+      auto_sanitize?: boolean;
+      use_llm_triage?: boolean;
+    };
+    triage?: {
+      enabled?: boolean;
+      required_fields?: string[];
+    };
+  };
 };
 
 type ConversationInfo = {
@@ -999,30 +1010,19 @@ async function callProvider(params: {
   });
 }
 
-function sanitizeReplyText(input: string): string {
-  let normalized = String(input || "")
-    .replace(/[—–]/g, ", ")
-    .replace(/\s+/g, " ")
-    .trim();
-
+function sanitizeReplyText(input: string, features?: Record<string, any>): string {
+  let normalized = String(input || "").trim();
   if (!normalized) return "";
 
-  // Evita linguagem robotica repetitiva no mesmo texto.
-  normalized = normalized.replace(/\b[sS][oó]\s+para\s+confirmar:?\s*/g, "Me ajuda com um detalhe: ");
-  normalized = normalized.replace(/(?:Me ajuda com um detalhe:\s*){2,}/g, "Me ajuda com um detalhe: ");
+  if (features?.auto_sanitize) {
+    normalized = normalized
+      .replace(/[—–]/g, ", ")
+      .replace(/\s+/g, " ")
+      .replace(/\b[sS][oó]\s+para\s+confirmar:?\s*/g, "Antes de seguir, um detalhe: ")
+      .replace(/\b(?:recebi|vi)\s+(?:seu|sua)\s+(?:audio|áudio|foto|imagem|arquivo|documento)\b[^.?!]*[.?!]?\s*/gi, "");
+  }
 
-  // Nao precisa mencionar que recebeu midia (audio/foto/arquivo), ir direto ao ponto.
-  normalized = normalized.replace(
-    /\b(?:recebi|vi)\s+(?:seu|sua)\s+(?:audio|áudio|foto|imagem|arquivo|documento)\b[^.?!]*[.?!]?\s*/gi,
-    "",
-  );
-
-  normalized = normalized
-    .replace(/^[,;:\-\s]+/, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return normalized.slice(0, 1200);
+  return normalized.slice(0, 1200).trim();
 }
 
 function buildKnowledgeSection(items: Array<{ title: string | null; content: string }>): string {
@@ -1388,16 +1388,18 @@ serve(async (req) => {
     const conversationHistory = buildConversationSection([...(recentMessages || [])].reverse());
     const knowledgeSection = buildKnowledgeSection((knowledgeItems || []) as Array<{ title: string | null; content: string }>);
 
-    const isComercialAgent = asString(cfg.agent_key).toLowerCase() === "comercial_v1";
-    const agentSpecificStyleLines = isComercialAgent
+    const metadata = cfg.metadata || {};
+    const features = metadata.features || {};
+    
+    // Injeta instruções de estilo baseado no metadata (desrobotização global)
+    const agentSpecificStyleLines = features.humanize_style
       ? [
-          "Estilo adicional para atendimento comercial:",
-          "- Nao use travessao (— ou –).",
-          "- Evite repetir 'So para confirmar'.",
-          "- Nao diga que recebeu audio/foto/arquivo; va direto para a proxima pergunta util.",
-          "- Nao diga que vai encaminhar/transferir para o comercial.",
-          "- Fale naturalmente como atendente humana e use: 'vou montar seu orcamento e ja te passo'.",
-          "- Se houver duvida real, faca handoff para atendente humano sem insistir.",
+          "Estilo de atendimento humanizado:",
+          "- Não use travessão (— ou –). Use vírgulas.",
+          "- Evite repetir frases de confirmação mecânicas.",
+          "- Não diga que recebeu áudio/foto/imagem; vá direto para a próxima resposta útil.",
+          "- Fale naturalmente como uma pessoa real, evite termos como 'entendido', 'anotado' em excesso.",
+          "- Use tom acolhedor e profissional.",
         ].join("\n")
       : "";
 
@@ -1491,27 +1493,22 @@ serve(async (req) => {
 
     let decision = normalizeDecision(parsedDecision, cfg.confidence_threshold || 0.7);
 
+    const triage = metadata.triage || {};
     const triageSignals = inferTriageSignals(incomingText, (recentMessages || []) as HeuristicMessage[]);
     const customerRequestedHuman = customerAskedHumanExplicitly(incomingText);
-    const handoffReasonsThatShouldCollectFirst = [
-      "quote_requested",
-      "deadline_requested",
-      "collecting_quote_data",
-      "no_reason",
-    ];
-
+    
+    // Decisão final de triagem: Só intercepta se o metadata permitir e a triagem estiver incompleta
     if (
       decision.action === "handoff" &&
+      triage.enabled &&
       !customerRequestedHuman &&
       !triageSignals.minimumComplete &&
-      handoffReasonsThatShouldCollectFirst.includes(asString(decision.handoff_reason))
+      decision.handoff_reason !== "human_requested"
     ) {
       decision = {
         ...decision,
         action: "reply",
-        intent: "quote_pre_handoff_collection",
-        handoff_reason: "collecting_before_handoff",
-        handoff_user_id: null,
+        intent: "pre_handoff_collection",
         reply_text: buildCollectBeforeHandoffReply(
           conversationInfo.contact_name,
           !triageSignals.productKnown,
@@ -1547,7 +1544,7 @@ serve(async (req) => {
     let handoffUserId: string | null = null;
 
     if (decision.action === "reply") {
-      const safeReply = sanitizeReplyText(decision.reply_text);
+      const safeReply = sanitizeReplyText(decision.reply_text, features);
       if (!safeReply) {
         decision = {
           ...decision,

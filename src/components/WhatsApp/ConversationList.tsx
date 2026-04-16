@@ -17,8 +17,13 @@ interface ConversationListProps {
   conversations: WhatsappConversation[];
   groupedConversations: GroupedConversation[];
   loading: boolean;
+  loadingMore?: boolean;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
   filters: ConversationFilters;
   onFiltersChange: (filters: ConversationFilters) => void;
+  canFilterByAttendant?: boolean;
+  attendants?: Array<{ id: string; nome: string }>;
   selectedGroupKey?: string;
   onSelectGroup: (group: GroupedConversation) => void;
   instances: Array<{ id: string; nome: string; status?: string }>;
@@ -31,8 +36,13 @@ export default function ConversationList({
   conversations,
   groupedConversations,
   loading,
+  loadingMore = false,
+  hasMore = false,
+  onLoadMore,
   filters,
   onFiltersChange,
+  canFilterByAttendant = false,
+  attendants = [],
   selectedGroupKey,
   onSelectGroup,
   instances,
@@ -120,6 +130,7 @@ export default function ConversationList({
               onFiltersChange({
                 ...filters,
                 assignment: value,
+                assignedUserId: value === 'all' ? filters.assignedUserId : undefined,
                 status: value === 'all' ? 'all' : filters.status,
               });
             }}
@@ -130,12 +141,14 @@ export default function ConversationList({
             <SelectContent>
               <SelectItem value="mine_and_new">Minhas + Novas</SelectItem>
               <SelectItem value="mine">Minhas</SelectItem>
-              <SelectItem value="all">Todas</SelectItem>
+              {canFilterByAttendant && (
+                <SelectItem value="all">Todas</SelectItem>
+              )}
             </SelectContent>
           </Select>
           <Select
             value={filters.status}
-            onValueChange={(value: 'all' | 'active' | 'unread' | 'finished') => {
+            onValueChange={(value: 'all' | 'active' | 'unread' | 'finished' | 'followup_pending') => {
               onFiltersChange({ ...filters, status: value });
             }}
           >
@@ -145,6 +158,7 @@ export default function ConversationList({
             <SelectContent>
               <SelectItem value="all">Todas</SelectItem>
               <SelectItem value="active">Ativas</SelectItem>
+              <SelectItem value="followup_pending">Retornos Pendentes</SelectItem>
               <SelectItem value="unread">Não lidas</SelectItem>
               <SelectItem value="finished">Finalizadas</SelectItem>
             </SelectContent>
@@ -163,6 +177,33 @@ export default function ConversationList({
             )}
           </Button>
         </div>
+
+        {canFilterByAttendant && attendants.length > 0 && (
+          <div className="px-2 pb-2 bg-white flex-shrink-0">
+            <Select
+              value={filters.assignedUserId || 'all'}
+              onValueChange={(value) =>
+                onFiltersChange({
+                  ...filters,
+                  assignment: 'all',
+                  assignedUserId: value === 'all' ? undefined : value,
+                })
+              }
+            >
+              <SelectTrigger className="h-8 text-xs bg-[#f0f2f5] border-none text-[#54656f]">
+                <SelectValue placeholder="Todos os atendentes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os atendentes</SelectItem>
+                {attendants.map((attendant) => (
+                  <SelectItem key={attendant.id} value={attendant.id}>
+                    {attendant.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {instances.length > 1 && (
           <div className="px-2 pb-2 bg-white flex-shrink-0">
@@ -311,6 +352,18 @@ export default function ConversationList({
                   </div>
                 );
               })}
+              {hasMore && (
+                <div className="p-3 border-t border-[#e9edef] bg-white">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={onLoadMore}
+                    disabled={loadingMore}
+                  >
+                    {loadingMore ? 'Carregando...' : 'Ver mais conversas'}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>

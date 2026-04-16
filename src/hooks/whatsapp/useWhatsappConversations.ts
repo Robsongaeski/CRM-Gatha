@@ -117,9 +117,10 @@ export interface WhatsappConversation {
 
 export interface ConversationFilters {
   assignment: 'mine' | 'mine_and_new' | 'all';
-  status: 'all' | 'active' | 'unread' | 'finished';
+  status: 'all' | 'active' | 'unread' | 'finished' | 'followup_pending';
   search: string;
   instanceId?: string;
+  assignedUserId?: string;
 }
 
 interface ConversationQueryOptions {
@@ -131,6 +132,7 @@ export function useWhatsappConversations(
   filters: ConversationFilters,
   allowedInstanceIds?: string[],
   options?: ConversationQueryOptions,
+  canViewAllConversations = false,
 ) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -143,6 +145,7 @@ export function useWhatsappConversations(
       allowedInstanceIds,
       options?.limit ?? null,
       options?.searchLimit ?? null,
+      canViewAllConversations,
     ],
     queryFn: async () => {
       const hasInstanceFilter = Array.isArray(allowedInstanceIds);
@@ -169,13 +172,15 @@ export function useWhatsappConversations(
 
       const searchTerm = filters.search.trim();
       const hasSearch = searchTerm.length > 0;
+      const effectiveAssignment = canViewAllConversations ? filters.assignment : 'mine_and_new';
+      const effectiveAssignedUserId = canViewAllConversations ? filters.assignedUserId : undefined;
       let matchedClienteIdsFromSearch: string[] = [];
 
       // Filtro de atribuição
-      if (!hasSearch && filters.assignment === 'mine' && user) {
+      if (!hasSearch && effectiveAssignment === 'mine' && user) {
         // "mine" mostra APENAS minhas conversas + grupos
         query = query.or(`assigned_to.eq.${user.id},is_group.eq.true`);
-      } else if (!hasSearch && filters.assignment === 'mine_and_new' && user) {
+      } else if (!hasSearch && effectiveAssignment === 'mine_and_new' && user) {
         // "mine_and_new" mostra minhas + sem atribuição (novas) + grupos
         query = query.or(`assigned_to.eq.${user.id},assigned_to.is.null,is_group.eq.true`);
       }
@@ -187,6 +192,8 @@ export function useWhatsappConversations(
         query = query.eq('status', 'finished');
       } else if (filters.status === 'active') {
         query = query.neq('status', 'finished');
+      } else if (filters.status === 'followup_pending') {
+        query = query.eq('needs_followup', true);
       }
       // status === 'all' não aplica filtro
 
@@ -196,6 +203,10 @@ export function useWhatsappConversations(
           return [] as WhatsappConversation[];
         }
         query = query.eq('instance_id', filters.instanceId);
+      }
+
+      if (effectiveAssignedUserId) {
+        query = query.eq('assigned_to', effectiveAssignedUserId);
       }
       // Filtro de instâncias permitidas (baseado em vínculos do usuário)
       else if (hasInstanceFilter) {
@@ -270,17 +281,19 @@ export function useWhatsappConversations(
       const fetchLimit = hasSearch
         ? (options?.searchLimit ?? CONVERSATION_SEARCH_LIMIT)
         : (options?.limit ?? DEFAULT_CONVERSATION_LIST_LIMIT);
-      const { data, error } = await query.limit(fetchLimit);
+      const { data, error } = await query.limit(fetchLimit + 1);
       if (error) throw error;
 
       // Busca client-side final (normalizacao e consistencia de filtros)
       let results = (data || []) as WhatsappConversation[];
 
-      if (filters.assignment === 'mine' && user) {
+      if (effectiveAssignedUserId) {
+        results = results.filter((conv) => conv.assigned_to === effectiveAssignedUserId);
+      } else if (effectiveAssignment === 'mine' && user) {
         results = results.filter((conv) =>
           conv.is_group || conv.assigned_to === user.id
         );
-      } else if (filters.assignment === 'mine_and_new' && user) {
+      } else if (effectiveAssignment === 'mine_and_new' && user) {
         results = results.filter((conv) =>
           conv.is_group || conv.assigned_to === user.id || !conv.assigned_to
         );
@@ -313,7 +326,7 @@ export function useWhatsappConversations(
         });
       }
 
-      return results;
+      return results.slice(0, fetchLimit);
     }
   });
 

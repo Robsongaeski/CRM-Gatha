@@ -112,6 +112,9 @@ export default function PedidosLista() {
   const [buscaFilter, setBuscaFilter] = useState(filtrosSalvos?.buscaFilter || '');
   const [dataInicioFilter, setDataInicioFilter] = useState(filtrosSalvos?.dataInicioFilter || '');
   const [dataFimFilter, setDataFimFilter] = useState(filtrosSalvos?.dataFimFilter || '');
+  const [saldoLancamentosEmAbertoFilter, setSaldoLancamentosEmAbertoFilter] = useState(
+    filtrosSalvos?.saldoLancamentosEmAbertoFilter || false
+  );
   const [currentPage, setCurrentPage] = useState(1);
 
   // Salvar filtros quando mudarem
@@ -125,8 +128,9 @@ export default function PedidosLista() {
       buscaFilter,
       dataInicioFilter,
       dataFimFilter,
+      saldoLancamentosEmAbertoFilter,
     });
-  }, [statusFilter, statusPagamentoFilter, vendedorFilter, clienteFilter, buscaInput, buscaFilter, dataInicioFilter, dataFimFilter]);
+  }, [statusFilter, statusPagamentoFilter, vendedorFilter, clienteFilter, buscaInput, buscaFilter, dataInicioFilter, dataFimFilter, saldoLancamentosEmAbertoFilter]);
 
   // Limpar filtros ao sair da página (exceto para páginas de pedido)
   useEffect(() => {
@@ -216,7 +220,19 @@ export default function PedidosLista() {
       (p) => p.pedido_id === pedidoId && p.status === 'aprovado' && !p.estornado
     ) || [];
     const valorPago = pagamentosPedido.reduce((sum, p) => sum + Number(p.valor), 0);
-    return valorTotal - valorPago;
+    return Math.max(0, Number((valorTotal - valorPago).toFixed(2)));
+  };
+
+  const calcularSaldoComPagamentosLancados = (pedidoId: string, valorTotal: number) => {
+    const pagamentosPedido = pagamentosData?.filter(
+      (p) =>
+        p.pedido_id === pedidoId &&
+        !p.estornado &&
+        ['aguardando', 'aprovado'].includes(p.status)
+    ) || [];
+
+    const valorLancado = pagamentosPedido.reduce((sum, p) => sum + Number(p.valor), 0);
+    return Math.max(0, Number((valorTotal - valorLancado).toFixed(2)));
   };
 
   // Verificar se pedido tem boleto rejeitado (em atraso)
@@ -244,7 +260,10 @@ export default function PedidosLista() {
   };
 
   const { data: pedidos, isLoading } = usePedidos(Object.keys(filtros).length > 0 ? filtros : undefined);
-  const listaPedidos = pedidos || [];
+  const pedidosBase = pedidos || [];
+  const listaPedidos = saldoLancamentosEmAbertoFilter
+    ? pedidosBase.filter((pedido: any) => calcularSaldoComPagamentosLancados(pedido.id, Number(pedido.valor_total)) > 0)
+    : pedidosBase;
   const totalPages = Math.max(1, Math.ceil(listaPedidos.length / ITENS_POR_PAGINA));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * ITENS_POR_PAGINA;
@@ -282,7 +301,7 @@ export default function PedidosLista() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, statusPagamentoFilter, vendedorFilter, clienteFilter, buscaFilter, dataInicioFilter, dataFimFilter]);
+  }, [statusFilter, statusPagamentoFilter, vendedorFilter, clienteFilter, buscaFilter, dataInicioFilter, dataFimFilter, saldoLancamentosEmAbertoFilter]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -362,6 +381,7 @@ export default function PedidosLista() {
     setBuscaFilter('');
     setDataInicioFilter('');
     setDataFimFilter('');
+    setSaldoLancamentosEmAbertoFilter(false);
   };
 
   const handleToggleStatusPagamento = (status: string) => {
@@ -381,7 +401,7 @@ export default function PedidosLista() {
   };
 
   const temFiltrosAtivos = statusFilter.length > 0 || statusPagamentoFilter.length > 0 || 
-    vendedorFilter !== 'todos' || clienteFilter !== 'todos' || buscaFilter || dataInicioFilter || dataFimFilter;
+    vendedorFilter !== 'todos' || clienteFilter !== 'todos' || buscaFilter || dataInicioFilter || dataFimFilter || saldoLancamentosEmAbertoFilter;
 
   if (isLoading) {
     return (
@@ -535,6 +555,17 @@ export default function PedidosLista() {
                     ))}
                   </div>
                 </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Saldo c/ Lançamentos</label>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <Checkbox
+                      checked={saldoLancamentosEmAbertoFilter}
+                      onCheckedChange={(checked) => setSaldoLancamentosEmAbertoFilter(checked === true)}
+                    />
+                    <span className="text-sm">Mostrar só pedidos com saldo em aberto</span>
+                  </label>
+                </div>
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -554,6 +585,7 @@ export default function PedidosLista() {
                 <TableHead>Cliente</TableHead>
                 <TableHead>Valor Total</TableHead>
                 <TableHead>Valor Pendente</TableHead>
+                <TableHead>Saldo c/ Lançamentos</TableHead>
                 <TableHead>Status Pagamento</TableHead>
                 <TableHead>Etapa</TableHead>
                 <TableHead>Status</TableHead>
@@ -564,6 +596,10 @@ export default function PedidosLista() {
             <TableBody>
               {paginatedPedidos.map((pedido: any) => {
                 const valorPendente = calcularValorPendente(pedido.id, Number(pedido.valor_total));
+                const saldoComPagamentosLancados = calcularSaldoComPagamentosLancados(
+                  pedido.id,
+                  Number(pedido.valor_total)
+                );
                 // Priorizar imagem aprovada, senão pegar primeira foto disponível dos itens
                 const primeiraFoto = (pedido.imagem_aprovada && pedido.imagem_aprovacao_url) 
                   ? pedido.imagem_aprovacao_url 
@@ -603,6 +639,11 @@ export default function PedidosLista() {
                     <TableCell>
                       <span className={valorPendente > 0 ? 'text-orange-600 font-semibold' : 'text-green-600'}>
                         {formatCurrency(valorPendente)}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className={saldoComPagamentosLancados > 0 ? 'text-amber-600 font-semibold' : 'text-green-600'}>
+                        {formatCurrency(saldoComPagamentosLancados)}
                       </span>
                     </TableCell>
                     <TableCell>
