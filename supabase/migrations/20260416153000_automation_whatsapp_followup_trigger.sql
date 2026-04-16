@@ -6,10 +6,14 @@ BEGIN;
 
 CREATE OR REPLACE FUNCTION public.handle_outbound_message_followup()
 RETURNS TRIGGER AS $$
+DECLARE
+  v_cliente_id UUID;
 BEGIN
   -- Se a mensagem for enviada pelo sistema/atendente (from_me = true)
   -- e não for uma mensagem puramente de sistema/log (message_type != 'system')
   IF NEW.from_me = true AND NEW.message_type != 'system' THEN
+    
+    -- 1. Atualizar a conversa do WhatsApp
     UPDATE public.whatsapp_conversations
     SET 
       needs_followup = false,
@@ -17,7 +21,17 @@ BEGIN
       followup_color = null,
       followup_flagged_at = null
     WHERE id = NEW.conversation_id
-      AND needs_followup = true;
+      AND needs_followup = true
+    RETURNING cliente_id INTO v_cliente_id;
+
+    -- 2. Se houver um cliente vinculado, limpar também o retorno na tabela de leads
+    IF v_cliente_id IS NOT NULL THEN
+      UPDATE public.leads
+      SET data_retorno = NULL
+      WHERE cliente_id = v_cliente_id
+        AND data_retorno IS NOT NULL;
+    END IF;
+
   END IF;
   RETURN NEW;
 END;
