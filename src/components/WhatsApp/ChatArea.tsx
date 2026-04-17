@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { sanitizeError } from '@/lib/errorHandling';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
+import { useIsMobile } from '@/hooks/use-mobile';
 import MessageBubble from './MessageBubble';
 import TransferirAtendimentoDialog from './TransferirAtendimentoDialog';
 import ForwardMessageDialog from './ForwardMessageDialog';
@@ -40,6 +41,7 @@ export default function ChatArea({
   onTabChange,
   onBack
 }: ChatAreaProps) {
+  const isMobile = useIsMobile();
   const { user } = useAuth();
   const [message, setMessage] = useState('');
   const [showTransferDialog, setShowTransferDialog] = useState(false);
@@ -699,17 +701,23 @@ export default function ChatArea({
 
   // Verificar se há múltiplas instâncias
   const hasMultipleInstances = uniqueInstanceConversations.length > 1;
+  const visibleQuickButtons = isMobile ? quickButtons.slice(0, 4) : quickButtons;
   return (
     <div className="flex flex-col h-full bg-[#efeae2]">
       {/* Header - WhatsApp style */}
-      <div className="flex items-center justify-between h-[59px] px-2 md:px-4 bg-[#f0f2f5] border-b border-[#d1d7db] flex-shrink-0 cursor-pointer">
+      <div
+        className={cn(
+          'flex items-center justify-between bg-[#f0f2f5] border-b border-[#d1d7db] flex-shrink-0 cursor-pointer',
+          isMobile ? 'min-h-[56px] px-2 py-2' : 'h-[59px] px-2 md:px-4'
+        )}
+      >
         <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
           {onBack && (
             <Button variant="ghost" size="icon" className="md:hidden h-8 w-8 rounded-full flex-shrink-0 mr-1" onClick={onBack}>
               <ChevronLeft className="h-5 w-5 text-[#54656f]" />
             </Button>
           )}
-          <Avatar className="h-10 w-10 flex-shrink-0">
+          <Avatar className={cn('flex-shrink-0', isMobile ? 'h-9 w-9' : 'h-10 w-10')}>
             <AvatarImage src={conversation.is_group ? conversation.group_photo_url || undefined : conversation.contact_photo_url || undefined} />
             <AvatarFallback className="bg-[#dfe5e7] text-[#54656f]">
               {conversation.is_group ? (
@@ -720,15 +728,15 @@ export default function ChatArea({
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-[#111b21] text-base truncate leading-tight">{mainName}</p>
+            <p className={cn('font-medium text-[#111b21] truncate leading-tight', isMobile ? 'text-sm' : 'text-base')}>{mainName}</p>
             {/* Secundário: Nome da Instância + Atendente */}
-            <p className="text-[13px] text-[#667781] truncate mb-1">
+            <p className={cn('text-[#667781] truncate', isMobile ? 'text-[11px] mb-0.5' : 'text-[13px] mb-1')}>
               {conversation.instance?.nome} {conversation.assigned_user ? `• Atendente: ${conversation.assigned_user.nome}` : ''}
             </p>
             
             {/* Tabs para múltiplas instâncias - Destacadas */}
             {hasMultipleInstances && (
-              <div className="flex items-center gap-2 mt-0.5">
+              <div className={cn('flex items-center gap-2 mt-0.5 overflow-x-auto', isMobile && 'pr-2 pb-0.5')}>
                 {uniqueInstanceConversations.map((conv) => {
                   const isActive = conv.instance_id === conversation.instance_id;
                   const instanceName = conv.instance?.nome || 'Instância';
@@ -762,8 +770,8 @@ export default function ChatArea({
           </div>
         </div>
         
-        <div className="flex items-center gap-2 flex-shrink-0 text-[#54656f]">
-          <Search className="h-5 w-5 cursor-pointer hover:text-[#3b4a54] mr-1" />
+        <div className={cn('flex items-center flex-shrink-0 text-[#54656f]', isMobile ? 'gap-1.5' : 'gap-2')}>
+          {!isMobile && <Search className="h-5 w-5 cursor-pointer hover:text-[#3b4a54] mr-1" />}
 
           <Sheet open={showInfoSheet} onOpenChange={setShowInfoSheet}>
             <SheetTrigger asChild>
@@ -786,7 +794,10 @@ export default function ChatArea({
               variant="outline"
               size="sm"
               onClick={() => setShowTransferDialog(true)}
-              className="text-[#54656f] border-[#d1d7db] hover:bg-black/5 gap-1 h-8 px-2 md:px-3"
+              className={cn(
+                'text-[#54656f] border-[#d1d7db] hover:bg-black/5 gap-1 h-8',
+                isMobile ? 'px-2 min-w-8' : 'px-2 md:px-3'
+              )}
             >
               <ArrowRightLeft className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Transferir</span>
@@ -799,7 +810,10 @@ export default function ChatArea({
               size="sm"
               onClick={handleAssign}
               title={takeOverLabel}
-              className="text-[#0f766e] border-[#99f6e4] hover:bg-[#ccfbf1]/60 gap-1 h-8 px-2 md:px-3"
+              className={cn(
+                'text-[#0f766e] border-[#99f6e4] hover:bg-[#ccfbf1]/60 gap-1 h-8',
+                isMobile ? 'px-2 min-w-8' : 'px-2 md:px-3'
+              )}
             >
               {conversation.assigned_to ? (
                 <UserPlus className="h-3.5 w-3.5" />
@@ -816,20 +830,20 @@ export default function ChatArea({
               variant="outline"
               size="sm" 
               onClick={handleReactivate}
-              className="text-[#25d366] border-[#25d366] hover:bg-[#25d366]/10 gap-1 h-8"
+              className={cn('text-[#25d366] border-[#25d366] hover:bg-[#25d366]/10 gap-1 h-8', isMobile && 'px-2')}
             >
               <RefreshCw className="h-3.5 w-3.5" />
-              Reativar
+              <span className={cn(isMobile && 'hidden sm:inline')}>Reativar</span>
             </Button>
           ) : (
             <Button 
               variant="outline"
               size="sm" 
               onClick={handleFinish}
-              className="text-[#1da851] border-[#1da851] hover:bg-[#1da851]/10 gap-1 h-8 font-medium"
+              className={cn('text-[#1da851] border-[#1da851] hover:bg-[#1da851]/10 gap-1 h-8 font-medium', isMobile && 'px-2')}
             >
               <CheckCircle2 className="h-4 w-4" />
-              Finalizar
+              <span className={cn(isMobile && 'hidden sm:inline')}>Finalizar</span>
             </Button>
           )}
         </div>
@@ -854,7 +868,7 @@ export default function ChatArea({
           backgroundColor: '#efeae2'
         }}
       >
-        <div className="p-4 space-y-1 min-h-full flex flex-col justify-end">
+        <div className={cn('space-y-1 min-h-full flex flex-col justify-end', isMobile ? 'p-2.5' : 'p-4')}>
           {isLoading ? (
             <div className="text-center text-[#667781]">Carregando mensagens...</div>
           ) : (
@@ -1020,7 +1034,7 @@ export default function ChatArea({
           </div>
         )}
 
-        <div className={cn("px-4 py-3", isRecording && "bg-[#f0f2f5]")}>
+        <div className={cn(isMobile ? 'px-2 py-2' : 'px-4 py-3', isRecording && 'bg-[#f0f2f5]')}>
           <div className="flex items-center gap-2">
             {isRecording ? (
               <div className="flex-1 flex items-center justify-between bg-white border border-[#d1d7db] rounded-[24px] px-4 py-2 h-[44px] shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -1132,7 +1146,10 @@ export default function ChatArea({
                       }
                     }}
                     placeholder="Mensagem"
-                    className="w-full bg-white rounded-lg px-4 py-2 text-[#111b21] placeholder:text-[#667781] focus:outline-none resize-none min-h-[44px] max-h-32 shadow-sm"
+                    className={cn(
+                      'w-full bg-white rounded-lg px-4 py-2 text-[#111b21] placeholder:text-[#667781] focus:outline-none resize-none shadow-sm',
+                      isMobile ? 'min-h-[40px] max-h-28 text-base' : 'min-h-[44px] max-h-32'
+                    )}
                     rows={message.split('\n').length > 1 ? Math.min(message.split('\n').length, 5) : 1}
                   />
                 </div>
@@ -1159,12 +1176,12 @@ export default function ChatArea({
           </div>
         {/* Quick replies bar - ABAIXO do input */}
         {quickReplies.length > 0 && (
-          <div className="px-3 py-1.5 bg-[#f0f2f5] border-t border-[#d1d7db]">
-            <div className="flex flex-wrap items-center gap-1">
+          <div className={cn('bg-[#f0f2f5] border-t border-[#d1d7db]', isMobile ? 'px-2 py-1' : 'px-3 py-1.5')}>
+            <div className={cn('flex items-center gap-1', isMobile ? 'overflow-x-auto whitespace-nowrap' : 'flex-wrap')}>
               <Zap className="h-4 w-4 text-[#54656f] mr-1 flex-shrink-0" />
               
               {/* Quick action buttons */}
-              {quickButtons.map((reply) => (
+              {visibleQuickButtons.map((reply) => (
                 <Button
                   key={reply.id}
                   variant="ghost"
@@ -1232,9 +1249,9 @@ export default function ChatArea({
                 </PopoverContent>
               </Popover>
             </div>
-            <p className="text-xs text-[#667781] mt-1">
+            {!isMobile && <p className="text-xs text-[#667781] mt-1">
               Digite /atalho para enviar • Estas são suas respostas rápidas pessoais
-            </p>
+            </p>}
           </div>
         )}
       </div>

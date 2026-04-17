@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { sanitizeError } from '@/lib/errorHandling';
 import { usePermissions } from '@/hooks/usePermissions';
 import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface DeepLinkData {
   telefone: string;
@@ -26,6 +27,7 @@ const CONVERSATION_LIMIT_STEP = 100;
 const FOLLOWUP_OVERDUE_HOURS = 24;
 
 export default function Atendimento() {
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { canAny, isAdmin } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -500,8 +502,13 @@ export default function Atendimento() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)] md:h-[calc(100vh-120px)] overflow-hidden bg-[#f0f2f5] -m-6">
-      {pendingFollowupsCount > 0 && (
+    <div
+      className={cn(
+        'flex flex-col overflow-hidden bg-[#f0f2f5]',
+        isMobile ? 'h-full min-h-0' : 'h-[calc(100vh-120px)] -m-6'
+      )}
+    >
+      {pendingFollowupsCount > 0 && (!isMobile || !activeConversation) && (
         <div className="flex items-center justify-between gap-3 border-b border-red-200 bg-white px-4 py-2">
           <div className="text-sm text-red-600">
             <button

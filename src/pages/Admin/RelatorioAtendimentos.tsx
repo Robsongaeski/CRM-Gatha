@@ -153,6 +153,47 @@ function formatPercent(value: number) {
   return `${value.toFixed(1).replace('.', ',')}%`;
 }
 
+function PrintMetricCard({
+  icon,
+  title,
+  value,
+  detail,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: string | number;
+  detail?: string;
+}) {
+  return (
+    <div
+      style={{
+        border: '1px solid #d7dde7',
+        borderRadius: '10px',
+        padding: '12px 14px',
+        background: '#fff',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          color: '#5b6577',
+          fontSize: '12px',
+          marginBottom: '6px',
+        }}
+      >
+        {icon}
+        <span>{title}</span>
+      </div>
+      <div style={{ fontSize: '24px', fontWeight: 700, lineHeight: 1.1, color: '#111827' }}>{value}</div>
+      {detail ? (
+        <div style={{ fontSize: '12px', color: '#5b6577', marginTop: '4px' }}>{detail}</div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function RelatorioAtendimentos() {
   const printRef = useRef<HTMLDivElement>(null);
   const today = new Date();
@@ -636,60 +677,118 @@ export default function RelatorioAtendimentos() {
         </Card>
       </div>
 
-      <div ref={printRef} className="hidden print:block">
-        <div className="mb-4 border-b pb-3">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-bold">Relatório de Atendimentos</h1>
-              <p className="text-xs text-muted-foreground">Atendente: {selectedAttendantName}</p>
-              <p className="text-xs text-muted-foreground">Período: {format(dateRange.from, 'dd/MM/yyyy')} até {format(dateRange.to, 'dd/MM/yyyy')}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{printInsights.join(' • ')}</p>
+      <div className="hidden">
+        <div ref={printRef}>
+          <style>{`
+            @page {
+              size: A4;
+              margin: 12mm;
+            }
+
+            @media print {
+              body {
+                background: #ffffff;
+                color: #111827;
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
+              }
+            }
+          `}</style>
+
+          <div
+            style={{
+              fontFamily: 'Arial, sans-serif',
+              color: '#111827',
+              width: '100%',
+            }}
+          >
+            <div
+              style={{
+                marginBottom: '18px',
+                paddingBottom: '12px',
+                borderBottom: '1px solid #d7dde7',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                gap: '16px',
+              }}
+            >
+              <div>
+                <h1 style={{ fontSize: '28px', lineHeight: 1.1, margin: 0, fontWeight: 700 }}>Relatório de Atendimentos</h1>
+                <p style={{ fontSize: '12px', margin: '8px 0 0', color: '#5b6577' }}>Atendente: {selectedAttendantName}</p>
+                <p style={{ fontSize: '12px', margin: '4px 0 0', color: '#5b6577' }}>
+                  Período: {format(dateRange.from, 'dd/MM/yyyy')} até {format(dateRange.to, 'dd/MM/yyyy')}
+                </p>
+                <p style={{ fontSize: '12px', margin: '6px 0 0', color: '#5b6577' }}>{printInsights.join(' • ')}</p>
+              </div>
+              <div style={{ fontSize: '12px', color: '#5b6577', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                Gerado em {format(new Date(), "dd/MM/yyyy 'às' HH:mm")}
+              </div>
             </div>
-            <div className="text-right text-xs text-muted-foreground">Gerado em {format(new Date(), "dd/MM/yyyy 'às' HH:mm")}</div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                gap: '10px',
+                marginBottom: '18px',
+              }}
+            >
+              <PrintMetricCard icon={<UserRound size={14} />} title="Atendimentos" value={currentSummary?.attendedConversations || 0} />
+              <PrintMetricCard icon={<MessageCircleMore size={14} />} title="Início cliente" value={currentSummary?.startedByCustomer || 0} />
+              <PrintMetricCard icon={<ShoppingCart size={14} />} title="Início atendente" value={currentSummary?.startedByAttendant || 0} />
+              <PrintMetricCard icon={<GitCompareArrows size={14} />} title="Conversão geral" value={formatPercent(currentConversionRate)} />
+              <PrintMetricCard icon={<GitCompareArrows size={14} />} title="Conversão novos" value={formatPercent(currentNewConversionRate)} />
+              <PrintMetricCard
+                icon={<Wallet size={14} />}
+                title="Pedidos e valor"
+                value={currentSummary?.closedOrders || 0}
+                detail={`${formatCurrency(currentSummary?.closedOrdersValue || 0)} • ticket ${formatCurrency(currentAverageTicket)}`}
+              />
+            </div>
+
+            <div
+              style={{
+                border: '1px solid #d7dde7',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                background: '#fff',
+              }}
+            >
+              <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid #e5e7eb' }}>
+                <div style={{ fontSize: '18px', fontWeight: 700 }}>Detalhamento diário</div>
+                <div style={{ fontSize: '12px', color: '#5b6577', marginTop: '4px' }}>
+                  Distribuição de atendimentos, origem, pedidos e valor por dia.
+                </div>
+              </div>
+
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Data</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>Atend.</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>Cliente</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>Atend.</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>Pedidos</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(primaryReport.data?.daily || []).map((row, index) => (
+                    <tr key={`print-${row.date}`} style={{ background: index % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                      <td style={{ padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>{format(parseISO(row.date), 'dd/MM/yyyy')}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #f1f5f9' }}>{row.attendedConversations}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #f1f5f9' }}>{row.startedByCustomer}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #f1f5f9' }}>{row.startedByAttendant}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #f1f5f9' }}>{row.closedOrders}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #f1f5f9' }}>{formatCurrency(row.closedOrdersValue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-
-        <div className="mb-4 grid grid-cols-3 gap-2 text-sm">
-          <Card className="shadow-none"><CardContent className="pt-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><UserRound className="h-4 w-4" />Atendimentos</div><div className="mt-1 text-xl font-bold">{currentSummary?.attendedConversations || 0}</div></CardContent></Card>
-          <Card className="shadow-none"><CardContent className="pt-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><MessageCircleMore className="h-4 w-4" />Início cliente</div><div className="mt-1 text-xl font-bold">{currentSummary?.startedByCustomer || 0}</div></CardContent></Card>
-          <Card className="shadow-none"><CardContent className="pt-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><ShoppingCart className="h-4 w-4" />Início atendente</div><div className="mt-1 text-xl font-bold">{currentSummary?.startedByAttendant || 0}</div></CardContent></Card>
-          <Card className="shadow-none"><CardContent className="pt-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><GitCompareArrows className="h-4 w-4" />Conversão geral</div><div className="mt-1 text-xl font-bold">{formatPercent(currentConversionRate)}</div></CardContent></Card>
-          <Card className="shadow-none"><CardContent className="pt-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><GitCompareArrows className="h-4 w-4" />Conversão novos</div><div className="mt-1 text-xl font-bold">{formatPercent(currentNewConversionRate)}</div></CardContent></Card>
-          <Card className="shadow-none"><CardContent className="pt-3"><div className="flex items-center gap-2 text-xs text-muted-foreground"><Wallet className="h-4 w-4" />Pedidos e valor</div><div className="mt-1 text-xl font-bold">{currentSummary?.closedOrders || 0}</div><div className="text-xs text-muted-foreground">{formatCurrency(currentSummary?.closedOrdersValue || 0)} • ticket {formatCurrency(currentAverageTicket)}</div></CardContent></Card>
-        </div>
-
-        <Card className="shadow-none">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Detalhamento diário</CardTitle>
-            <CardDescription>Distribuição de atendimentos, origem, pedidos e valor por dia.</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="h-8 px-2 text-xs">Data</TableHead>
-                  <TableHead className="h-8 px-2 text-right text-xs">Atend.</TableHead>
-                  <TableHead className="h-8 px-2 text-right text-xs">Cliente</TableHead>
-                  <TableHead className="h-8 px-2 text-right text-xs">Atend.</TableHead>
-                  <TableHead className="h-8 px-2 text-right text-xs">Pedidos</TableHead>
-                  <TableHead className="h-8 px-2 text-right text-xs">Valor</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(primaryReport.data?.daily || []).map((row) => (
-                  <TableRow key={`print-${row.date}`}>
-                    <TableCell className="px-2 py-1 text-xs">{format(parseISO(row.date), 'dd/MM/yyyy')}</TableCell>
-                    <TableCell className="px-2 py-1 text-right text-xs">{row.attendedConversations}</TableCell>
-                    <TableCell className="px-2 py-1 text-right text-xs">{row.startedByCustomer}</TableCell>
-                    <TableCell className="px-2 py-1 text-right text-xs">{row.startedByAttendant}</TableCell>
-                    <TableCell className="px-2 py-1 text-right text-xs">{row.closedOrders}</TableCell>
-                    <TableCell className="px-2 py-1 text-right text-xs">{formatCurrency(row.closedOrdersValue)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
       </div>
     </div>
   );
