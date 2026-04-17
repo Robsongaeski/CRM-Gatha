@@ -441,17 +441,60 @@ export default function Atendimento() {
     }
   }, [groupedConversations]);
 
+  // Sincronizar conversa ativa com a URL para suportar o botão "Voltar" do navegador/celular
+  useEffect(() => {
+    const cid = searchParams.get('cid');
+    
+    if (cid) {
+      if (cid !== activeInstanceId) {
+        setActiveInstanceId(cid);
+      }
+      
+      // Se tivermos um ID na URL mas nenhum grupo selecionado (ex: refresh ou link direto)
+      // tentamos encontrar o grupo que contém essa conversa
+      if (!selectedGroup && groupedConversations.length > 0) {
+        const group = groupedConversations.find(g => 
+          g.conversations.some(c => c.id === cid)
+        );
+        if (group) {
+          setSelectedGroup(group);
+        }
+      }
+    } else if (activeInstanceId) {
+      // Se o CID sumiu da URL (botão voltar), limpamos o estado local
+      setActiveInstanceId(null);
+      setSelectedGroup(null);
+    }
+  }, [searchParams, groupedConversations, activeInstanceId, selectedGroup]);
+
   const handleSelectGroup = (group: GroupedConversation) => {
+    const firstConvId = group.conversations[0]?.id;
+    if (firstConvId) {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('cid', firstConvId);
+        return next;
+      });
+    }
     setSelectedGroup(group);
-    // Ao selecionar, começa pela primeira conversa
-    setActiveInstanceId(group.conversations[0]?.id || null);
+    setActiveInstanceId(firstConvId || null);
   };
 
   const handleTabChange = (conversationId: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('cid', conversationId);
+      return next;
+    });
     setActiveInstanceId(conversationId);
   };
 
   const handleClearConversation = () => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('cid');
+      return next;
+    });
     setActiveInstanceId(null);
     setSelectedGroup(null);
   };

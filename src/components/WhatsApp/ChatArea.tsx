@@ -11,7 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Send, Users, UserPlus, CheckCircle2, RefreshCw, ArrowRightLeft, Smile, Paperclip, Image, FileText, X, Zap, ChevronRight, ChevronLeft, Search, WifiOff, Mic, Square, Trash2, Bot } from 'lucide-react';
+import { Send, Users, UserPlus, CheckCircle2, RefreshCw, ArrowRightLeft, Smile, Paperclip, Image, FileText, X, Zap, ChevronRight, ChevronLeft, Search, WifiOff, Mic, Square, Trash2, Bot, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { sanitizeError } from '@/lib/errorHandling';
@@ -20,6 +20,8 @@ import { Input } from '@/components/ui/input';
 import MessageBubble from './MessageBubble';
 import TransferirAtendimentoDialog from './TransferirAtendimentoDialog';
 import ForwardMessageDialog from './ForwardMessageDialog';
+import ConversationInfo from './ConversationInfo';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
 interface ChatAreaProps {
   conversation: WhatsappConversation;
@@ -45,6 +47,7 @@ export default function ChatArea({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSending] = useState(false); // Mantido para compatibilidade visual
+  const [showInfoSheet, setShowInfoSheet] = useState(false);
   const [showQuickRepliesPopover, setShowQuickRepliesPopover] = useState(false);
   const [quickReplySearch, setQuickReplySearch] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -761,6 +764,22 @@ export default function ChatArea({
         
         <div className="flex items-center gap-2 flex-shrink-0 text-[#54656f]">
           <Search className="h-5 w-5 cursor-pointer hover:text-[#3b4a54] mr-1" />
+
+          <Sheet open={showInfoSheet} onOpenChange={setShowInfoSheet}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="lg:hidden h-8 w-8 text-[#54656f] hover:bg-black/5">
+                <Info className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="p-0 w-full sm:w-[400px]">
+              <SheetHeader className="p-4 border-b">
+                <SheetTitle>Informações do Atendimento</SheetTitle>
+              </SheetHeader>
+              <div className="h-[calc(100vh-65px)] overflow-y-auto">
+                <ConversationInfo conversation={conversation} />
+              </div>
+            </SheetContent>
+          </Sheet>
 
           {canTransferConversation && (
             <Button
