@@ -12,6 +12,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { sanitizeError } from '@/lib/errorHandling';
 import { usePermissions } from '@/hooks/usePermissions';
+import { cn } from '@/lib/utils';
 
 interface DeepLinkData {
   telefone: string;
@@ -450,6 +451,11 @@ export default function Atendimento() {
     setActiveInstanceId(conversationId);
   };
 
+  const handleClearConversation = () => {
+    setActiveInstanceId(null);
+    setSelectedGroup(null);
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] md:h-[calc(100vh-120px)] overflow-hidden bg-[#f0f2f5] -m-6">
       {pendingFollowupsCount > 0 && (
@@ -480,9 +486,12 @@ export default function Atendimento() {
           </div>
         </div>
       )}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
       {/* Lista de conversas */}
-      <div className="w-[380px] flex-shrink-0 border-r border-[#d1d7db] flex flex-col h-full">
+      <div className={cn(
+        "w-full md:w-[380px] flex-shrink-0 border-r border-[#d1d7db] flex-col h-full",
+        activeConversation ? "hidden md:flex" : "flex"
+      )}>
         <ConversationList
           conversations={conversations}
           groupedConversations={sortedGroups}
@@ -504,13 +513,17 @@ export default function Atendimento() {
       </div>
 
       {/* Área de chat */}
-      <div className="flex-1 flex flex-col min-w-0 h-full">
+      <div className={cn(
+        "flex-1 flex-col min-w-0 h-full w-full absolute md:relative z-10 bg-[#f0f2f5]",
+        activeConversation ? "flex" : "hidden md:flex"
+      )}>
         {activeConversation && selectedGroup ? (
           <ChatArea
             conversation={activeConversation}
             groupedConversations={selectedGroup.conversations}
             activeConversationId={activeInstanceId || activeConversation.id}
             onTabChange={handleTabChange}
+            onBack={handleClearConversation}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center bg-[#f0f2f5]">
@@ -531,9 +544,9 @@ export default function Atendimento() {
         )}
       </div>
 
-      {/* Painel de informações - sempre visível */}
+      {/* Painel de informações - visível no desktop */}
       {activeConversation && (
-        <div className="w-[320px] flex-shrink-0 border-l border-[#d1d7db] bg-white h-full overflow-y-auto">
+        <div className="hidden lg:block w-[320px] flex-shrink-0 border-l border-[#d1d7db] bg-white h-full overflow-y-auto">
           <ConversationInfo
             conversation={activeConversation}
           />

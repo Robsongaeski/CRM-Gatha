@@ -11,7 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Send, Users, UserPlus, CheckCircle2, RefreshCw, ArrowRightLeft, Smile, Paperclip, Image, FileText, X, Zap, ChevronRight, Search, WifiOff, Mic, Square, Trash2, Bot } from 'lucide-react';
+import { Send, Users, UserPlus, CheckCircle2, RefreshCw, ArrowRightLeft, Smile, Paperclip, Image, FileText, X, Zap, ChevronRight, ChevronLeft, Search, WifiOff, Mic, Square, Trash2, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { sanitizeError } from '@/lib/errorHandling';
@@ -26,6 +26,7 @@ interface ChatAreaProps {
   groupedConversations?: WhatsappConversation[];
   activeConversationId?: string;
   onTabChange?: (conversationId: string) => void;
+  onBack?: () => void;
 }
 
 const EMOJI_LIST = ['😀', '😂', '😍', '🥰', '😊', '👍', '👏', '🙏', '❤️', '🔥', '✅', '⭐', '🎉', '👋', '🤝', '💪'];
@@ -34,7 +35,8 @@ export default function ChatArea({
   conversation, 
   groupedConversations = [],
   activeConversationId,
-  onTabChange 
+  onTabChange,
+  onBack
 }: ChatAreaProps) {
   const { user } = useAuth();
   const [message, setMessage] = useState('');
@@ -697,8 +699,13 @@ export default function ChatArea({
   return (
     <div className="flex flex-col h-full bg-[#efeae2]">
       {/* Header - WhatsApp style */}
-      <div className="flex items-center justify-between h-[59px] px-4 bg-[#f0f2f5] border-b border-[#d1d7db] flex-shrink-0 cursor-pointer">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className="flex items-center justify-between h-[59px] px-2 md:px-4 bg-[#f0f2f5] border-b border-[#d1d7db] flex-shrink-0 cursor-pointer">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
+          {onBack && (
+            <Button variant="ghost" size="icon" className="md:hidden h-8 w-8 rounded-full flex-shrink-0 mr-1" onClick={onBack}>
+              <ChevronLeft className="h-5 w-5 text-[#54656f]" />
+            </Button>
+          )}
           <Avatar className="h-10 w-10 flex-shrink-0">
             <AvatarImage src={conversation.is_group ? conversation.group_photo_url || undefined : conversation.contact_photo_url || undefined} />
             <AvatarFallback className="bg-[#dfe5e7] text-[#54656f]">
@@ -760,10 +767,10 @@ export default function ChatArea({
               variant="outline"
               size="sm"
               onClick={() => setShowTransferDialog(true)}
-              className="text-[#54656f] border-[#d1d7db] hover:bg-black/5 gap-1 h-8"
+              className="text-[#54656f] border-[#d1d7db] hover:bg-black/5 gap-1 h-8 px-2 md:px-3"
             >
               <ArrowRightLeft className="h-3.5 w-3.5" />
-              Transferir
+              <span className="hidden sm:inline">Transferir</span>
             </Button>
           )}
 
@@ -773,14 +780,14 @@ export default function ChatArea({
               size="sm"
               onClick={handleAssign}
               title={takeOverLabel}
-              className="text-[#0f766e] border-[#99f6e4] hover:bg-[#ccfbf1]/60 gap-1 h-8"
+              className="text-[#0f766e] border-[#99f6e4] hover:bg-[#ccfbf1]/60 gap-1 h-8 px-2 md:px-3"
             >
               {conversation.assigned_to ? (
                 <UserPlus className="h-3.5 w-3.5" />
               ) : (
                 <Bot className="h-3.5 w-3.5" />
               )}
-              {conversation.assigned_to ? 'Assumir' : 'Encerrar IA'}
+              <span className="hidden sm:inline">{conversation.assigned_to ? 'Assumir' : 'Encerrar IA'}</span>
             </Button>
           )}
           
