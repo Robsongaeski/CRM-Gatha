@@ -143,6 +143,7 @@ const adminItems = [
   { title: 'WhatsApp API', url: '/admin/whatsapp-api', icon: MessageSquare },
   { title: 'Regras de Comissão', url: '/admin/regras-comissao', icon: Percent },
   { title: 'Relatório Comissões', url: '/admin/relatorio-comissoes', icon: FileSpreadsheet },
+  { title: 'Relatório Atendimentos', url: '/admin/relatorio-atendimentos', icon: BarChart3 },
   { title: 'Guia do Sistema', url: '/docs', icon: BookOpen },
 ];
 

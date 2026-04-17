@@ -32,6 +32,7 @@ import RegrasComissao from './pages/Admin/RegrasComissao';
 import MinhasComissoes from './pages/Comissoes/MinhasComissoes';
 import AprovarPedidos from './pages/Admin/AprovarPedidos';
 import RelatorioComissoes from './pages/Admin/RelatorioComissoes';
+import RelatorioAtendimentos from './pages/Admin/RelatorioAtendimentos';
 import LeadsLista from './pages/Leads/LeadsLista';
 import LeadDetalhes from './pages/Leads/LeadDetalhes';
 import LeadForm from './pages/Leads/LeadForm';
@@ -181,6 +182,7 @@ const App = () => (
             <Route path="/admin/perfis/editar/:id" element={<ProtectedRoute requireAdmin><AppLayout><PerfilForm /></AppLayout></ProtectedRoute>} />
             <Route path="/admin/regras-comissao" element={<ProtectedRoute requireAdmin><AppLayout><RegrasComissao /></AppLayout></ProtectedRoute>} />
             <Route path="/admin/relatorio-comissoes" element={<ProtectedRoute requireAdmin><AppLayout><RelatorioComissoes /></AppLayout></ProtectedRoute>} />
+            <Route path="/admin/relatorio-atendimentos" element={<ProtectedRoute requireAdmin><AppLayout><RelatorioAtendimentos /></AppLayout></ProtectedRoute>} />
             <Route path="/admin/aprovar-pedidos" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin']} allowedPermissions={['aprovacoes.aprovar', 'pedidos.alteracoes.aprovar']}><AppLayout><AprovarPedidos /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/admin/segmentos" element={<ProtectedRoute requireAdmin><AppLayout><SegmentosLista /></AppLayout></ProtectedRoute>} />
             <Route path="/admin/segmentos/novo" element={<ProtectedRoute requireAdmin><AppLayout><SegmentoForm /></AppLayout></ProtectedRoute>} />
