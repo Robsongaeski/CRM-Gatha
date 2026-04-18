@@ -76,6 +76,10 @@ const legacyActionSubtypeMap: Record<string, string> = {
   resposta_palavra: 'keyword_auto_reply',
 };
 
+const standaloneControlSubtypes = new Set([
+  'business_hours_handoff',
+]);
+
 function extractAiAgentKeyFromWebhookConfig(rawConfig: unknown): string {
   const config = (rawConfig && typeof rawConfig === 'object')
     ? (rawConfig as Record<string, unknown>)
@@ -294,8 +298,12 @@ function FluxoEditorInner() {
       }
     });
     
-    // Check for orphaned nodes (not triggers, not connected)
-    nodes.filter(n => n.type !== 'trigger').forEach(node => {
+    // Alguns nós de controle funcionam como marcadores globais do fluxo e não precisam de conexão no grafo.
+    nodes.filter(n => {
+      if (n.type === 'trigger') return false;
+      const subtype = String(n.data?.subtype || '').trim();
+      return !(n.type === 'control' && standaloneControlSubtypes.has(subtype));
+    }).forEach(node => {
       const hasIncoming = edges.some(e => e.target === node.id);
       if (!hasIncoming) {
         errors.push(`O nó "${node.data.label}" não está conectado ao fluxo`);
