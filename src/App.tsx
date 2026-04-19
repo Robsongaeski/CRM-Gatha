@@ -1,4 +1,4 @@
-﻿import { Toaster } from "@/components/ui/toaster";
+import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,8 +7,16 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { RoleProtectedRoute } from "@/components/RoleProtectedRoute";
 import { AppLayout } from "@/components/Layout/AppLayout";
+import { CartProvider } from "@/contexts/CartContext";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
+import HomePage from "./pages/Site/HomePage";
+import CategoryPage from "./pages/Site/CategoryPage";
+import SportsCategoryPage from "./pages/Site/SportsCategoryPage";
+import ProductPage from "./pages/Site/ProductPage";
+import CartPage from "./pages/Site/CartPage";
+import CategoryRoute from "./pages/Site/CategoryRoute";
+import ProductRoute from "./pages/Site/ProductRoute";
 import ClientesLista from "./pages/Clientes/ClientesLista";
 import ClienteForm from "./pages/Clientes/ClienteForm";
 import ClienteDetalhes from "./pages/Clientes/ClienteDetalhes";
@@ -24,6 +32,7 @@ import PedidoDetalhes from "./pages/Pedidos/PedidoDetalhes";
 import PagamentosPendentes from "./pages/Financeiro/PagamentosPendentes";
 import HistoricoFinanceiro from "./pages/Financeiro/HistoricoFinanceiro";
 import ControleRecebimentos from "./pages/Financeiro/ControleRecebimentos";
+
 import UsuariosLista from "./pages/Admin/UsuariosLista";
 import UsuarioForm from "./pages/Admin/UsuarioForm";
 import PerfisLista from "./pages/Admin/PerfisLista";
@@ -143,11 +152,19 @@ const App = () => (
     <TooltipProvider>
       <BrowserRouter>
         <AuthProvider>
-          <Toaster />
-          <Sonner />
-          <Routes>
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
+          <CartProvider>
+            <Toaster />
+            <Sonner />
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/categoria/esportivos" element={<SportsCategoryPage />} />
+              <Route path="/categoria/:slug" element={<CategoryRoute />} />
+              <Route path="/produto/:slug" element={<ProductRoute />} />
+              <Route path="/carrinho" element={<CartPage />} />
+              
+              <Route path="/auth" element={<Auth />} />
+              <Route path="/dashboard" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
+
             <Route path="/clientes" element={<ProtectedRoute><AppLayout><ClientesLista /></AppLayout></ProtectedRoute>} />
             <Route path="/clientes/novo" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['clientes.criar']}><AppLayout><ClienteForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/clientes/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['clientes.editar']}><AppLayout><ClienteForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
@@ -320,7 +337,8 @@ const App = () => (
             <Route path="/trocas-devolucoes/orders" element={<Navigate to="/ecommerce/pedidos" replace />} />
             
             <Route path="*" element={<NotFound />} />
-          </Routes>
+            </Routes>
+          </CartProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
@@ -328,5 +346,3 @@ const App = () => (
 );
 
 export default App;
-
-

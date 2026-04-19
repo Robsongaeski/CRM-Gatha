@@ -65,7 +65,7 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
 
   // Verificar permissão de admin se necessário
   if (requireAdmin && !isAdmin) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;

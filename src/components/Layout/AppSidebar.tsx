@@ -34,7 +34,7 @@ import { Badge } from '@/components/ui/badge';
 
 // Definição dos módulos e seus itens
 const vendasItems = [
-  { title: 'Dashboard', url: '/', icon: LayoutDashboard },
+  { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard },
   { title: 'Meus Leads', url: '/leads', icon: UserPlus, showBadge: true },
   { title: 'Propostas', url: '/propostas', icon: FileText },
   { title: 'Pedidos', url: '/pedidos', icon: ShoppingCart },
@@ -189,7 +189,7 @@ function useModuleState() {
       }
     } else if (path.startsWith('/whatsapp')) {
       setOpenModules(prev => ({ ...prev, whatsapp: true }));
-    } else if (['/leads', '/propostas', '/pedidos', '/clientes', '/comissoes', '/', '/vendas/grades-prova'].includes(path)) {
+    } else if (['/leads', '/propostas', '/pedidos', '/clientes', '/comissoes', '/dashboard', '/vendas/grades-prova'].includes(path)) {
       setOpenModules(prev => ({ ...prev, vendas: true }));
     } else if (path.startsWith('/automacao')) {
       setOpenModules(prev => ({ ...prev, automacao: true }));

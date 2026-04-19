@@ -23,7 +23,7 @@ export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
 
   // Captura a URL de origem (se existir)
-  const from = (location.state as { from?: string })?.from || '/';
+  const from = (location.state as { from?: string })?.from || '/dashboard';
 
   const loginForm = useForm({
     resolver: zodResolver(loginSchema),
