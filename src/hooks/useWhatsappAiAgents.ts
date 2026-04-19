@@ -5,6 +5,26 @@ import { toast } from 'sonner';
 
 export type AiProvider = 'openai' | 'gemini';
 export type AiHandoffMode = 'round_robin' | 'specific_user';
+export type AiTriageField = 'produto' | 'quantidade' | 'ideia';
+
+export interface WhatsappAiAgentMetadata {
+  features?: {
+    humanize_style?: boolean;
+    auto_sanitize?: boolean;
+    use_llm_triage?: boolean;
+    split_greeting_question?: boolean;
+  };
+  triage?: {
+    enabled?: boolean;
+    required_fields?: AiTriageField[];
+  };
+  handoff?: {
+    send_transition_message?: boolean;
+    transition_message?: string | null;
+    price_request_handoff_threshold?: number;
+    min_customer_messages_before_handoff?: number;
+  };
+}
 
 export interface WhatsappAiAgent {
   id: string;
@@ -24,6 +44,7 @@ export interface WhatsappAiAgent {
   handoff_mode: AiHandoffMode;
   handoff_user_id: string | null;
   eligible_user_ids: string[];
+  metadata: WhatsappAiAgentMetadata | null;
   is_active: boolean;
   updated_at: string;
   created_at: string;
@@ -77,6 +98,7 @@ export function useWhatsappAiAgents() {
           handoff_mode,
           handoff_user_id,
           eligible_user_ids,
+          metadata,
           is_active,
           created_at,
           updated_at
@@ -115,6 +137,7 @@ export function useSaveWhatsappAiAgent() {
         handoff_mode: normalizeHandoffMode(agent.handoff_mode),
         handoff_user_id: String(agent.handoff_user_id || '').trim() || null,
         eligible_user_ids: Array.isArray(agent.eligible_user_ids) ? agent.eligible_user_ids : [],
+        metadata: agent.metadata && typeof agent.metadata === 'object' ? agent.metadata : {},
         is_active: agent.is_active !== false,
       };
 

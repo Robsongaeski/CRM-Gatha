@@ -34,10 +34,17 @@ type AgentConfig = {
       humanize_style?: boolean;
       auto_sanitize?: boolean;
       use_llm_triage?: boolean;
+      split_greeting_question?: boolean;
     };
     triage?: {
       enabled?: boolean;
       required_fields?: string[];
+    };
+    handoff?: {
+      send_transition_message?: boolean;
+      transition_message?: string | null;
+      price_request_handoff_threshold?: number;
+      min_customer_messages_before_handoff?: number;
     };
   };
 };
@@ -121,7 +128,7 @@ type InboundMarker = {
 };
 
 async function fetchLatestInboundMarker(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   conversationId: string,
 ): Promise<InboundMarker> {
   const { data: latestInbound } = await supabase
@@ -497,12 +504,106 @@ function getRecentClientText(messages: HeuristicMessage[] = []): string {
   return normalizePtText(parts.reverse().join(" "));
 }
 
+function getRecentClientMessageCount(messages: HeuristicMessage[] = []): number {
+  let count = 0;
+  for (const msg of messages) {
+    if (msg?.from_me) continue;
+    if (msg.message_type && msg.message_type !== "text") continue;
+    const content = asString(msg.content);
+    if (content) count += 1;
+  }
+  return count;
+}
+
+function countCommercialPromptSignals(text: string): number {
+  const normalized = normalizePtText(text);
+  if (!normalized) return 0;
+  const terms = [
+    "orcamento", "preco", "valor", "quanto", "custa", "prazo", "entrega", "desconto",
+  ];
+  return terms.reduce((total, term) => total + (normalized.includes(term) ? 1 : 0), 0);
+}
+
+function shouldDelayPriceDrivenHandoff(
+  incomingText: string,
+  recentMessages: HeuristicMessage[] = [],
+  reason = "",
+  intent = "",
+  threshold = 2,
+): boolean {
+  const normalizedReason = normalizePtText(reason);
+  const normalizedIntent = normalizePtText(intent);
+  const looksPriceDriven =
+    containsAny(normalizedReason, ["preco", "orcamento", "prazo", "desconto", "valor"]) ||
+    containsAny(normalizedIntent, ["preco", "orcamento", "prazo", "valor"]);
+
+  if (!looksPriceDriven) return false;
+
+  const clientTexts = (recentMessages || [])
+    .filter((msg) => !msg?.from_me && (!msg.message_type || msg.message_type === "text"))
+    .map((msg) => asString(msg.content))
+    .filter(Boolean)
+    .join("\n");
+
+  const signalCount = countCommercialPromptSignals(clientTexts) + countCommercialPromptSignals(incomingText);
+  return signalCount < Math.max(1, threshold);
+}
+
+function splitReplyForDelivery(input: string, features?: Record<string, any>): string[] {
+  const text = String(input || "").trim();
+  if (!text) return [];
+  if (!features?.split_greeting_question) return [text];
+  if (!text.includes("?")) return [text];
+
+  const firstBreak = text.search(/[!?]\s+/);
+  if (firstBreak < 0) return [text];
+
+  const firstPart = text.slice(0, firstBreak + 1).trim();
+  const secondPart = text.slice(firstBreak + 1).trim();
+  const startsWithGreeting = /^(oi|ola|olá|bom dia|boa tarde|boa noite)\b/i.test(firstPart);
+
+  if (!startsWithGreeting) return [text];
+  if (firstPart.length < 4 || firstPart.length > 80 || !secondPart) return [text];
+
+  return [firstPart, secondPart];
+}
+
+function renderTransitionMessage(template: string, attendantName: string): string {
+  return String(template || "")
+    .replace(/\{\{\s*attendant_name\s*\}\}/gi, attendantName)
+    .replace(/\[nome atendente\]/gi, attendantName)
+    .replace(/\[nome_atendente\]/gi, attendantName);
+}
+
 type TriageSignals = {
   productKnown: boolean;
   quantityKnown: boolean;
   stampKnown: boolean;
   minimumComplete: boolean;
 };
+
+function isTriageComplete(signals: TriageSignals, requiredFields: string[] = []): boolean {
+  const normalizedRequiredFields = Array.from(
+    new Set(
+      (requiredFields || [])
+        .map((field) => normalizePtText(String(field || "")))
+        .filter(Boolean),
+    ),
+  );
+
+  if (!normalizedRequiredFields.length) {
+    return signals.minimumComplete;
+  }
+
+  return normalizedRequiredFields.every((field) => {
+    if (field === "produto") return signals.productKnown;
+    if (field === "quantidade") return signals.quantityKnown;
+    if (field === "ideia" || field === "estampa" || field === "logo" || field === "personalizacao") {
+      return signals.stampKnown;
+    }
+    return true;
+  });
+}
 
 function inferTriageSignals(incomingText: string, recentMessages: HeuristicMessage[] = []): TriageSignals {
   const allText = normalizePtText(`${getRecentClientText(recentMessages)} ${asString(incomingText)}`.trim());
@@ -1048,7 +1149,7 @@ function buildConversationSection(messages: Array<Record<string, unknown>>): str
 }
 
 async function loadAiProviderKeysFromSystemConfig(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
 ): Promise<{ openAiApiKey: string; geminiApiKey: string }> {
   try {
     const { data, error } = await supabase
@@ -1075,7 +1176,7 @@ async function loadAiProviderKeysFromSystemConfig(
 }
 
 async function pickHandoffUser(params: {
-  supabase: ReturnType<typeof createClient>;
+  supabase: any;
   instanceId: string;
   workflowId: string;
   preferredMode: "round_robin" | "specific_user";
@@ -1094,7 +1195,7 @@ async function pickHandoffUser(params: {
   const allowedUserIds = new Set(
     (instanceUsers || [])
       .map((row: Record<string, unknown>) => asString(row.user_id))
-      .filter((id) => looksLikeUuid(id)),
+      .filter((id: string) => looksLikeUuid(id)),
   );
 
   if (allowedUserIds.size === 0) return null;
@@ -1104,13 +1205,13 @@ async function pickHandoffUser(params: {
   }
 
   let eligible = (params.configuredEligibleUserIds || []).filter((id) => allowedUserIds.has(id));
-  if (!eligible.length) eligible = Array.from(allowedUserIds);
+  if (!eligible.length) eligible = Array.from(allowedUserIds) as string[];
 
   if (!eligible.length) return null;
 
   if (workflowId) {
     try {
-      const { data: picked, error: rpcError } = await supabase.rpc("automation_pick_round_robin_user", {
+      const { data: picked, error: rpcError } = await (supabase as any).rpc("automation_pick_round_robin_user", {
         p_workflow_id: workflowId,
         p_instance_id: instanceId,
         p_user_ids: eligible,
@@ -1129,12 +1230,12 @@ async function pickHandoffUser(params: {
 }
 
 async function insertSystemMessage(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   conversationId: string,
   instanceId: string,
   content: string,
 ): Promise<void> {
-  await supabase
+  await (supabase as any)
     .from("whatsapp_messages")
     .insert({
       conversation_id: conversationId,
@@ -1281,6 +1382,7 @@ serve(async (req) => {
         handoff_mode,
         handoff_user_id,
         eligible_user_ids,
+        metadata,
         pricing_input_usd_per_1m,
         pricing_output_usd_per_1m,
         fallback_pricing_input_usd_per_1m,
@@ -1494,21 +1596,82 @@ serve(async (req) => {
     let decision = normalizeDecision(parsedDecision, cfg.confidence_threshold || 0.7);
 
     const triage = metadata.triage || {};
+    const handoffConfig = metadata.handoff || {};
     const triageSignals = inferTriageSignals(incomingText, (recentMessages || []) as HeuristicMessage[]);
     const customerRequestedHuman = customerAskedHumanExplicitly(incomingText);
+    const triageComplete = isTriageComplete(
+      triageSignals,
+      Array.isArray(triage.required_fields) ? triage.required_fields : [],
+    );
     
     // Decisão final de triagem: Só intercepta se o metadata permitir e a triagem estiver incompleta
     if (
       decision.action === "handoff" &&
       triage.enabled &&
+      features.use_llm_triage !== false &&
       !customerRequestedHuman &&
-      !triageSignals.minimumComplete &&
+      !triageComplete &&
       decision.handoff_reason !== "human_requested"
     ) {
       decision = {
         ...decision,
         action: "reply",
         intent: "pre_handoff_collection",
+        reply_text: buildCollectBeforeHandoffReply(
+          conversationInfo.contact_name,
+          !triageSignals.productKnown,
+          !triageSignals.quantityKnown,
+          !triageSignals.stampKnown,
+        ),
+      };
+    }
+
+    const minCustomerMessagesBeforeHandoff = Math.max(
+      0,
+      Math.floor(toNumber(handoffConfig.min_customer_messages_before_handoff, 0)),
+    );
+    const priceRequestHandoffThreshold = Math.max(
+      1,
+      Math.floor(toNumber(handoffConfig.price_request_handoff_threshold, 2)),
+    );
+    const recentClientMessageCount = getRecentClientMessageCount((recentMessages || []) as HeuristicMessage[]);
+
+    if (
+      decision.action === "handoff" &&
+      !customerRequestedHuman &&
+      minCustomerMessagesBeforeHandoff > 0 &&
+      recentClientMessageCount < minCustomerMessagesBeforeHandoff
+    ) {
+      decision = {
+        ...decision,
+        action: "reply",
+        intent: "min_customer_messages_before_handoff",
+        handoff_reason: "continue_collecting_context",
+        reply_text: buildCollectBeforeHandoffReply(
+          conversationInfo.contact_name,
+          !triageSignals.productKnown,
+          !triageSignals.quantityKnown,
+          !triageSignals.stampKnown,
+        ),
+      };
+    }
+
+    if (
+      decision.action === "handoff" &&
+      !customerRequestedHuman &&
+      shouldDelayPriceDrivenHandoff(
+        incomingText,
+        (recentMessages || []) as HeuristicMessage[],
+        decision.handoff_reason,
+        decision.intent,
+        priceRequestHandoffThreshold,
+      )
+    ) {
+      decision = {
+        ...decision,
+        action: "reply",
+        intent: "price_followup_before_handoff",
+        handoff_reason: "price_threshold_not_reached",
         reply_text: buildCollectBeforeHandoffReply(
           conversationInfo.contact_name,
           !triageSignals.productKnown,
@@ -1567,33 +1730,41 @@ serve(async (req) => {
             handoff_reason: "newer_inbound_message_pending",
           };
         } else {
-        const sendResponse = await fetch(`${supabaseUrl}/functions/v1/send-whatsapp`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${supabaseServiceKey}`,
-          },
-          body: JSON.stringify({
-            instanceId,
-            remoteJid: conversationInfo.remote_jid,
-            content: safeReply,
-            messageType: "text",
-            conversationId,
-            senderName: "IA",
-            keepUnread: true,
-          }),
-        });
+          const replyParts = splitReplyForDelivery(safeReply, features);
+          for (let index = 0; index < replyParts.length; index++) {
+            const part = replyParts[index];
+            const sendResponse = await fetch(`${supabaseUrl}/functions/v1/send-whatsapp`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${supabaseServiceKey}`,
+              },
+              body: JSON.stringify({
+                instanceId,
+                remoteJid: conversationInfo.remote_jid,
+                content: part,
+                messageType: "text",
+                conversationId,
+                senderName: "IA",
+                keepUnread: true,
+              }),
+            });
 
-        const sendPayload = await sendResponse.json().catch(() => ({}));
-        if (!sendResponse.ok || sendPayload?.success === false) {
-          decision = {
-            ...decision,
-            action: "handoff",
-            handoff_reason: "send_whatsapp_failed",
-          };
-        } else {
-          replyMessageId = looksLikeUuid(sendPayload?.messageId) ? asString(sendPayload.messageId) : null;
-        }
+            const sendPayload = await sendResponse.json().catch(() => ({}));
+            if (!sendResponse.ok || sendPayload?.success === false) {
+              decision = {
+                ...decision,
+                action: "handoff",
+                handoff_reason: "send_whatsapp_failed",
+              };
+              break;
+            }
+
+            replyMessageId = looksLikeUuid(sendPayload?.messageId) ? asString(sendPayload.messageId) : replyMessageId;
+            if (index < replyParts.length - 1) {
+              await sleep(450);
+            }
+          }
         }
       }
     }
@@ -1636,6 +1807,50 @@ serve(async (req) => {
             .maybeSingle();
 
           const assignedName = asString(assignedProfile?.nome) || "atendente";
+          const shouldSendTransitionMessage = handoffConfig.send_transition_message === true;
+          const transitionTemplate = asString(handoffConfig.transition_message) || asString(decision.reply_text);
+          const transitionMessage = sanitizeReplyText(
+            renderTransitionMessage(transitionTemplate, assignedName),
+            features,
+          );
+
+          if (shouldSendTransitionMessage && transitionMessage) {
+            const latestInboundBeforeHandoff = await fetchLatestInboundMarker(supabase, conversationId);
+            const newerInboundBeforeHandoff =
+              (triggerMessageId && latestInboundBeforeHandoff.id && latestInboundBeforeHandoff.id !== triggerMessageId) ||
+              (!triggerMessageId && triggerMessageExternalId && latestInboundBeforeHandoff.externalId &&
+                latestInboundBeforeHandoff.externalId !== triggerMessageExternalId);
+
+            if (!newerInboundBeforeHandoff) {
+              try {
+                const transitionParts = splitReplyForDelivery(transitionMessage, features);
+                for (let index = 0; index < transitionParts.length; index++) {
+                  await fetch(`${supabaseUrl}/functions/v1/send-whatsapp`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${supabaseServiceKey}`,
+                    },
+                    body: JSON.stringify({
+                      instanceId,
+                      remoteJid: conversationInfo.remote_jid,
+                      content: transitionParts[index],
+                      messageType: "text",
+                      conversationId,
+                      senderName: "IA",
+                      keepUnread: true,
+                    }),
+                  });
+                  if (index < transitionParts.length - 1) {
+                    await sleep(450);
+                  }
+                }
+              } catch (transitionError) {
+                console.error("[WHATSAPP AI ROUTER] failed to send handoff transition:", transitionError);
+              }
+            }
+          }
+
           await insertSystemMessage(
             supabase,
             conversationId,

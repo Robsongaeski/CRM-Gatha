@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -65,7 +66,9 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
   AiProvider,
+  AiTriageField,
   WhatsappAiAgent,
+  WhatsappAiAgentMetadata,
   WhatsappAiKnowledgeItem,
   useDeleteWhatsappAiAgent,
   useDeleteWhatsappAiKnowledgeItem,
@@ -94,8 +97,69 @@ type AgentFormState = {
   handoff_mode: 'round_robin' | 'specific_user';
   handoff_user_id: string;
   eligible_user_ids: string[];
+  metadata: Required<WhatsappAiAgentMetadata>;
   is_active: boolean;
 };
+
+const TRIAGE_FIELD_OPTIONS: Array<{
+  value: AiTriageField;
+  label: string;
+  description: string;
+}> = [
+  { value: 'produto', label: 'Produto', description: 'A IA precisa identificar qual item o cliente quer.' },
+  { value: 'quantidade', label: 'Quantidade', description: 'A IA precisa coletar quantidade aproximada antes do handoff.' },
+  { value: 'ideia', label: 'Ideia / Estampa', description: 'A IA precisa entender arte, logo ou personalizacao desejada.' },
+];
+
+function createDefaultAgentMetadata(): Required<WhatsappAiAgentMetadata> {
+  return {
+    features: {
+      humanize_style: false,
+      auto_sanitize: false,
+      use_llm_triage: true,
+      split_greeting_question: false,
+    },
+    triage: {
+      enabled: false,
+      required_fields: ['produto', 'quantidade'],
+    },
+    handoff: {
+      send_transition_message: false,
+      transition_message: '',
+      price_request_handoff_threshold: 2,
+      min_customer_messages_before_handoff: 0,
+    },
+  };
+}
+
+function normalizeAgentMetadata(metadata?: WhatsappAiAgentMetadata | null): Required<WhatsappAiAgentMetadata> {
+  const defaults = createDefaultAgentMetadata();
+  const requiredFieldsRaw = Array.isArray(metadata?.triage?.required_fields)
+    ? metadata?.triage?.required_fields
+    : defaults.triage.required_fields;
+  const requiredFields = requiredFieldsRaw.filter((field): field is AiTriageField =>
+    TRIAGE_FIELD_OPTIONS.some((option) => option.value === field),
+  );
+
+  return {
+    features: {
+      humanize_style: metadata?.features?.humanize_style ?? defaults.features.humanize_style,
+      auto_sanitize: metadata?.features?.auto_sanitize ?? defaults.features.auto_sanitize,
+      use_llm_triage: metadata?.features?.use_llm_triage ?? defaults.features.use_llm_triage,
+      split_greeting_question: metadata?.features?.split_greeting_question ?? defaults.features.split_greeting_question,
+    },
+    triage: {
+      enabled: metadata?.triage?.enabled ?? defaults.triage.enabled,
+      required_fields: requiredFields.length > 0 ? requiredFields : defaults.triage.required_fields,
+    },
+    handoff: {
+      send_transition_message: metadata?.handoff?.send_transition_message ?? defaults.handoff.send_transition_message,
+      transition_message: String(metadata?.handoff?.transition_message || defaults.handoff.transition_message),
+      price_request_handoff_threshold: Number(metadata?.handoff?.price_request_handoff_threshold ?? defaults.handoff.price_request_handoff_threshold),
+      min_customer_messages_before_handoff: Number(metadata?.handoff?.min_customer_messages_before_handoff ?? defaults.handoff.min_customer_messages_before_handoff),
+    },
+  };
+}
 
 type Preset = {
   id: string;
@@ -186,6 +250,7 @@ function toAgentForm(agent?: WhatsappAiAgent | null): AgentFormState {
       handoff_mode: 'round_robin',
       handoff_user_id: '',
       eligible_user_ids: [],
+      metadata: createDefaultAgentMetadata(),
       is_active: true,
     };
   }
@@ -208,6 +273,7 @@ function toAgentForm(agent?: WhatsappAiAgent | null): AgentFormState {
     handoff_mode: agent.handoff_mode || 'round_robin',
     handoff_user_id: agent.handoff_user_id || '',
     eligible_user_ids: Array.isArray(agent.eligible_user_ids) ? agent.eligible_user_ids : [],
+    metadata: normalizeAgentMetadata(agent.metadata),
     is_active: agent.is_active !== false,
   };
 }
@@ -331,6 +397,32 @@ export default function AgentesIA() {
   const handleUpdateField = (field: keyof AgentFormState, value: any) => {
     setAgentForm(prev => ({ ...prev, [field]: value }));
     setIsModified(true);
+  };
+
+  const handleUpdateMetadata = (
+    section: keyof AgentFormState['metadata'],
+    field: string,
+    value: any,
+  ) => {
+    setAgentForm((prev) => ({
+      ...prev,
+      metadata: {
+        ...prev.metadata,
+        [section]: {
+          ...prev.metadata[section],
+          [field]: value,
+        },
+      },
+    }));
+    setIsModified(true);
+  };
+
+  const handleToggleRequiredField = (field: AiTriageField, checked: boolean) => {
+    const current = agentForm.metadata.triage.required_fields || [];
+    const next = checked
+      ? Array.from(new Set([...current, field]))
+      : current.filter((item) => item !== field);
+    handleUpdateMetadata('triage', 'required_fields', next);
   };
 
   const handleSave = async () => {
@@ -521,54 +613,91 @@ export default function AgentesIA() {
                 <p className="text-sm">Nenhum agente</p>
               </div>
             ) : (
-              agents.map((agent) => (
-                <div
-                  key={agent.id}
-                  onClick={() => setSelectedAgentId(agent.id)}
-                  className={`group relative flex flex-col p-4 rounded-xl border-2 transition-all cursor-pointer ${
-                    selectedAgentId === agent.id
-                      ? 'border-primary bg-background shadow-lg scale-[1.02]'
-                      : 'border-transparent bg-background/60 hover:border-muted-foreground/30 hover:bg-background'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2 overflow-hidden">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                         <span className="font-bold text-sm truncate">{agent.name}</span>
-                         {agent.is_active ? <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" /> : <AlertCircle className="h-3 w-3 text-amber-500 shrink-0" />}
+              agents.map((agent) => {
+                const metadata = normalizeAgentMetadata(agent.metadata);
+                const activeOperationalTags = [
+                  metadata.triage.enabled ? `triagem: ${metadata.triage.required_fields.join(', ')}` : null,
+                  metadata.handoff.send_transition_message ? 'handoff com aviso' : null,
+                  metadata.features.humanize_style ? 'humanizado' : null,
+                  metadata.features.auto_sanitize ? 'sanitiza' : null,
+                  metadata.features.split_greeting_question ? 'saudacao em 2 msgs' : null,
+                ].filter(Boolean);
+
+                return (
+                  <div
+                    key={agent.id}
+                    onClick={() => setSelectedAgentId(agent.id)}
+                    className={`group relative flex flex-col p-4 rounded-xl border-2 transition-all cursor-pointer ${
+                      selectedAgentId === agent.id
+                        ? 'border-primary bg-background shadow-lg scale-[1.02]'
+                        : 'border-transparent bg-background/60 hover:border-muted-foreground/30 hover:bg-background'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 overflow-hidden">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                           <span className="font-bold text-sm truncate">{agent.name}</span>
+                           {agent.is_active ? <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" /> : <AlertCircle className="h-3 w-3 text-amber-500 shrink-0" />}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground font-mono mt-0.5 opacity-70 truncate">
+                          {agent.agent_key}
+                        </div>
                       </div>
-                      <div className="text-[10px] text-muted-foreground font-mono mt-0.5 opacity-70 truncate">
-                        {agent.agent_key}
-                      </div>
+                      <Switch 
+                        checked={agent.is_active} 
+                        onCheckedChange={() => handleToggleActive(agent.id, agent.is_active)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="data-[state=checked]:bg-green-500 scale-75"
+                      />
                     </div>
-                    <Switch 
-                      checked={agent.is_active} 
-                      onCheckedChange={() => handleToggleActive(agent.id, agent.is_active)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="data-[state=checked]:bg-green-500 scale-75"
-                    />
+
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0 capitalize truncate">
+                        {agent.provider}
+                      </Badge>
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 truncate max-w-[150px]">
+                        {agent.model}
+                      </Badge>
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0">
+                        {agent.handoff_mode === 'specific_user' ? 'destino fixo' : 'round robin'}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Perfil Operacional
+                      </p>
+                      {activeOperationalTags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {activeOperationalTags.map((tag) => (
+                            <Badge key={tag} variant="outline" className="text-[9px] px-1.5 py-0 bg-primary/5 border-primary/20 text-primary">
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground">
+                          Sem regras estruturadas destacadas.
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-muted/30">
+                       <div className="text-[10px] text-muted-foreground">
+                         Conf.: <span className="font-mono">{Number(agent.confidence_threshold || 0).toFixed(2)}</span>
+                       </div>
+                       <Button 
+                          size="icon" 
+                          variant="ghost" 
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => { e.stopPropagation(); setDeleteAgentId(agent.id); }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                       </Button>
+                    </div>
                   </div>
-                  
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-muted/30">
-                     <div className="flex items-center gap-1.5 overflow-hidden">
-                        <Badge variant="secondary" className="text-[9px] px-1.5 py-0 capitalize truncate">
-                          {agent.provider}
-                        </Badge>
-                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 truncate">
-                          {agent.model}
-                        </Badge>
-                     </div>
-                     <Button 
-                        size="icon" 
-                        variant="ghost" 
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => { e.stopPropagation(); setDeleteAgentId(agent.id); }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                     </Button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </CardContent>
         </Card>
@@ -587,6 +716,9 @@ export default function AgentesIA() {
                   </TabsTrigger>
                   <TabsTrigger value="conhecimento" className="data-[state=active]:bg-primary/5 data-[state=active]:text-primary border-b-2 border-transparent data-[state=active]:border-primary rounded-none h-full px-4 gap-2">
                      <BrainCircuit className="h-4 w-4" /> Inteligência
+                  </TabsTrigger>
+                  <TabsTrigger value="regras" className="data-[state=active]:bg-primary/5 data-[state=active]:text-primary border-b-2 border-transparent data-[state=active]:border-primary rounded-none h-full px-4 gap-2">
+                     <ShieldCheck className="h-4 w-4" /> Regras
                   </TabsTrigger>
                   <TabsTrigger value="handoff" className="data-[state=active]:bg-primary/5 data-[state=active]:text-primary border-b-2 border-transparent data-[state=active]:border-primary rounded-none h-full px-4 gap-2">
                      <UserCog className="h-4 w-4" /> Handoff
@@ -821,6 +953,165 @@ export default function AgentesIA() {
                 </TabsContent>
 
                 {/* ABA 4: HANDOFF E TRANSFERÊNCIA */}
+                <TabsContent value="regras" className="m-0 space-y-6 animate-in slide-in-from-bottom-4 duration-300">
+                  <div className="grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <BrainCircuit className="h-5 w-5 text-primary" /> Regras de Triagem
+                        </CardTitle>
+                        <CardDescription>
+                          Defina o que este agente precisa coletar antes de poder transferir o atendimento.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-6">
+                        <div className="flex items-center justify-between gap-4 rounded-xl border bg-muted/20 p-4">
+                          <div>
+                            <LabelComAjuda label="Exigir triagem minima" ajuda="Se ativado, o router segura handoffs precoces ate a IA coletar os campos marcados abaixo." />
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Ideal para agentes comerciais e SDR que precisam qualificar antes de distribuir.
+                            </p>
+                          </div>
+                          <Switch
+                            checked={agentForm.metadata.triage.enabled}
+                            onCheckedChange={(value) => handleUpdateMetadata('triage', 'enabled', value)}
+                          />
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-3">
+                          {TRIAGE_FIELD_OPTIONS.map((field) => {
+                            const checked = agentForm.metadata.triage.required_fields.includes(field.value);
+                            return (
+                              <label key={field.value} className="flex items-start gap-3 rounded-xl border p-4 bg-background cursor-pointer hover:border-primary/40 transition-colors">
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(value) => handleToggleRequiredField(field.value, value === true)}
+                                  className="mt-0.5"
+                                />
+                                <div>
+                                  <p className="text-sm font-semibold">{field.label}</p>
+                                  <p className="text-[11px] text-muted-foreground leading-relaxed">{field.description}</p>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base flex items-center gap-2">
+                            <Sparkles className="h-5 w-5 text-amber-500" /> Comportamento do Agente
+                          </CardTitle>
+                          <CardDescription>
+                            Recursos estruturados aplicados pelo sistema, separados do prompt livre.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="rounded-xl border bg-muted/20 p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium">Usar heuristica de triagem</p>
+                                <p className="text-[11px] text-muted-foreground">Impede handoff quando ainda faltam dados minimos.</p>
+                              </div>
+                              <Switch
+                                checked={agentForm.metadata.features.use_llm_triage}
+                                onCheckedChange={(value) => handleUpdateMetadata('features', 'use_llm_triage', value)}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border bg-muted/20 p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium">Humanizar respostas</p>
+                                <p className="text-[11px] text-muted-foreground">Aplica instrucoes globais para evitar respostas roboticas.</p>
+                              </div>
+                              <Switch
+                                checked={agentForm.metadata.features.humanize_style}
+                                onCheckedChange={(value) => handleUpdateMetadata('features', 'humanize_style', value)}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border bg-muted/20 p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium">Sanitizar resposta</p>
+                                <p className="text-[11px] text-muted-foreground">Limpa termos mecanicos e ajusta detalhes do texto antes de enviar.</p>
+                              </div>
+                              <Switch
+                                checked={agentForm.metadata.features.auto_sanitize}
+                                onCheckedChange={(value) => handleUpdateMetadata('features', 'auto_sanitize', value)}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border bg-muted/20 p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium">Separar saudacao da pergunta</p>
+                                <p className="text-[11px] text-muted-foreground">Quando a abertura vier longa, envia primeiro a saudacao e depois a pergunta.</p>
+                              </div>
+                              <Switch
+                                checked={agentForm.metadata.features.split_greeting_question}
+                                onCheckedChange={(value) => handleUpdateMetadata('features', 'split_greeting_question', value)}
+                              />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-base">Resumo Operacional</CardTitle>
+                          <CardDescription>
+                            O que o sistema vai respeitar deste agente em qualquer fluxo que use esta chave.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="grid gap-4 sm:grid-cols-3">
+                          <div className="rounded-xl border bg-muted/20 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Triagem</p>
+                            <p className="mt-2 text-sm font-medium">
+                              {agentForm.metadata.triage.enabled ? 'Ativa antes do handoff' : 'Desativada'}
+                            </p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              Campos exigidos: {agentForm.metadata.triage.required_fields.join(', ') || 'nenhum'}
+                            </p>
+                          </div>
+
+                          <div className="rounded-xl border bg-muted/20 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Features</p>
+                            <p className="mt-2 text-sm font-medium">
+                              {[
+                                agentForm.metadata.features.humanize_style ? 'humanizacao' : null,
+                                agentForm.metadata.features.auto_sanitize ? 'sanitizacao' : null,
+                                agentForm.metadata.features.use_llm_triage ? 'triagem ativa' : null,
+                                agentForm.metadata.features.split_greeting_question ? 'saudacao em 2 msgs' : null,
+                              ].filter(Boolean).join(', ') || 'nenhuma feature ativa'}
+                            </p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              Essas regras ficam salvas no agente, nao no fluxo.
+                            </p>
+                          </div>
+
+                          <div className="rounded-xl border bg-muted/20 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Handoff</p>
+                            <p className="mt-2 text-sm font-medium">
+                              {agentForm.metadata.handoff.send_transition_message ? 'Com mensagem de transicao' : 'Sem mensagem automatica'}
+                            </p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              A distribuicao de atendentes continua configurada na aba Handoff.
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </div>
+                </TabsContent>
+
                 <TabsContent value="handoff" className="m-0 space-y-6 animate-in slide-in-from-bottom-4 duration-300">
                    <div className="grid gap-6 md:grid-cols-2">
                      <Card>
@@ -869,6 +1160,55 @@ export default function AgentesIA() {
                                className="accent-primary"
                              />
                            </div>
+
+                           <div className="space-y-4 pt-4 border-t">
+                             <div className="flex items-center justify-between gap-4">
+                               <div>
+                                 <LabelComAjuda label="Enviar mensagem antes do handoff" ajuda="Quando ativado, a IA avisa o cliente antes de transferir a conversa." />
+                                 <p className="text-[11px] text-muted-foreground mt-1">
+                                   Evita que a conversa pule direto para a atendente sem contexto para o cliente.
+                                 </p>
+                               </div>
+                               <Switch
+                                 checked={agentForm.metadata.handoff.send_transition_message}
+                                 onCheckedChange={(value) => handleUpdateMetadata('handoff', 'send_transition_message', value)}
+                               />
+                             </div>
+
+                             <div className="space-y-2">
+                               <Label>Mensagem de Transição</Label>
+                               <Textarea
+                                 rows={4}
+                                 value={agentForm.metadata.handoff.transition_message}
+                                 onChange={(e) => handleUpdateMetadata('handoff', 'transition_message', e.target.value)}
+                                 placeholder="Ex: Perfeito, ja entendi tudo por aqui. Vou te encaminhar para o comercial finalizar com voce."
+                               />
+                               <p className="text-[11px] text-muted-foreground">
+                                 Se ficar vazia, o sistema usa a resposta de transição sugerida pelo proprio agente quando houver handoff.
+                               </p>
+                             </div>
+                             <div className="grid gap-4 md:grid-cols-2">
+                               <div className="space-y-2">
+                                 <LabelComAjuda label="Minimo de mensagens do cliente" ajuda="Antes desse total, o sistema evita handoff automatico, salvo quando o cliente pedir humano." />
+                                 <Input
+                                   type="number"
+                                   min="0"
+                                   value={agentForm.metadata.handoff.min_customer_messages_before_handoff}
+                                   onChange={(e) => handleUpdateMetadata('handoff', 'min_customer_messages_before_handoff', Number(e.target.value || 0))}
+                                 />
+                               </div>
+
+                               <div className="space-y-2">
+                                 <LabelComAjuda label="Pedidos de preco para handoff" ajuda="Quantidade real de perguntas sobre preco/prazo antes de aceitar handoff por esse motivo." />
+                                 <Input
+                                   type="number"
+                                   min="1"
+                                   value={agentForm.metadata.handoff.price_request_handoff_threshold}
+                                   onChange={(e) => handleUpdateMetadata('handoff', 'price_request_handoff_threshold', Number(e.target.value || 1))}
+                                 />
+                               </div>
+                             </div>
+                           </div>
                         </CardContent>
                      </Card>
 
@@ -899,6 +1239,7 @@ export default function AgentesIA() {
                         </CardContent>
                      </Card>
                    </div>
+
                 </TabsContent>
 
                 {/* ABA 5: ÁREA DE TESTE (SANDBOX) */}
@@ -1083,6 +1424,7 @@ export default function AgentesIA() {
                         </CardContent>
                      </Card>
                   </div>
+
                 </TabsContent>
               </div>
             </Tabs>
