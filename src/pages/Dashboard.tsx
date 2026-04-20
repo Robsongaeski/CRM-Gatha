@@ -441,7 +441,7 @@ export default function Dashboard() {
           </div>
 
           {/* Propostas Abertas - Follow-up */}
-          {dashboardVendedor.data.propostas_abertas.length > 0 && (
+          {dashboardVendedor.data?.propostas_abertas?.length > 0 && (
             <Card className="border-2 border-orange-200 dark:border-orange-900 bg-gradient-to-br from-orange-50 to-transparent dark:from-orange-950/20">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -461,7 +461,7 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {dashboardVendedor.data.propostas_abertas.map((proposta: any) => (
+                  {dashboardVendedor.data?.propostas_abertas?.map((proposta: any) => (
                     <div key={proposta.id} className="flex items-center justify-between p-4 bg-card border-2 border-orange-100 dark:border-orange-900/50 rounded-lg hover:shadow-md transition-all">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
@@ -519,7 +519,7 @@ export default function Dashboard() {
           )}
 
           {/* Grades de Prova Vencidas */}
-          {dashboardVendedor.data.grades_vencidas && dashboardVendedor.data.grades_vencidas.length > 0 && (
+          {dashboardVendedor.data?.grades_vencidas && dashboardVendedor.data.grades_vencidas.length > 0 && (
             <Card className="border-2 border-red-200 dark:border-red-900 bg-gradient-to-br from-red-50 to-transparent dark:from-red-950/20">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -539,7 +539,7 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {dashboardVendedor.data.grades_vencidas.map((grade: any) => {
+                  {dashboardVendedor.data?.grades_vencidas?.map((grade: any) => {
                     const diasVencido = Math.floor((Date.now() - new Date(grade.data_prevista_devolucao).getTime()) / (1000 * 60 * 60 * 24));
                     return (
                       <div key={grade.id} className="flex items-center justify-between p-4 bg-card border-2 border-red-100 dark:border-red-900/50 rounded-lg">
@@ -586,11 +586,11 @@ export default function Dashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              {dashboardVendedor.data.ultimos_pedidos.length === 0 ? (
+              {(dashboardVendedor.data?.ultimos_pedidos?.length || 0) === 0 ? (
                 <p className="text-center text-muted-foreground py-8">Nenhum pedido recente</p>
               ) : (
                 <div className="space-y-3">
-                  {dashboardVendedor.data.ultimos_pedidos.map((pedido: any) => (
+                  {dashboardVendedor.data?.ultimos_pedidos?.map((pedido: any) => (
                     <Link key={pedido.id} to={`/pedidos/${pedido.id}`}>
                       <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent transition-colors">
                         <div className="flex-1">
@@ -782,11 +782,11 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {dashboardGeral.data.top_vendedores.length === 0 ? (
+              {(dashboardGeral.data?.top_vendedores?.length || 0) === 0 ? (
                 <p className="text-center text-muted-foreground py-8">Nenhum vendedor com pedidos este mês</p>
               ) : (
                 <div className="space-y-3">
-                  {dashboardGeral.data.top_vendedores.map((vendedor, index) => (
+                  {dashboardGeral.data?.top_vendedores?.map((vendedor, index) => (
                     <div key={vendedor.vendedor_id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent transition-colors">
                       <div className="flex items-center gap-3">
                         <Badge variant={index === 0 ? 'default' : 'secondary'} className="text-base px-3">

@@ -268,7 +268,7 @@ export default function PedidosLista() {
     ? pedidosBase.filter((pedido: any) => calcularSaldoComPagamentosLancados(pedido.id, Number(pedido.valor_total)) > 0)
     : pedidosBase;
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / ITENS_POR_PAGINA));
+  const totalPages = Math.max(1, Math.ceil((totalCount || 0) / ITENS_POR_PAGINA));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   
   // Os dados já vêm paginados do servidor
@@ -329,7 +329,7 @@ export default function PedidosLista() {
         user_id: user.id
       });
       
-      for (const pedido of pedidos) {
+      for (const pedido of pedidosBase) {
         // Tentar a RPC principal
         const { data, error } = await supabase.rpc('pode_editar_pedido' as any, {
           p_pedido_id: pedido.id,
@@ -372,7 +372,7 @@ export default function PedidosLista() {
       }
       return permissoes;
     },
-    enabled: !!pedidos && !!user,
+    enabled: !!pedidosBase && !!user,
   });
 
   const handleDelete = async (id: string) => {

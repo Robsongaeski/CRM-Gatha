@@ -133,7 +133,7 @@ export default function PropostasLista() {
 
   const returnTo = `/propostas${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / ITENS_POR_PAGINA));
+  const totalPages = Math.max(1, Math.ceil((totalCount || 0) / ITENS_POR_PAGINA));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * ITENS_POR_PAGINA;
   const paginatedPropostas = propostas;

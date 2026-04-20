@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Trash2, AlertTriangle, Loader2, CheckCircle2, Filter, HardDrive } from 'lucide-react';
+import { Trash2, AlertTriangle, Loader2, CheckCircle2, Filter, HardDrive, Image as ImageIcon, Video, Headset, FileText, Sticker, Mic } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -14,16 +14,18 @@ import { Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const MEDIA_TYPES = [
-  { id: 'image', label: 'Imagens' },
-  { id: 'video', label: 'Vídeos' },
-  { id: 'audio', label: 'Áudios' },
-  { id: 'document', label: 'Documentos' },
+  { id: 'image', label: 'Imagens', icon: ImageIcon },
+  { id: 'video', label: 'Vídeos', icon: Video },
+  { id: 'audio', label: 'Áudios (Arquivos)', icon: Headset },
+  { id: 'voice', label: 'Áudios de Voz', icon: Mic },
+  { id: 'document', label: 'Documentos', icon: FileText },
+  { id: 'sticker', label: 'Stickers (Figurinhas)', icon: Sticker },
 ];
 
 export default function StorageMaintenance() {
   const [days, setDays] = useState('7');
   const [minSizeMB, setMinSizeMB] = useState('0');
-  const [selectedTypes, setSelectedTypes] = useState<string[]>(['image', 'video', 'audio', 'document']);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(['image', 'video', 'audio', 'voice', 'document', 'sticker']);
   const [selectedInstances, setSelectedInstances] = useState<string[]>([]);
   const [isCleaning, setIsCleaning] = useState(false);
   const [lastResult, setLastResult] = useState<{
@@ -157,13 +159,14 @@ export default function StorageMaintenance() {
               </Label>
               <div className="grid grid-cols-2 gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
                 {MEDIA_TYPES.map((type) => (
-                  <div key={type.id} className="flex items-center space-x-2">
+                  <div key={type.id} className="flex items-center space-x-2 p-1 hover:bg-white/50 rounded transition-colors">
                     <Checkbox 
                       id={`type-${type.id}`} 
                       checked={selectedTypes.includes(type.id)}
                       onCheckedChange={() => toggleType(type.id)}
                     />
-                    <Label htmlFor={`type-${type.id}`} className="text-sm font-normal cursor-pointer">
+                    <Label htmlFor={`type-${type.id}`} className="text-sm font-normal cursor-pointer flex items-center gap-1.5 flex-1">
+                      <type.icon className="h-3.5 w-3.5 text-muted-foreground" />
                       {type.label}
                     </Label>
                   </div>

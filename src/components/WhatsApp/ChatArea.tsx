@@ -524,7 +524,7 @@ export default function ChatArea({
         ? abandonedCart.items 
         : JSON.parse(String(abandonedCart.items) || '[]');
       
-      const produtosLista = items.map((item: any) => 
+      const produtosLista = (items || []).map((item: any) => 
         `• ${item.quantity || item.qtd || 1}x ${item.name || item.produto || 'Produto'}`
       ).join('\n');
       

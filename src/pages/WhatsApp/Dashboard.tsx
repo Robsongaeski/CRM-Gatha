@@ -182,11 +182,11 @@ export default function Dashboard() {
                   <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
-            ) : dashboardMetrics?.atendenteRanking.length === 0 ? (
+            ) : (dashboardMetrics?.atendenteRanking?.length || 0) === 0 ? (
               <p className="text-muted-foreground text-sm">Nenhum atendente com conversas</p>
             ) : (
               <div className="space-y-3">
-                {dashboardMetrics?.atendenteRanking.map((atendente, index) => (
+                {dashboardMetrics?.atendenteRanking?.map((atendente, index) => (
                   <div
                     key={atendente.id}
                     className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
@@ -233,11 +233,11 @@ export default function Dashboard() {
                   <Skeleton key={i} className="h-20 w-full" />
                 ))}
               </div>
-            ) : dashboardMetrics?.atendenteRanking.length === 0 ? (
+            ) : (dashboardMetrics?.atendenteRanking?.length || 0) === 0 ? (
               <p className="text-muted-foreground text-sm">Nenhum dado disponível</p>
             ) : (
               <div className="space-y-3">
-                {dashboardMetrics?.atendenteRanking.map((atendente) => (
+                {dashboardMetrics?.atendenteRanking?.map((atendente) => (
                   <div
                     key={atendente.id}
                     className="p-3 rounded-lg border bg-card"
