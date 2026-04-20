@@ -158,7 +158,7 @@ export default function ChatArea({
   // Reset pagination when conversation changes
   useEffect(() => {
     setDisplayLimit(MESSAGE_LIMIT);
-    setIsInitialLoadRef(true);
+    isInitialLoadRef.current = true;
     setIsLoadingMore(false);
   }, [conversation.id]);
 
