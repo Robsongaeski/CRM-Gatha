@@ -661,7 +661,7 @@ export default function ChatArea({
 
   const uniqueInstanceConversations = useMemo(() => {
     const seen = new Map<string, WhatsappConversation>();
-    groupedConversations.forEach(conv => {
+    groupedConversations?.forEach(conv => {
       if (!seen.has(conv.instance_id)) {
         seen.set(conv.instance_id, conv);
       }
@@ -705,7 +705,7 @@ export default function ChatArea({
             
             {hasMultipleInstances && (
               <div className={cn('flex items-center gap-2 mt-0.5 overflow-x-auto', isMobile && 'pr-2 pb-0.5')}>
-                {uniqueInstanceConversations.map((conv) => {
+                {uniqueInstanceConversations?.map((conv) => {
                   const isActive = conv.instance_id === conversation.instance_id;
                   const instanceName = conv.instance?.nome || 'Instância';
                   const totalUnread = groupedConversations

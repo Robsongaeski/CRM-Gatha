@@ -75,7 +75,7 @@ function extractDisplayText(raw: string | null | undefined): string {
 const renderTextWithLinks = (text: string) => {
   const parts = text.split(URL_REGEX);
   
-  return parts.map((part, index) => {
+  return parts?.map((part, index) => {
     if (URL_REGEX.test(part)) {
       // Reset do regex pois e global
       URL_REGEX.lastIndex = 0;

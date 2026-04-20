@@ -60,13 +60,13 @@ export default function Atendimento() {
   
   // Instâncias conectadas
   const connectedInstances = useMemo(() => 
-    userInstances.filter(i => i.status === 'connected'),
+    userInstances?.filter(i => i.status === 'connected'),
     [userInstances]
   );
   
   // IDs das instâncias permitidas
   const allowedInstanceIds = useMemo(() => 
-    userInstances.map(i => i.id),
+    userInstances?.map(i => i.id),
     [userInstances]
   );
 
@@ -135,12 +135,12 @@ export default function Atendimento() {
   }, []);
 
   const pendingFollowupsCount = useMemo(
-    () => groupedConversations.filter((group) => group.hasFollowup).length,
+    () => groupedConversations?.filter((group) => group.hasFollowup).length,
     [groupedConversations]
   );
 
   const overdueFollowupsCount = useMemo(
-    () => groupedConversations.filter((group) => group.hasFollowup && isFollowupOverdue(group.followupFlaggedAt)).length,
+    () => groupedConversations?.filter((group) => group.hasFollowup && isFollowupOverdue(group.followupFlaggedAt)).length,
     [groupedConversations, isFollowupOverdue]
   );
 
@@ -223,7 +223,7 @@ export default function Atendimento() {
       const normalizedPhone = normalizePhone(telefone);
       const remoteJid = `${normalizedPhone}@s.whatsapp.net`;
       const legacyRemoteJid = `${normalizedPhone}@c.us`;
-      const instanceIds = userInstances.map(i => i.id);
+      const instanceIds = userInstances?.map(i => i.id) || [];
       
       try {
         // Buscar conversas existentes pelo telefone normalizado em instâncias CONECTADAS
@@ -410,7 +410,7 @@ export default function Atendimento() {
   const allInstances = userInstances;
 
   // Ordenar conversas agrupadas
-  const visibleGroups = groupedConversations.filter((group) => {
+  const visibleGroups = groupedConversations?.filter((group) => {
     if (filters.status === 'followup_pending') return group.hasFollowup;
     return true;
   });
