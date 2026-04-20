@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { usePagamentosPendentes } from '@/hooks/usePagamentos';
+import { usePagamentosPendentes, usePagamentosStats } from '@/hooks/usePagamentos';
 import { AprovarPagamentoDialog } from '@/components/Financeiro/AprovarPagamentoDialog';
 import { RejeitarPagamentoDialog } from '@/components/Financeiro/RejeitarPagamentoDialog';
 import { PagamentoDetalhesDialog } from '@/components/Financeiro/PagamentoDetalhesDialog';
@@ -26,19 +26,39 @@ const formaPagamentoLabels = {
 
 export default function PagamentosPendentes() {
   const navigate = useNavigate();
-  const { data: pagamentos = [], isLoading } = usePagamentosPendentes();
-  const { can } = usePermissions();
-  const [aprovarDialogOpen, setAprovarDialogOpen] = useState(false);
-  const [rejeitarDialogOpen, setRejeitarDialogOpen] = useState(false);
-  const [detalhesDialogOpen, setDetalhesDialogOpen] = useState(false);
-  const [selectedPagamento, setSelectedPagamento] = useState<any>(null);
-  
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITENS_POR_PAGINA = 20;
+
   const [filtroVendedor, setFiltroVendedor] = useState('');
   const [filtroCliente, setFiltroCliente] = useState('');
   const [filtroForma, setFiltroForma] = useState('all');
   const [filtroPedido, setFiltroPedido] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('all');
-  
+
+  const { data: response, isLoading } = usePagamentosPendentes({
+    vendedor: filtroVendedor || undefined,
+    cliente: filtroCliente || undefined,
+    forma: filtroForma !== 'all' ? filtroForma : undefined,
+    pedido: filtroPedido || undefined,
+    page: currentPage - 1,
+    pageSize: ITENS_POR_PAGINA,
+  });
+
+  const { data: statsResponse, isLoading: isLoadingStats } = usePagamentosStats({
+    vendedor: filtroVendedor || undefined,
+    cliente: filtroCliente || undefined,
+    forma: filtroForma !== 'all' ? filtroForma : undefined,
+    pedido: filtroPedido || undefined,
+  });
+
+  const { data: pagamentos = [], totalCount = 0 } = response || {};
+  const { totalPendente = 0, boletosVencidos = 0 } = statsResponse || {};
+  const { can } = usePermissions();
+  const [aprovarDialogOpen, setAprovarDialogOpen] = useState(false);
+  const [rejeitarDialogOpen, setRejeitarDialogOpen] = useState(false);
+  const [detalhesDialogOpen, setDetalhesDialogOpen] = useState(false);
+  const [selectedPagamento, setSelectedPagamento] = useState<any>(null);
+
   const podeAprovar = can('pagamentos.aprovar');
 
   const handleAprovar = (pagamento: any) => {
@@ -104,53 +124,8 @@ export default function PagamentosPendentes() {
     );
   }
 
-  // Aplicar filtros
-  let pagamentosFiltrados = pagamentos.filter((p: any) => {
-    if (filtroVendedor && !p.pedidos?.vendedor?.nome?.toLowerCase().includes(filtroVendedor.toLowerCase())) {
-      return false;
-    }
-    if (filtroCliente && !p.pedidos?.clientes?.nome_razao_social?.toLowerCase().includes(filtroCliente.toLowerCase())) {
-      return false;
-    }
-    if (filtroForma && filtroForma !== 'all' && p.forma_pagamento !== filtroForma) {
-      return false;
-    }
-    if (filtroPedido && !String(p.pedidos?.numero_pedido).includes(filtroPedido)) {
-      return false;
-    }
-    // Filtro por status de atraso
-    if (filtroStatus && filtroStatus !== 'all') {
-      const status = getBoletoStatus(p);
-      if (filtroStatus === 'vencido' && status !== 'vencido') return false;
-      if (filtroStatus === 'proximo' && status !== 'proximo') return false;
-      if (filtroStatus === 'normal' && (status === 'vencido' || status === 'proximo')) return false;
-    }
-    return true;
-  });
-
-  // Ordenar: boletos vencidos primeiro, depois próximos do vencimento, depois por data
-  pagamentosFiltrados = [...pagamentosFiltrados].sort((a: any, b: any) => {
-    const statusA = getBoletoStatus(a);
-    const statusB = getBoletoStatus(b);
-    
-    // Prioridade: vencido > proximo > normal/null
-    const prioridadeA = statusA === 'vencido' ? 0 : statusA === 'proximo' ? 1 : 2;
-    const prioridadeB = statusB === 'vencido' ? 0 : statusB === 'proximo' ? 1 : 2;
-    
-    if (prioridadeA !== prioridadeB) {
-      return prioridadeA - prioridadeB;
-    }
-    
-    // Se ambos são boletos, ordenar por vencimento
-    if (a.data_vencimento_boleto && b.data_vencimento_boleto) {
-      return new Date(a.data_vencimento_boleto).getTime() - new Date(b.data_vencimento_boleto).getTime();
-    }
-    
-    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-  });
-
   // Agrupar pagamentos por pedido
-  const pagamentosPorPedido = pagamentosFiltrados.reduce((acc: any, p: any) => {
+  const pagamentosPorPedido = pagamentos.reduce((acc: any, p: any) => {
     const pedidoId = p.pedido_id;
     if (!acc[pedidoId]) {
       acc[pedidoId] = {
@@ -162,8 +137,44 @@ export default function PagamentosPendentes() {
     return acc;
   }, {});
 
-  const totalPendente = pagamentosFiltrados.reduce((sum: number, p: any) => sum + Number(p.valor), 0);
-  const boletosVencidos = pagamentosFiltrados.filter((p: any) => getBoletoStatus(p) === 'vencido').length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / ITENS_POR_PAGINA));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * ITENS_POR_PAGINA;
+  const inicioItem = totalCount === 0 ? 0 : startIndex + 1;
+  const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, totalCount);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filtroVendedor, filtroCliente, filtroForma, filtroPedido, filtroStatus]);
+
+  const renderPagination = () => (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-muted-foreground">
+        Mostrando {inicioItem}-{fimItem} de {totalCount} pagamentos
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+          disabled={safeCurrentPage === 1}
+        >
+          Anterior
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          Página {safeCurrentPage} de {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+          disabled={safeCurrentPage === totalPages}
+        >
+          Próxima
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -254,10 +265,15 @@ export default function PagamentosPendentes() {
               </Select>
             </div>
           </div>
+          {!isLoading && totalCount > 0 && (
+            <div className="mt-4 border-t pt-4">
+              {renderPagination()}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {pagamentosFiltrados.length === 0 ? (
+      {totalCount === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <DollarSign className="h-16 w-16 text-muted-foreground mb-4" />
@@ -439,6 +455,11 @@ export default function PagamentosPendentes() {
               </Card>
             );
           })}
+          {totalCount > 0 && (
+            <div className="pt-4">
+              {renderPagination()}
+            </div>
+          )}
         </div>
       )}
 

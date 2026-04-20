@@ -1,5 +1,3 @@
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { useSegmentos } from '@/hooks/useSegmentos';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { useUserRole } from '@/hooks/useUserRole';
 import { usePermissions } from '@/hooks/usePermissions';
 import { SegmentoBadge } from '@/components/Leads/SegmentoBadge';
+import { useClientes, Cliente } from '@/hooks/useClientes';
 import {
   Table,
   TableBody,
@@ -32,58 +31,21 @@ export default function ClientesLista() {
   const ITENS_POR_PAGINA = 15;
   const { data: segmentos = [] } = useSegmentos();
 
-  const { data: clientes = [], isLoading } = useQuery({
-    queryKey: ['clientes', search, segmentoFilter],
-    queryFn: async () => {
-      let query = supabase
-        .from('clientes')
-        .select(`*, segmento:segmentos(nome, cor, icone)`) as any;
-      
-      query = query.order('created_at', { ascending: false });
-      
-      // Busca por texto normal (nome, responsável, cpf, email)
-      const searchLower = search.toLowerCase().trim();
-      const searchDigits = search.replace(/\D/g, '');
-      
-      if (search && !searchDigits) {
-        // Busca apenas por texto (sem dígitos)
-        query = query.or(`nome_razao_social.ilike.%${search}%,responsavel.ilike.%${search}%,cpf_cnpj.ilike.%${search}%,email.ilike.%${search}%`);
-      }
-
-      if (segmentoFilter && segmentoFilter !== 'todos') {
-        query = query.eq('segmento_id', segmentoFilter);
-      }
-      
-      const { data, error } = await query;
-      if (error) throw error;
-      
-      // Filtrar client-side para telefone (compara apenas dígitos)
-      if (searchDigits) {
-        return (data as any[]).filter((cliente) => {
-          const telefoneDigits = cliente.telefone?.replace(/\D/g, '') || '';
-          const whatsappDigits = cliente.whatsapp?.replace(/\D/g, '') || '';
-          const cpfCnpjDigits = cliente.cpf_cnpj?.replace(/\D/g, '') || '';
-          const nomeMatch = cliente.nome_razao_social?.toLowerCase().includes(searchLower);
-          const responsavelMatch = cliente.responsavel?.toLowerCase().includes(searchLower);
-          
-          return telefoneDigits.includes(searchDigits) || 
-                 whatsappDigits.includes(searchDigits) ||
-                 cpfCnpjDigits.includes(searchDigits) ||
-                 nomeMatch ||
-                 responsavelMatch;
-        });
-      }
-      
-      return data as any[];
-    },
+  const { data: response, isLoading } = useClientes({
+    search: search || undefined,
+    segmentoId: segmentoFilter !== 'todos' ? segmentoFilter : undefined,
+    page: currentPage - 1,
+    pageSize: ITENS_POR_PAGINA,
   });
 
-  const totalPages = Math.max(1, Math.ceil(clientes.length / ITENS_POR_PAGINA));
+  const { data: clientes = [], totalCount = 0 } = response || {};
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / ITENS_POR_PAGINA));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * ITENS_POR_PAGINA;
-  const paginatedClientes = clientes.slice(startIndex, startIndex + ITENS_POR_PAGINA);
-  const inicioItem = clientes.length === 0 ? 0 : startIndex + 1;
-  const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, clientes.length);
+  const paginatedClientes = clientes;
+  const inicioItem = totalCount === 0 ? 0 : startIndex + 1;
+  const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, totalCount);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -98,7 +60,7 @@ export default function ClientesLista() {
   const renderPagination = () => (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-sm text-muted-foreground">
-        Mostrando {inicioItem}-{fimItem} de {clientes.length} clientes
+        Mostrando {inicioItem}-{fimItem} de {totalCount} clientes
       </p>
       <div className="flex items-center gap-2">
         <Button
@@ -166,7 +128,7 @@ export default function ClientesLista() {
               </SelectContent>
             </Select>
           </div>
-          {!isLoading && clientes.length > 0 && (
+          {!isLoading && totalCount > 0 && (
             <div className="mt-4 border-t pt-4">
               {renderPagination()}
             </div>
@@ -175,7 +137,7 @@ export default function ClientesLista() {
         <CardContent>
           {isLoading ? (
             <p className="text-center py-8 text-muted-foreground">Carregando...</p>
-          ) : clientes.length === 0 ? (
+          ) : totalCount === 0 ? (
             <p className="text-center py-8 text-muted-foreground">Nenhum cliente encontrado</p>
           ) : (
             <Table>
@@ -228,7 +190,7 @@ export default function ClientesLista() {
               </TableBody>
             </Table>
           )}
-          {!isLoading && clientes.length > 0 && (
+          {!isLoading && totalCount > 0 && (
             <div className="pt-4">
               {renderPagination()}
             </div>

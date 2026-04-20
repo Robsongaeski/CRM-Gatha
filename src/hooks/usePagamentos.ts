@@ -86,22 +86,37 @@ export function usePagamentos(pedidoId?: string) {
 }
 
 // Listar todos os pagamentos pendentes (para financeiro)
-export function usePagamentosPendentes() {
+export interface PagamentosPendentesFilters {
+  page?: number;
+  pageSize?: number;
+  vendedor?: string;
+  cliente?: string;
+  forma?: string;
+  pedido?: string;
+}
+
+// Listar todos os pagamentos pendentes (para financeiro)
+export function usePagamentosPendentes(filters?: PagamentosPendentesFilters) {
   return useQuery({
-    queryKey: ['pagamentos-pendentes'],
+    queryKey: ['pagamentos-pendentes', filters],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const page = filters?.page || 0;
+      const pageSize = filters?.pageSize || 20;
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+
+      let query = supabase
         .from('pagamentos')
         .select(`
           *,
-          pedidos (
+          pedidos!inner (
             id,
             numero_pedido,
             data_pedido,
             valor_total,
             observacao,
             data_entrega,
-            clientes (
+            clientes!inner (
               id,
               nome_razao_social,
               telefone,
@@ -110,13 +125,28 @@ export function usePagamentosPendentes() {
               cpf_cnpj,
               endereco
             ),
-            vendedor:profiles (id, nome, email)
+            vendedor:profiles!inner (id, nome, email)
           )
-        `)
+        `, { count: 'exact' })
         .eq('status', 'aguardando')
-        .eq('estornado', false)
-        .order('pedido_id', { ascending: true })
-        .order('created_at', { ascending: true });
+        .eq('estornado', false);
+
+      if (filters?.pedido) {
+        query = query.ilike('pedidos.numero_pedido', `%${filters.pedido}%`);
+      }
+      if (filters?.vendedor) {
+        query = query.ilike('pedidos.vendedor.nome', `%${filters.vendedor}%`);
+      }
+      if (filters?.cliente) {
+        query = query.ilike('pedidos.clientes.nome_razao_social', `%${filters.cliente}%`);
+      }
+      if (filters?.forma && filters.forma !== 'all') {
+        query = query.eq('forma_pagamento', filters.forma);
+      }
+
+      const { data, error, count } = await query
+        .order('created_at', { ascending: true })
+        .range(from, to);
 
       if (error) throw error;
 
@@ -138,7 +168,10 @@ export function usePagamentosPendentes() {
         });
       }
 
-      return data;
+      return {
+        data: data || [],
+        totalCount: count || 0
+      };
     },
   });
 }
@@ -569,4 +602,66 @@ export function useUploadComprovante() {
       toast.error(sanitizeError(error));
     },
   });
+}
+
+export function usePagamentosStats(filters?: PagamentosPendentesFilters) {
+  return useQuery({
+    queryKey: ['pagamentos-pendentes-stats', filters],
+    queryFn: async () => {
+      let query = supabase
+        .from('pagamentos')
+        .select(`
+          valor,
+          forma_pagamento,
+          data_vencimento_boleto,
+          pedidos!inner (
+            numero_pedido,
+            clientes!inner (nome_razao_social),
+            vendedor:profiles!inner (nome)
+          )
+        `)
+        .eq('status', 'aguardando')
+        .eq('estornado', false);
+
+      if (filters?.pedido) {
+        query = query.ilike('pedidos.numero_pedido', `%${filters.pedido}%`);
+      }
+      if (filters?.vendedor) {
+        query = query.ilike('pedidos.vendedor.nome', `%${filters.vendedor}%`);
+      }
+      if (filters?.cliente) {
+        query = query.ilike('pedidos.clientes.nome_razao_social', `%${filters.cliente}%`);
+      }
+      if (filters?.forma && filters.forma !== 'all') {
+        query = query.eq('forma_pagamento', filters.forma);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      const totalPendente = data.reduce((sum, p) => sum + Number(p.valor), 0);
+      
+      const hoje = startOfDay(new Date());
+      const boletosVencidos = data.filter((p: any) => {
+        if (p.forma_pagamento !== 'boleto' || !p.data_vencimento_boleto) return false;
+        const vencimento = startOfDay(new Date(p.data_vencimento_boleto + 'T12:00:00'));
+        return isBefore(vencimento, hoje);
+      }).length;
+
+      return {
+        totalPendente,
+        boletosVencidos
+      };
+    },
+  });
+}
+
+function startOfDay(date: Date) {
+  const newDate = new Date(date);
+  newDate.setHours(0, 0, 0, 0);
+  return newDate;
+}
+
+function isBefore(date1: Date, date2: Date) {
+  return date1.getTime() < date2.getTime();
 }
