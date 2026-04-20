@@ -1,3 +1,4 @@
+import React, { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,135 +8,132 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { RoleProtectedRoute } from "@/components/RoleProtectedRoute";
 import { AppLayout } from "@/components/Layout/AppLayout";
-import ClientesLista from "./pages/Clientes/ClientesLista";
-import ClienteForm from "./pages/Clientes/ClienteForm";
-import ClienteDetalhes from "./pages/Clientes/ClienteDetalhes";
-import ProdutosLista from "./pages/Produtos/ProdutosLista";
-import ProdutoForm from "./pages/Produtos/ProdutoForm";
-import PropostasLista from "./pages/Propostas/PropostasLista";
-import PropostaForm from "./pages/Propostas/PropostaForm";
-import PropostaDetalhes from "./pages/Propostas/PropostaDetalhes";
-import PropostaOrcamento from "./pages/Propostas/PropostaOrcamento";
-import PedidosLista from "./pages/Pedidos/PedidosLista";
-import PedidoForm from "./pages/Pedidos/PedidoForm";
-import PedidoDetalhes from "./pages/Pedidos/PedidoDetalhes";
-import PagamentosPendentes from "./pages/Financeiro/PagamentosPendentes";
-import HistoricoFinanceiro from "./pages/Financeiro/HistoricoFinanceiro";
-import ControleRecebimentos from "./pages/Financeiro/ControleRecebimentos";
 
-import UsuariosLista from "./pages/Admin/UsuariosLista";
-import UsuarioForm from "./pages/Admin/UsuarioForm";
-import PerfisLista from "./pages/Admin/PerfisLista";
-import PerfilForm from "./pages/Admin/PerfilForm";
-import RegrasComissao from './pages/Admin/RegrasComissao';
-import MinhasComissoes from './pages/Comissoes/MinhasComissoes';
-import AprovarPedidos from './pages/Admin/AprovarPedidos';
-import RelatorioComissoes from './pages/Admin/RelatorioComissoes';
-import RelatorioAtendimentos from './pages/Admin/RelatorioAtendimentos';
-import LeadsLista from './pages/Leads/LeadsLista';
-import LeadDetalhes from './pages/Leads/LeadDetalhes';
-import LeadForm from './pages/Leads/LeadForm';
-import SegmentosLista from './pages/Admin/SegmentosLista';
-import SegmentoForm from './pages/Admin/SegmentoForm';
-import GradesTamanhoLista from './pages/Admin/GradesTamanhoLista';
-import GradeTamanhoForm from './pages/Admin/GradeTamanhoForm';
-import NotFound from "./pages/NotFound";
-import GuiaSistema from "./pages/Docs/GuiaSistema";
-import EntregaPedidos from "./pages/Pedidos/EntregaPedidos";
-import GradesProva from "./pages/Vendas/GradesProva";
+// Lazy Loading de páginas para melhor performance
+const ClientesLista = lazy(() => import("./pages/Clientes/ClientesLista"));
+const ClienteForm = lazy(() => import("./pages/Clientes/ClienteForm"));
+const ClienteDetalhes = lazy(() => import("./pages/Clientes/ClienteDetalhes"));
+const ProdutosLista = lazy(() => import("./pages/Produtos/ProdutosLista"));
+const ProdutoForm = lazy(() => import("./pages/Produtos/ProdutoForm"));
+const PropostasLista = lazy(() => import("./pages/Propostas/PropostasLista"));
+const PropostaForm = lazy(() => import("./pages/Propostas/PropostaForm"));
+const PropostaDetalhes = lazy(() => import("./pages/Propostas/PropostaDetalhes"));
+const PropostaOrcamento = lazy(() => import("./pages/Propostas/PropostaOrcamento"));
+const PedidosLista = lazy(() => import("./pages/Pedidos/PedidosLista"));
+const PedidoForm = lazy(() => import("./pages/Pedidos/PedidoForm"));
+const PedidoDetalhes = lazy(() => import("./pages/Pedidos/PedidoDetalhes"));
+const PagamentosPendentes = lazy(() => import("./pages/Financeiro/PagamentosPendentes"));
+const HistoricoFinanceiro = lazy(() => import("./pages/Financeiro/HistoricoFinanceiro"));
+const ControleRecebimentos = lazy(() => import("./pages/Financeiro/ControleRecebimentos"));
+
+const UsuariosLista = lazy(() => import("./pages/Admin/UsuariosLista"));
+const UsuarioForm = lazy(() => import("./pages/Admin/UsuarioForm"));
+const PerfisLista = lazy(() => import("./pages/Admin/PerfisLista"));
+const PerfilForm = lazy(() => import("./pages/Admin/PerfilForm"));
+const RegrasComissao = lazy(() => import('./pages/Admin/RegrasComissao'));
+const MinhasComissoes = lazy(() => import('./pages/Comissoes/MinhasComissoes'));
+const AprovarPedidos = lazy(() => import('./pages/Admin/AprovarPedidos'));
+const RelatorioComissoes = lazy(() => import('./pages/Admin/RelatorioComissoes'));
+const RelatorioAtendimentos = lazy(() => import('./pages/Admin/RelatorioAtendimentos'));
+const LeadsLista = lazy(() => import('./pages/Leads/LeadsLista'));
+const LeadDetalhes = lazy(() => import('./pages/Leads/LeadDetalhes'));
+const LeadForm = lazy(() => import('./pages/Leads/LeadForm'));
+const SegmentosLista = lazy(() => import('./pages/Admin/SegmentosLista'));
+const SegmentoForm = lazy(() => import('./pages/Admin/SegmentoForm'));
+const GradesTamanhoLista = lazy(() => import('./pages/Admin/GradesTamanhoLista'));
+const GradeTamanhoForm = lazy(() => import('./pages/Admin/GradeTamanhoForm'));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const GuiaSistema = lazy(() => import("./pages/Docs/GuiaSistema"));
+const EntregaPedidos = lazy(() => import("./pages/Pedidos/EntregaPedidos"));
+const GradesProva = lazy(() => import("./pages/Vendas/GradesProva"));
 
 // PCP - Módulo de Produção
-import DashboardPCP from './pages/PCP/Dashboard';
-import CadastrosHub from './pages/PCP/CadastrosHub';
-import MaquinasEstampasLista from './pages/PCP/Cadastros/MaquinasEstampasLista';
-import FalhasLista from './pages/PCP/Cadastros/FalhasLista';
-import EtapasLista from './pages/PCP/Cadastros/EtapasLista';
-import CategoriasEcommerceLista from './pages/PCP/Cadastros/CategoriasEcommerceLista';
-import Impressao from './pages/PCP/Impressao';
-import LancamentoFalhas from './pages/PCP/LancamentoFalhas';
-import Kanban from './pages/PCP/Kanban';
-import Expedicao from './pages/PCP/Expedicao';
-import Calendario from './pages/PCP/Calendario';
-import ResumoImpressao from './pages/PCP/ResumoImpressao';
-import QuantidadesDashboard from './pages/PCP/QuantidadesDashboard';
-import QuantidadesRelatorio from './pages/PCP/QuantidadesRelatorio';
+const DashboardPCP = lazy(() => import('./pages/PCP/Dashboard'));
+const CadastrosHub = lazy(() => import('./pages/PCP/CadastrosHub'));
+const MaquinasEstampasLista = lazy(() => import('./pages/PCP/Cadastros/MaquinasEstampasLista'));
+const FalhasLista = lazy(() => import('./pages/PCP/Cadastros/FalhasLista'));
+const EtapasLista = lazy(() => import('./pages/PCP/Cadastros/EtapasLista'));
+const CategoriasEcommerceLista = lazy(() => import('./pages/PCP/Cadastros/CategoriasEcommerceLista'));
+const Impressao = lazy(() => import('./pages/PCP/Impressao'));
+const LancamentoFalhas = lazy(() => import('./pages/PCP/LancamentoFalhas'));
+const Kanban = lazy(() => import('./pages/PCP/Kanban'));
+const Expedicao = lazy(() => import('./pages/PCP/Expedicao'));
+const Calendario = lazy(() => import('./pages/PCP/Calendario'));
+const ResumoImpressao = lazy(() => import('./pages/PCP/ResumoImpressao'));
+const QuantidadesDashboard = lazy(() => import('./pages/PCP/QuantidadesDashboard'));
+const QuantidadesRelatorio = lazy(() => import('./pages/PCP/QuantidadesRelatorio'));
 
 // Trocas e Devoluções (componentes usados nas rotas de suporte E-commerce)
-import {
-  TrocasLista,
-  TrocaForm,
-  DevolucoesLista,
-  DevolucaoForm,
-  ExtraviosLista,
-  ExtravioForm,
-  ProblemasLista,
-  ProblemaForm,
-  MotivosLista,
-  MotivoForm,
-} from './pages/TrocasDevolucoes';
+const TrocasLista = lazy(() => import('./pages/TrocasDevolucoes').then(m => ({ default: m.TrocasLista })));
+const TrocaForm = lazy(() => import('./pages/TrocasDevolucoes').then(m => ({ default: m.TrocaForm })));
+const DevolucoesLista = lazy(() => import('./pages/TrocasDevolucoes').then(m => ({ default: m.DevolucoesLista })));
+const DevolucaoForm = lazy(() => import('./pages/TrocasDevolucoes').then(m => ({ default: m.DevolucaoForm })));
+const ExtraviosLista = lazy(() => import('./pages/TrocasDevolucoes').then(m => ({ default: m.ExtraviosLista })));
+const ExtravioForm = lazy(() => import('./pages/TrocasDevolucoes').then(m => ({ default: m.ExtravioForm })));
+const ProblemasLista = lazy(() => import('./pages/TrocasDevolucoes').then(m => ({ default: m.ProblemasLista })));
+const ProblemaForm = lazy(() => import('./pages/TrocasDevolucoes').then(m => ({ default: m.ProblemaForm })));
+const MotivosLista = lazy(() => import('./pages/TrocasDevolucoes').then(m => ({ default: m.MotivosLista })));
+const MotivoForm = lazy(() => import('./pages/TrocasDevolucoes').then(m => ({ default: m.MotivoForm })));
 
 // Envios
-import { Despacho, Relatorios as EnviosRelatorios } from './pages/Envios';
+const Despacho = lazy(() => import('./pages/Envios').then(m => ({ default: m.Despacho })));
+const EnviosRelatorios = lazy(() => import('./pages/Envios').then(m => ({ default: m.Relatorios })));
 
 // Ecommerce
-import { 
-  EcommerceDashboard, 
-  EnviosDashboard,
-  EnviosAtrasados,
-  SuporteDashboard, 
-  SuporteRelatorios,
-  PedidosLista as EcommercePedidosLista,
-  RelatoriosEcommerce
-} from './pages/Ecommerce';
-import CarrinhosAbandonados from './pages/Ecommerce/CarrinhosAbandonados';
-import EcommerceLojas from './pages/Admin/EcommerceLojas';
-import WhatsAppApiConfig from './pages/Admin/WhatsAppApiConfig';
+const EcommerceDashboard = lazy(() => import('./pages/Ecommerce').then(m => ({ default: m.EcommerceDashboard })));
+const EnviosDashboard = lazy(() => import('./pages/Ecommerce').then(m => ({ default: m.EnviosDashboard })));
+const EnviosAtrasados = lazy(() => import('./pages/Ecommerce').then(m => ({ default: m.EnviosAtrasados })));
+const SuporteDashboard = lazy(() => import('./pages/Ecommerce').then(m => ({ default: m.SuporteDashboard })));
+const SuporteRelatorios = lazy(() => import('./pages/Ecommerce').then(m => ({ default: m.SuporteRelatorios })));
+const EcommercePedidosLista = lazy(() => import('./pages/Ecommerce').then(m => ({ default: m.PedidosLista })));
+const RelatoriosEcommerce = lazy(() => import('./pages/Ecommerce').then(m => ({ default: m.RelatoriosEcommerce })));
+const CarrinhosAbandonados = lazy(() => import('./pages/Ecommerce/CarrinhosAbandonados'));
+const EcommerceLojas = lazy(() => import('./pages/Admin/EcommerceLojas'));
+const WhatsAppApiConfig = lazy(() => import('./pages/Admin/WhatsAppApiConfig'));
 
 // WhatsApp (módulo independente)
-import { 
-  WhatsAppHub, 
-  Atendimento as WhatsAppAtendimento, 
-  Dashboard as WhatsAppDashboard, 
-  Configuracoes as WhatsAppConfiguracoes 
-} from './pages/WhatsApp';
+const WhatsAppHub = lazy(() => import('./pages/WhatsApp').then(m => ({ default: m.WhatsAppHub })));
+const WhatsAppAtendimento = lazy(() => import('./pages/WhatsApp').then(m => ({ default: m.Atendimento })));
+const WhatsAppDashboard = lazy(() => import('./pages/WhatsApp').then(m => ({ default: m.Dashboard })));
+const WhatsAppConfiguracoes = lazy(() => import('./pages/WhatsApp').then(m => ({ default: m.Configuracoes })));
 
 // Automação
-import { FluxosLista, FluxoEditor, AgentesIA } from './pages/Automacao';
+const FluxosLista = lazy(() => import('./pages/Automacao').then(m => ({ default: m.FluxosLista })));
+const FluxoEditor = lazy(() => import('./pages/Automacao').then(m => ({ default: m.FluxoEditor })));
+const AgentesIA = lazy(() => import('./pages/Automacao').then(m => ({ default: m.AgentesIA })));
 
 // Tarefas
-import { TarefasLista, TarefaDetalhes } from './pages/Tarefas';
+const TarefasLista = lazy(() => import('./pages/Tarefas').then(m => ({ default: m.TarefasLista })));
+const TarefaDetalhes = lazy(() => import('./pages/Tarefas').then(m => ({ default: m.TarefaDetalhes })));
 
 // RH - Gestão de Colaboradores
-import { 
-  DashboardRH, 
-  ColaboradoresLista, 
-  ColaboradorForm,
-  ColaboradorDetalhes,
-  HistoricoSalarial, 
-  ControleFerias, 
-  FechamentoMensal,
-  BonificacoesLista,
-  MimosControle,
-  CalendarioCorporativo,
-  RelatoriosRH
-} from './pages/RH';
+const DashboardRH = lazy(() => import('./pages/RH').then(m => ({ default: m.DashboardRH })));
+const ColaboradoresLista = lazy(() => import('./pages/RH').then(m => ({ default: m.ColaboradoresLista })));
+const ColaboradorForm = lazy(() => import('./pages/RH').then(m => ({ default: m.ColaboradorForm })));
+const ColaboradorDetalhes = lazy(() => import('./pages/RH').then(m => ({ default: m.ColaboradorDetalhes })));
+const HistoricoSalarial = lazy(() => import('./pages/RH').then(m => ({ default: m.HistoricoSalarial })));
+const ControleFerias = lazy(() => import('./pages/RH').then(m => ({ default: m.ControleFerias })));
+const FechamentoMensal = lazy(() => import('./pages/RH').then(m => ({ default: m.FechamentoMensal })));
+const BonificacoesLista = lazy(() => import('./pages/RH').then(m => ({ default: m.BonificacoesLista })));
+const MimosControle = lazy(() => import('./pages/RH').then(m => ({ default: m.MimosControle })));
+const CalendarioCorporativo = lazy(() => import('./pages/RH').then(m => ({ default: m.CalendarioCorporativo })));
+const RelatoriosRH = lazy(() => import('./pages/RH').then(m => ({ default: m.RelatoriosRH })));
 
 // Suprimentos - Fornecedores e Compras
-import {
-  SuprimentosDashboard,
-  FornecedoresLista,
-  FornecedorForm,
-  InsumosLista,
-  InsumoForm,
-  ComprasLista,
-  CompraForm,
-  CompraDetalhe,
-  HistoricoPrecos,
-  ComposicoesLista,
-  RelatoriosSuprimentos,
-} from './pages/Suprimentos';
-import Auth from "./pages/Auth";
-import Dashboard from "./pages/Dashboard";
+const SuprimentosDashboard = lazy(() => import('./pages/Suprimentos').then(m => ({ default: m.SuprimentosDashboard })));
+const FornecedoresLista = lazy(() => import('./pages/Suprimentos').then(m => ({ default: m.FornecedoresLista })));
+const FornecedorForm = lazy(() => import('./pages/Suprimentos').then(m => ({ default: m.FornecedorForm })));
+const InsumosLista = lazy(() => import('./pages/Suprimentos').then(m => ({ default: m.InsumosLista })));
+const InsumoForm = lazy(() => import('./pages/Suprimentos').then(m => ({ default: m.InsumoForm })));
+const ComprasLista = lazy(() => import('./pages/Suprimentos').then(m => ({ default: m.ComprasLista })));
+const CompraForm = lazy(() => import('./pages/Suprimentos').then(m => ({ default: m.CompraForm })));
+const CompraDetalhe = lazy(() => import('./pages/Suprimentos').then(m => ({ default: m.CompraDetalhe })));
+const HistoricoPrecos = lazy(() => import('./pages/Suprimentos').then(m => ({ default: m.HistoricoPrecos })));
+const ComposicoesLista = lazy(() => import('./pages/Suprimentos').then(m => ({ default: m.ComposicoesLista })));
+const RelatoriosSuprimentos = lazy(() => import('./pages/Suprimentos').then(m => ({ default: m.RelatoriosSuprimentos })));
+
+const Auth = lazy(() => import("./pages/Auth"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -155,8 +153,16 @@ const App = () => (
         <AuthProvider>
             <Toaster />
             <Sonner />
-            <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Suspense fallback={
+              <div className="flex h-screen w-full items-center justify-center bg-background/50 backdrop-blur-sm">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+                  <p className="text-sm font-medium animate-pulse text-muted-foreground">Carregando módulo...</p>
+                </div>
+              </div>
+            }>
+              <Routes>
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
               
               <Route path="/auth" element={<Auth />} />
               <Route path="/dashboard" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
@@ -332,7 +338,8 @@ const App = () => (
             <Route path="/trocas-devolucoes/orders" element={<Navigate to="/ecommerce/pedidos" replace />} />
             
             <Route path="*" element={<NotFound />} />
-            </Routes>
+              </Routes>
+            </Suspense>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

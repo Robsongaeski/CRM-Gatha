@@ -32,20 +32,26 @@ interface LeadsFilters {
   segmento_id?: string;
   vendedor_id?: string;
   search?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 export function useLeads(filters?: LeadsFilters & { incluirInativos?: boolean }) {
   return useQuery({
     queryKey: ['leads', filters],
     queryFn: async () => {
+      const page = filters?.page || 0;
+      const pageSize = filters?.pageSize || 20;
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+
       let query = supabase
         .from('leads' as any)
         .select(`
           *,
           segmento:segmentos(nome, cor, icone),
           vendedor:profiles!leads_vendedor_id_fkey(nome)
-        `)
-        .order('created_at', { ascending: false });
+        `, { count: 'exact' });
       
       // Filtrar apenas leads ativos por padrão
       if (!filters?.incluirInativos) {
@@ -68,9 +74,16 @@ export function useLeads(filters?: LeadsFilters & { incluirInativos?: boolean })
         query = query.or(`nome.ilike.%${filters.search}%,email.ilike.%${filters.search}%,telefone.ilike.%${filters.search}%,whatsapp.ilike.%${filters.search}%`);
       }
       
-      const { data, error } = await query;
+      const { data, error, count } = await query
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
       if (error) throw error;
-      return data as any as Lead[];
+      
+      return {
+        data: (data as any as Lead[]) || [],
+        totalCount: count || 0
+      };
     },
   });
 }

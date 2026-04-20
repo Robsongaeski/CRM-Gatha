@@ -84,7 +84,10 @@ export const usePedidos = (filters?: {
   busca?: string; // Busca por número do pedido ou nome do cliente
   dataInicio?: string;
   dataFim?: string;
+  page?: number;
+  pageSize?: number;
 }) => {
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ['pedidos', filters],
     queryFn: async () => {
@@ -98,9 +101,12 @@ export const usePedidos = (filters?: {
           vendedor:profiles(id, nome),
           etapa_producao:etapa_producao(id, nome_etapa, cor_hex),
           itens:pedido_itens(id, foto_modelo_url, produto:produtos(id, nome))
-        `)
-        .order('numero_pedido', { ascending: false })
-        .order('data_pedido', { ascending: false });
+        `, { count: 'exact' });
+
+      const page = filters?.page || 0;
+      const pageSize = filters?.pageSize || 20;
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
 
       if (filters?.status) {
         if (Array.isArray(filters.status)) {
@@ -134,39 +140,31 @@ export const usePedidos = (filters?: {
         query = query.lt('data_pedido', `${dataFimFormatada}T00:00:00`);
       }
 
-      const { data, error } = await query;
+      // Busca no servidor (Filtro por número do pedido ou nome do cliente)
+      if (filters?.busca) {
+        const buscaClean = filters.busca.trim();
+        const buscaNumero = parseInt(buscaClean);
+        const buscaLike = `%${buscaClean}%`;
+        
+        if (!isNaN(buscaNumero)) {
+          // Busca exata pelo número OU parcial pelo nome do cliente
+          query = query.or(`numero_pedido.eq.${buscaNumero},cliente_nome_razao_social_temp.ilike.${buscaLike}`);
+        } else {
+          query = query.ilike('clientes.nome_razao_social', buscaLike);
+        }
+      }
+
+      const { data, error, count } = await query
+        .order('numero_pedido', { ascending: false })
+        .order('data_pedido', { ascending: false })
+        .range(from, to);
 
       if (error) throw error;
       
-      // Filtrar por busca (número do pedido, nome do cliente ou telefone) no lado do cliente
-      if (filters?.busca) {
-        const buscaLower = filters.busca.toLowerCase();
-        const buscaNumero = parseInt(filters.busca);
-        // Remover caracteres não numéricos para comparar telefone
-        const buscaTelefone = filters.busca.replace(/\D/g, '');
-        
-        return data?.filter((pedido: any) => {
-          // Buscar por número do pedido
-          if (!isNaN(buscaNumero) && pedido.numero_pedido === buscaNumero) {
-            return true;
-          }
-          // Buscar por nome do cliente
-          if (pedido.cliente?.nome_razao_social?.toLowerCase().includes(buscaLower)) {
-            return true;
-          }
-          // Buscar por telefone do cliente
-          if (buscaTelefone && pedido.cliente?.telefone?.replace(/\D/g, '').includes(buscaTelefone)) {
-            return true;
-          }
-          // Buscar por whatsapp do cliente
-          if (buscaTelefone && pedido.cliente?.whatsapp?.replace(/\D/g, '').includes(buscaTelefone)) {
-            return true;
-          }
-          return false;
-        }) || [];
-      }
-
-      return data;
+      return {
+        data: data || [],
+        totalCount: count || 0
+      };
     },
   });
 };

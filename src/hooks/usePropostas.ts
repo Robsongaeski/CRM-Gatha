@@ -36,28 +36,46 @@ export function usePropostas(filters?: {
   status?: StatusProposta;
   clienteId?: string;
   vendedorId?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
 }) {
   const { user } = useAuth();
 
   return useQuery({
     queryKey: ['propostas', filters],
     queryFn: async () => {
+      const page = filters?.page || 0;
+      const pageSize = filters?.pageSize || 20;
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+
       let query = supabase
         .from('propostas')
         .select(`
           *,
           cliente:clientes(id, nome_razao_social, telefone, email),
           vendedor:profiles(nome, email, whatsapp)
-        `)
-        .order('created_at', { ascending: false });
+        `, { count: 'exact' });
       
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.clienteId) query = query.eq('cliente_id', filters.clienteId);
       if (filters?.vendedorId) query = query.eq('vendedor_id', filters.vendedorId);
       
-      const { data, error } = await query;
+      if (filters?.search) {
+        query = query.or(`observacoes.ilike.%${filters.search}%,cliente_nome_razao_social_temp.ilike.%${filters.search}%`);
+      }
+      
+      const { data, error, count } = await query
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
       if (error) throw error;
-      return data;
+      
+      return {
+        data: data || [],
+        totalCount: count || 0
+      };
     },
     enabled: !!user,
   });

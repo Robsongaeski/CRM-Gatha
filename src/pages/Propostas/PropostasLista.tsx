@@ -100,7 +100,14 @@ export default function PropostasLista() {
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
-  const { data: propostas = [], isLoading } = usePropostas();
+  const { data: response, isLoading } = usePropostas({
+    status: statusFilter === 'all' ? undefined : statusFilter,
+    search: search || undefined,
+    page: currentPage - 1,
+    pageSize: ITENS_POR_PAGINA,
+  });
+
+  const { data: propostas = [], totalCount = 0 } = response || {};
   const deleteMutation = useDeleteProposta();
   const updateStatusMutation = useUpdatePropostaStatus();
 
@@ -126,29 +133,17 @@ export default function PropostasLista() {
 
   const returnTo = `/propostas${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
 
-  const filteredPropostas = propostas.filter((proposta: any) => {
-    const searchLower = search.toLowerCase();
-    const statusMatch = statusFilter === 'all' || proposta.status === statusFilter;
-    return (
-      statusMatch &&
-      (
-        proposta.cliente?.nome_razao_social?.toLowerCase().includes(searchLower) ||
-        proposta.cliente?.telefone?.toLowerCase().includes(searchLower) ||
-        proposta.vendedor?.nome?.toLowerCase().includes(searchLower)
-      )
-    );
-  });
-  const totalPages = Math.max(1, Math.ceil(filteredPropostas.length / ITENS_POR_PAGINA));
+  const totalPages = Math.max(1, Math.ceil(totalCount / ITENS_POR_PAGINA));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * ITENS_POR_PAGINA;
-  const paginatedPropostas = filteredPropostas.slice(startIndex, startIndex + ITENS_POR_PAGINA);
-  const inicioItem = filteredPropostas.length === 0 ? 0 : startIndex + 1;
-  const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, filteredPropostas.length);
+  const paginatedPropostas = propostas;
+  const inicioItem = totalCount === 0 ? 0 : startIndex + 1;
+  const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, totalCount);
 
   const renderPagination = () => (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-sm text-muted-foreground">
-        Mostrando {inicioItem}-{fimItem} de {filteredPropostas.length} propostas
+        Mostrando {inicioItem}-{fimItem} de {totalCount} propostas
       </p>
       <div className="flex items-center gap-2">
         <Button
@@ -367,14 +362,14 @@ export default function PropostasLista() {
                   </Button>
                 )}
               </div>
-              {filteredPropostas.length > 0 && (
+              {totalCount > 0 && (
                 <div className="border-t pt-3">
                   {renderPagination()}
                 </div>
               )}
             </div>
           </div>
-          {filteredPropostas.length === 0 ? (
+          {propostas.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-muted-foreground">Nenhuma proposta encontrada</p>
             </div>
@@ -512,7 +507,7 @@ export default function PropostasLista() {
               </Table>
             </div>
           )}
-          {filteredPropostas.length > 0 && (
+          {propostas.length > 0 && (
             <div className="pt-4">
               {renderPagination()}
             </div>

@@ -58,15 +58,21 @@ export default function LeadsLista() {
   const [leadParaContato, setLeadParaContato] = useState<Lead | null>(null);
   
   const navigate = useNavigate();
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITENS_POR_PAGINA = 20;
   const { can } = usePermissions();
   const { user } = useAuth();
   
-  const { data: leads = [], isLoading } = useLeads({
+  const { data: leadsResponse, isLoading } = useLeads({
     status: status !== 'todos' ? status : undefined,
     segmento_id: segmentoId !== 'todos' ? segmentoId : undefined,
     vendedor_id: meusContatos ? user?.id : (vendedorId !== 'todos' ? vendedorId : undefined),
     search: search || undefined,
+    page: currentPage - 1,
+    pageSize: ITENS_POR_PAGINA,
   });
+
+  const { data: leads = [], totalCount = 0 } = leadsResponse || {};
 
   const { data: segmentos = [] } = useSegmentos();
   const { data: usuarios = [] } = useUsuarios();
@@ -132,6 +138,8 @@ export default function LeadsLista() {
     setSelectedLeads(new Set());
     setExcluirDialogOpen(false);
   };
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / ITENS_POR_PAGINA));
 
   const selectedLeadsArray = Array.from(selectedLeads);
   const allSelected = leadsAtivos.length > 0 && selectedLeads.size === leadsAtivos.length;
@@ -419,6 +427,35 @@ export default function LeadsLista() {
               </TableBody>
             </Table>
           </TooltipProvider>
+
+          {totalCount > ITENS_POR_PAGINA && (
+            <div className="mt-4 flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Mostrando {Math.min(leads.length, totalCount)} de {totalCount} leads
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Anterior
+                </Button>
+                <div className="text-sm font-medium">
+                  Página {currentPage} de {totalPages}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Próxima
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

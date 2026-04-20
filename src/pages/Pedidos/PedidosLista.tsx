@@ -257,23 +257,30 @@ export default function PedidosLista() {
     ...(buscaFilter && { busca: buscaFilter }),
     ...(dataInicioFilter && { dataInicio: dataInicioFilter }),
     ...(dataFimFilter && { dataFim: dataFimFilter }),
+    page: currentPage - 1,
+    pageSize: ITENS_POR_PAGINA,
   };
 
-  const { data: pedidos, isLoading } = usePedidos(Object.keys(filtros).length > 0 ? filtros : undefined);
-  const pedidosBase = pedidos || [];
+  const { data: response, isLoading } = usePedidos(filtros);
+  const { data: pedidosBase = [], totalCount = 0 } = response || {};
+  
   const listaPedidos = saldoLancamentosEmAbertoFilter
     ? pedidosBase.filter((pedido: any) => calcularSaldoComPagamentosLancados(pedido.id, Number(pedido.valor_total)) > 0)
     : pedidosBase;
-  const totalPages = Math.max(1, Math.ceil(listaPedidos.length / ITENS_POR_PAGINA));
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / ITENS_POR_PAGINA));
   const safeCurrentPage = Math.min(currentPage, totalPages);
+  
+  // Os dados já vêm paginados do servidor
+  const paginatedPedidos = listaPedidos;
+  
   const startIndex = (safeCurrentPage - 1) * ITENS_POR_PAGINA;
-  const paginatedPedidos = listaPedidos.slice(startIndex, startIndex + ITENS_POR_PAGINA);
-  const inicioItem = listaPedidos.length === 0 ? 0 : startIndex + 1;
-  const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, listaPedidos.length);
+  const inicioItem = totalCount === 0 ? 0 : startIndex + 1;
+  const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, totalCount);
   const renderPagination = () => (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-sm text-muted-foreground">
-        Mostrando {inicioItem}-{fimItem} de {listaPedidos.length} pedidos
+        Mostrando {inicioItem}-{fimItem} de {totalCount} pedidos
       </p>
       <div className="flex items-center gap-2">
         <Button
@@ -311,9 +318,9 @@ export default function PedidosLista() {
 
   // Verificar permissões de edição para cada pedido
   const { data: permissoesEdicao } = useQuery({
-    queryKey: ['permissoes-edicao', pedidos?.map(p => p.id), user?.id],
+    queryKey: ['permissoes-edicao', pedidosBase?.map(p => p.id), user?.id],
     queryFn: async () => {
-      if (!pedidos || !user) return {};
+      if (!pedidosBase || !user) return {};
       
       const permissoes: Record<string, boolean> = {};
       
