@@ -112,7 +112,8 @@ export function useWhatsappMessages(conversationId: string | null, limit = MESSA
           queryClient.setQueriesData(
             { queryKey: ['whatsapp-messages', conversationId], exact: false },
             (old: WhatsappMessage[] = []) => {
-              return old.map((message) =>
+              const oldArray = Array.isArray(old) ? old : [];
+              return oldArray.map((message) =>
                 message.id === payload.new.id ? (payload.new as WhatsappMessage) : message,
               );
             }
@@ -233,7 +234,10 @@ export function useSendWhatsappMessage() {
       await queryClient.cancelQueries({ queryKey: ['whatsapp-messages', variables.conversationId] });
       queryClient.setQueryData(
         ['whatsapp-messages', variables.conversationId],
-        (old: WhatsappMessage[] = []) => [...old, optimisticMessage],
+        (old: WhatsappMessage[] = []) => {
+          const currentArray = Array.isArray(old) ? old : [];
+          return [...currentArray, optimisticMessage];
+        }
       );
 
       return { tempMessageId };
@@ -254,7 +258,8 @@ export function useSendWhatsappMessage() {
             return [...withoutTemp, savedMessage];
           }
 
-          return old.map((message) =>
+          const currentArray = Array.isArray(old) ? old : [];
+          return currentArray.map((message) =>
             message.id === context.tempMessageId
               ? { ...message, status: finalStatus, error_message: null }
               : message,
@@ -278,7 +283,8 @@ export function useSendWhatsappMessage() {
         (old: WhatsappMessage[] = []) => {
           if (!context?.tempMessageId) return old;
 
-          return old.map((message) =>
+          const currentArray = Array.isArray(old) ? old : [];
+          return currentArray.map((message) =>
             message.id === context.tempMessageId
               ? { ...message, status: 'error', error_message: error.message || 'Erro ao enviar' }
               : message,

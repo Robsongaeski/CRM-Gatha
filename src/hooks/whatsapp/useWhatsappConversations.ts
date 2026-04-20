@@ -366,7 +366,7 @@ export function useWhatsappConversations(
           queryClient.setQueriesData(
             { queryKey: ['whatsapp-conversations'], exact: false },
             (old: WhatsappConversationsResult | undefined) => {
-              if (!old || !old.data) return old;
+              if (!old || !old.data || !Array.isArray(old.data)) return old;
               return {
                 ...old,
                 data: old.data.map(conv =>
