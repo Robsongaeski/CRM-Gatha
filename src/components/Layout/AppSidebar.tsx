@@ -122,6 +122,8 @@ const automacaoItems = [
   { title: 'Agentes IA', url: '/automacao/agentes-ia', icon: Bot },
 ];
 
+
+
 // RH - Gestão de Colaboradores
 const rhItems = [
   { title: 'Dashboard RH', url: '/rh', icon: LayoutDashboard },
@@ -195,6 +197,7 @@ function useModuleState() {
       setOpenModules(prev => ({ ...prev, automacao: true }));
     } else if (path.startsWith('/rh')) {
       setOpenModules(prev => ({ ...prev, rh: true }));
+
     } else if (path.startsWith('/tarefas')) {
       setOpenModules(prev => ({ ...prev, tarefas: true }));
     }
@@ -252,6 +255,7 @@ export function AppSidebar() {
   const showTarefas = can('tarefas.visualizar') || can('tarefas.criar') || isAdmin;
   const showAutomacao = isAdmin || can('automacao.visualizar');
   const showRH = isAdmin || isRH || can('rh.colaboradores.visualizar');
+
   const showAdmin = isAdmin || can('aprovacoes.aprovar') || can('pedidos.alteracoes.aprovar');
   const filteredSuprimentosItems = suprimentosItems.filter((item) => isAdmin || can(item.permission));
   const filteredAdminItems = adminItems.filter((item) => {
@@ -505,6 +509,8 @@ export function AppSidebar() {
             </SidebarGroup>
           </Collapsible>
         )}
+
+
 
         {/* Módulo Administração */}
         {showAdmin && (

@@ -7,16 +7,6 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { RoleProtectedRoute } from "@/components/RoleProtectedRoute";
 import { AppLayout } from "@/components/Layout/AppLayout";
-import { CartProvider } from "@/contexts/CartContext";
-import Auth from "./pages/Auth";
-import Dashboard from "./pages/Dashboard";
-import HomePage from "./pages/Site/HomePage";
-import CategoryPage from "./pages/Site/CategoryPage";
-import SportsCategoryPage from "./pages/Site/SportsCategoryPage";
-import ProductPage from "./pages/Site/ProductPage";
-import CartPage from "./pages/Site/CartPage";
-import CategoryRoute from "./pages/Site/CategoryRoute";
-import ProductRoute from "./pages/Site/ProductRoute";
 import ClientesLista from "./pages/Clientes/ClientesLista";
 import ClienteForm from "./pages/Clientes/ClienteForm";
 import ClienteDetalhes from "./pages/Clientes/ClienteDetalhes";
@@ -144,23 +134,29 @@ import {
   ComposicoesLista,
   RelatoriosSuprimentos,
 } from './pages/Suprimentos';
+import Auth from "./pages/Auth";
+import Dashboard from "./pages/Dashboard";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 2,   // 2 minutos
+      gcTime: 1000 * 60 * 10,     // 10 minutos
+      retry: 1,                    // 1 tentativa em caso de erro
+      refetchOnWindowFocus: false, // desativo para evitar excesso de queries
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <BrowserRouter>
         <AuthProvider>
-          <CartProvider>
             <Toaster />
             <Sonner />
             <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/categoria/esportivos" element={<SportsCategoryPage />} />
-              <Route path="/categoria/:slug" element={<CategoryRoute />} />
-              <Route path="/produto/:slug" element={<ProductRoute />} />
-              <Route path="/carrinho" element={<CartPage />} />
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
               
               <Route path="/auth" element={<Auth />} />
               <Route path="/dashboard" element={<ProtectedRoute><AppLayout><Dashboard /></AppLayout></ProtectedRoute>} />
@@ -174,7 +170,7 @@ const App = () => (
             <Route path="/produtos/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin']} allowedPermissions={['produtos.editar']}><AppLayout><ProdutoForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/propostas" element={<ProtectedRoute><AppLayout><PropostasLista /></AppLayout></ProtectedRoute>} />
             <Route path="/propostas/nova" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['propostas.criar']}><AppLayout><PropostaForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
-            <Route path="/propostas/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['propostas.editar', 'propostas.editar_todos', 'propostas.editar_todas']}><AppLayout><PropostaForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
+            <Route path="/propostas/editar/:id" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'vendedor']} allowedPermissions={['propostas.editar', 'propostas.editar_todos']}><AppLayout><PropostaForm /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/propostas/:id" element={<ProtectedRoute><AppLayout><PropostaDetalhes /></AppLayout></ProtectedRoute>} />
             <Route path="/propostas/:id/orcamento" element={<ProtectedRoute><PropostaOrcamento /></ProtectedRoute>} />
             <Route path="/comissoes" element={<ProtectedRoute><AppLayout><MinhasComissoes /></AppLayout></ProtectedRoute>} />
@@ -230,7 +226,6 @@ const App = () => (
             <Route path="/ecommerce" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['ecommerce.dashboard.visualizar']}><AppLayout><EcommerceDashboard /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/ecommerce/pedidos" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['ecommerce.pedidos.visualizar']}><AppLayout><EcommercePedidosLista /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             <Route path="/ecommerce/carrinhos-abandonados" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['ecommerce.carrinhos.visualizar']}><AppLayout><CarrinhosAbandonados /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
-            <Route path="/ecommerce/pedidos" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['ecommerce.pedidos.visualizar']}><AppLayout><EcommercePedidosLista /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
             
             {/* E-commerce - Envios */}
             <Route path="/ecommerce/envios" element={<ProtectedRoute><RoleProtectedRoute allowedRoles={['admin', 'atendente']} allowedPermissions={['ecommerce.envios.visualizar']}><AppLayout><EnviosDashboard /></AppLayout></RoleProtectedRoute></ProtectedRoute>} />
@@ -338,7 +333,6 @@ const App = () => (
             
             <Route path="*" element={<NotFound />} />
             </Routes>
-          </CartProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

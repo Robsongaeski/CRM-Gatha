@@ -15,7 +15,7 @@ export function RoleProtectedRoute({
   children, 
   allowedRoles = [],
   allowedPermissions = [],
-  redirectTo = '/entrega-pedidos'
+  redirectTo = '/dashboard'
 }: RoleProtectedRouteProps) {
   const { user, loading } = useAuth();
   const { roles, isLoading: rolesLoading } = useUserRole();

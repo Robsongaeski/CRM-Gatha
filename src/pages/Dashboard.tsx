@@ -31,7 +31,7 @@ import { useDashboardGeral } from '@/hooks/useDashboardGeral';
 import { formatCurrency, parseDateString } from '@/lib/formatters';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, Navigate } from 'react-router-dom';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -42,14 +42,12 @@ export default function Dashboard() {
 
   // Redirecionar atendentes puros para tela de entregas
   if (isAtendente && !isAdmin && !isVendedor && !isFinanceiro) {
-    navigate('/entrega-pedidos', { replace: true });
-    return null;
+    return <Navigate to="/entrega-pedidos" replace />;
   }
 
   // Redirecionar financeiros puros para tela de pagamentos pendentes
   if (isFinanceiro && !isAdmin && !isVendedor) {
-    navigate('/financeiro/pagamentos-pendentes', { replace: true });
-    return null;
+    return <Navigate to="/financeiro/pagamentos-pendentes" replace />;
   }
 
   const { data: vendedores = [] } = useQuery({
