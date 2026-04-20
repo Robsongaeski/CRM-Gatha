@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { WhatsappConversation, useCreateSystemMessage } from '@/hooks/whatsapp/useWhatsappConversations';
-import { useWhatsappMessages, useSendWhatsappMessage, useMarkMessagesAsRead } from '@/hooks/whatsapp/useWhatsappMessages';
+import { useWhatsappMessages, useSendWhatsappMessage, useMarkMessagesAsRead, MESSAGE_LIMIT } from '@/hooks/whatsapp/useWhatsappMessages';
 import { useAssignConversation, useFinishConversation, useUpdateConversation } from '@/hooks/whatsapp/useWhatsappConversations';
 import { useWhatsappQuickReplies } from '@/hooks/whatsapp/useWhatsappQuickReplies';
 import { useAuth } from '@/hooks/useAuth';
@@ -11,7 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Send, Users, UserPlus, CheckCircle2, RefreshCw, ArrowRightLeft, Smile, Paperclip, Image, FileText, X, Zap, ChevronRight, ChevronLeft, Search, WifiOff, Mic, Square, Trash2, Bot, Info } from 'lucide-react';
+import { Send, Users, UserPlus, CheckCircle2, RefreshCw, ArrowRightLeft, Smile, Paperclip, Image, FileText, X, Zap, ChevronRight, ChevronLeft, Search, WifiOff, Mic, Square, Trash2, Bot, Info, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { sanitizeError } from '@/lib/errorHandling';
@@ -64,7 +64,13 @@ export default function ChatArea({
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<number | null>(null);
 
-  const { data: messages = [], isLoading } = useWhatsappMessages(conversation.id);
+  // States for Infinite Scroll
+  const [displayLimit, setDisplayLimit] = useState(MESSAGE_LIMIT);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const lastScrollHeightRef = useRef<number>(0);
+  const isInitialLoadRef = useRef(true);
+
+  const { data: messages = [], isLoading, isFetching } = useWhatsappMessages(conversation.id, displayLimit);
   const { data: quickReplies = [] } = useWhatsappQuickReplies();
   const sendMessage = useSendWhatsappMessage();
   const assignConversation = useAssignConversation();
@@ -149,28 +155,59 @@ export default function ChatArea({
     enabled: !!contactPhoneNormalized && contactPhoneNormalized.length >= 8,
   });
 
-  // Scroll to bottom when messages change
+  // Reset pagination when conversation changes
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
+    setDisplayLimit(MESSAGE_LIMIT);
+    setIsInitialLoadRef(true);
+    setIsLoadingMore(false);
+  }, [conversation.id]);
 
-  // Mark as read logic:
-  // - Grupos: marca como lido ao abrir
-  // - Individual: só marca como lido quando responder (no handleSend)
+  // Scroll logic: preservation and initial bottom
+  useEffect(() => {
+    if (!scrollRef.current) return;
+
+    if (isInitialLoadRef.current && messages.length > 0) {
+      // First load for this conversation: scroll to bottom
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      isInitialLoadRef.current = false;
+    } else if (isLoadingMore) {
+      // After loading older messages: maintain previous scroll distance from bottom
+      const currentScrollHeight = scrollRef.current.scrollHeight;
+      const heightDifference = currentScrollHeight - lastScrollHeightRef.current;
+      scrollRef.current.scrollTop = heightDifference;
+      setIsLoadingMore(false);
+    } else {
+      // New real-time messages: scroll to bottom ONLY if already near bottom
+      const threshold = 150;
+      const isNearBottom = scrollRef.current.scrollHeight - scrollRef.current.scrollTop - scrollRef.current.clientHeight < threshold;
+      if (isNearBottom) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    }
+  }, [messages, isLoadingMore]);
+
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current || isLoading || isFetching || isLoadingMore) return;
+
+    // Detect if hitting TOP
+    if (scrollRef.current.scrollTop === 0 && messages.length >= displayLimit) {
+      lastScrollHeightRef.current = scrollRef.current.scrollHeight;
+      setIsLoadingMore(true);
+      setDisplayLimit(prev => prev + MESSAGE_LIMIT);
+    }
+  }, [isLoading, isFetching, isLoadingMore, messages.length, displayLimit]);
+
+  // Mark as read logic
   useEffect(() => {
     if (conversation.unread_count > 0 && conversation.is_group) {
       markAsRead.mutate(conversation.id);
     }
   }, [conversation.id, conversation.is_group, conversation.unread_count]);
 
-  // Foco automático no input ao abrir conversa
   useEffect(() => {
     inputRef.current?.focus();
   }, [conversation.id]);
 
-  // Handle paste for images
   const handlePaste = useCallback((e: ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -193,7 +230,6 @@ export default function ChatArea({
     return () => document.removeEventListener('paste', handlePaste);
   }, [handlePaste]);
 
-  // Clear preview URL when file changes
   useEffect(() => {
     return () => {
       if (previewUrl) {
@@ -202,7 +238,6 @@ export default function ChatArea({
     };
   }, [previewUrl]);
 
-  // Detectar atalho por "/" - autocomplete
   const showSuggestions = message.startsWith('/');
   const shortcutFilter = message.startsWith('/') ? message.slice(1).toLowerCase() : '';
   const suggestedReplies = quickReplies.filter(
@@ -211,10 +246,8 @@ export default function ChatArea({
       r.titulo.toLowerCase().includes(shortcutFilter)
   );
 
-  // Quick buttons - apenas as que têm mostrar_botao = true
   const quickButtons = quickReplies.filter(r => r.mostrar_botao);
 
-  // Filtrar respostas no popover
   const filteredQuickReplies = quickReplies.filter(
     (r) =>
       r.titulo.toLowerCase().includes(quickReplySearch.toLowerCase()) ||
@@ -235,36 +268,21 @@ export default function ChatArea({
   const handleSend = async () => {
     if (!message.trim() && !selectedFile) return;
 
-    // Capturar valores atuais imediatamente
     const currentMessage = message.trim();
     const currentFile = selectedFile;
     const currentPreviewUrl = previewUrl;
 
-    // Limpar inputs IMEDIATAMENTE para permitir próxima mensagem
     setMessage('');
     setSelectedFile(null);
     setPreviewUrl(null);
-
-    // Manter foco no input
     inputRef.current?.focus();
 
-    // === VERIFICAÇÃO DE TRANSFERÊNCIA (síncrona, antes do envio) ===
     const isImplicitTransfer = conversation.assigned_to && 
-                                conversation.assigned_to !== user?.id && 
-                                conversation.status !== 'finished';
+                                 conversation.assigned_to !== user?.id && 
+                                 conversation.status !== 'finished';
 
-    console.log('[ChatArea] 🔄 handleSend - Verificando transferência:', {
-      conversationId: conversation.id,
-      assigned_to: conversation.assigned_to,
-      userId: user?.id,
-      status: conversation.status,
-      isImplicitTransfer,
-    });
-
-    // Se é uma transferência implícita, processar ANTES de enviar a mensagem
     if (isImplicitTransfer) {
       try {
-        // Buscar nome do usuário atual
         let userName = currentUserProfile?.nome;
         if (!userName) {
           const { data: profileData } = await supabase
@@ -275,29 +293,21 @@ export default function ChatArea({
           userName = profileData?.nome || 'Atendente';
         }
         
-        console.log('[ChatArea] 📝 Criando mensagem de transferência para:', userName);
-        
-        // Criar mensagem de sistema
         await createSystemMessage.mutateAsync({
           conversationId: conversation.id,
           instanceId: conversation.instance_id,
           content: `👤 Sendo atendido por ${userName}`
         });
 
-        // Atualizar atendente
         await updateConversation.mutateAsync({
           id: conversation.id,
           status: 'in_progress',
           assigned_to: user?.id,
         });
-        
-        console.log('[ChatArea] ✅ Transferência concluída');
       } catch (transferError) {
         console.error('[ChatArea] ❌ Erro na transferência:', transferError);
       }
-    }
-    // Se não tem atendente ou está finalizada, atribuir ao usuário atual AUTOMATICAMENTE (apenas para conversas privadas)
-    else if ((!conversation.assigned_to || conversation.status === 'finished') && !conversation.is_group) {
+    } else if ((!conversation.assigned_to || conversation.status === 'finished') && !conversation.is_group) {
       try {
         let userName = currentUserProfile?.nome;
         if (!userName) {
@@ -320,36 +330,30 @@ export default function ChatArea({
           status: 'in_progress',
           assigned_to: user?.id,
         });
-        console.log('[ChatArea] 👤 Conversa atribuída ao usuário atual automaticamente ao responder');
       } catch (assignError) {
         console.error('[ChatArea] ❌ Erro ao atribuir conversa:', assignError);
       }
     }
 
-    // Capturar mensagem sendo respondida (evita ids temporarios otimizados)
     const replyId = String(replyingTo?.id || '').trim();
     const quotedMessageId =
       replyId && !replyId.startsWith('tmp-')
         ? replyId
         : (replyingTo?.message_id_external ? String(replyingTo.message_id_external) : undefined);
-    setReplyingTo(null); // Limpar IMEDIATAMENTE a UI de resposta
+    setReplyingTo(null);
 
-    // Enviar em background (não bloqueia a UI)
     (async () => {
       try {
-        // Limpar URL de preview
         if (currentPreviewUrl) {
           URL.revokeObjectURL(currentPreviewUrl);
         }
 
-        // Preparar dados de mídia se houver arquivo
         let mediaBase64: string | undefined;
         let mediaMimeType: string | undefined;
         let mediaFilename: string | undefined;
         let messageType: 'text' | 'image' | 'video' | 'audio' | 'document' = 'text';
 
         if (currentFile) {
-          // Converter arquivo para base64
           const base64 = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => {
@@ -384,7 +388,6 @@ export default function ChatArea({
           senderName: currentUserProfile?.nome || 'Atendente',
         });
 
-        // Marcar como lido apenas após confirmar envio do atendente
         if (!conversation.is_group && conversation.unread_count > 0) {
           markAsRead.mutate(conversation.id);
         }
@@ -392,13 +395,6 @@ export default function ChatArea({
         toast.error('Erro ao enviar mensagem', { description: sanitizeError(error) });
       }
     })();
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
   };
 
   const handleAssign = async () => {
@@ -467,11 +463,9 @@ export default function ChatArea({
   };
 
   const handleQuickReply = (content: string) => {
-    // Replace variables - com suporte a todas as variáveis
     let processedContent = content;
     const clientName = conversation.cliente?.nome_razao_social || conversation.contact_name;
     
-    // Saudação baseada no horário
     const hour = new Date().getHours();
     const saudacao = hour >= 5 && hour < 12 ? 'Bom dia' : hour >= 12 && hour < 18 ? 'Boa tarde' : 'Boa noite';
     processedContent = processedContent.replace(/{saudacao}/gi, saudacao);
@@ -481,32 +475,24 @@ export default function ChatArea({
       processedContent = processedContent.replace(/{primeiro_nome}/gi, clientName.split(' ')[0]);
     }
     
-    // Variáveis de pedido - usar linkedOrder se disponível
     if (linkedOrder) {
-      // Número do pedido
       processedContent = processedContent.replace(/{numero_pedido}/gi, linkedOrder.order_number);
-      
-      // Código de rastreio
       if (linkedOrder.tracking_code) {
         processedContent = processedContent.replace(/{codigo_rastreio}/gi, linkedOrder.tracking_code);
       }
-      
-      // Data de entrega e estimativa
       if (linkedOrder.delivery_estimate) {
         const date = new Date(linkedOrder.delivery_estimate + 'T12:00:00');
         const formattedDate = date.toLocaleDateString('pt-BR');
         processedContent = processedContent.replace(/{data_entrega}/gi, formattedDate);
         
-        // Calcular dias úteis DE HOJE até a DATA DE ENTREGA
         const hoje = new Date();
         hoje.setHours(0, 0, 0, 0);
         const dataEntrega = new Date(linkedOrder.delivery_estimate + 'T12:00:00');
         dataEntrega.setHours(0, 0, 0, 0);
         
-        // Contar dias úteis (excluindo hoje, começando do próximo dia)
         let diasUteis = 0;
         const current = new Date(hoje);
-        current.setDate(current.getDate() + 1); // Começa do próximo dia
+        current.setDate(current.getDate() + 1);
         
         while (current <= dataEntrega) {
           const dayOfWeek = current.getDay();
@@ -514,7 +500,6 @@ export default function ChatArea({
           current.setDate(current.getDate() + 1);
         }
         
-        // Calcular range de estimativa (margem de 5 dias úteis)
         if (diasUteis > 0) {
           const margemMinima = Math.max(1, diasUteis - 5);
           processedContent = processedContent.replace(/{estimativa_entrega}/gi, `${margemMinima} a ${diasUteis} dias úteis`);
@@ -525,20 +510,16 @@ export default function ChatArea({
         processedContent = processedContent.replace(/{estimativa_entrega}/gi, '10 a 15 dias úteis');
       }
       
-      // PIX - usar a chave do pedido se disponível
       if (processedContent.includes('{pix}')) {
         const pixValue = (linkedOrder as any).pix_key || 'pix@suaempresa.com.br';
         processedContent = processedContent.replace(/{pix}/gi, pixValue);
       }
     } else {
-      // Sem pedido vinculado - usar valores padrão
       processedContent = processedContent.replace(/{estimativa_entrega}/gi, '5 a 7 dias úteis');
       processedContent = processedContent.replace(/{pix}/gi, 'pix@suaempresa.com.br');
     }
     
-    // Variáveis de carrinho abandonado
     if (abandonedCart) {
-      // Produtos do carrinho - lista formatada
       const items = Array.isArray(abandonedCart.items) 
         ? abandonedCart.items 
         : JSON.parse(String(abandonedCart.items) || '[]');
@@ -548,12 +529,8 @@ export default function ChatArea({
       ).join('\n');
       
       processedContent = processedContent.replace(/{produtos_carrinho}/gi, produtosLista || 'Nenhum produto');
-      
-      // Link do carrinho
-      const linkCarrinho = abandonedCart.recovery_url || '';
-      processedContent = processedContent.replace(/{link_carrinho}/gi, linkCarrinho);
+      processedContent = processedContent.replace(/{link_carrinho}/gi, abandonedCart.recovery_url || '');
     } else {
-      // Sem carrinho abandonado - limpar variáveis
       processedContent = processedContent.replace(/{produtos_carrinho}/gi, '');
       processedContent = processedContent.replace(/{link_carrinho}/gi, '');
     }
@@ -586,7 +563,6 @@ export default function ChatArea({
         setPreviewUrl(URL.createObjectURL(file));
       }
     }
-    // Reset input para permitir selecionar o mesmo arquivo novamente
     e.target.value = '';
   };
   
@@ -610,8 +586,6 @@ export default function ChatArea({
           setSelectedFile(file);
           setPreviewUrl(URL.createObjectURL(audioBlob));
         }
-        
-        // Limpar stream
         stream.getTracks().forEach(track => track.stop());
       };
 
@@ -642,7 +616,7 @@ export default function ChatArea({
   const cancelRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
-      audioChunksRef.current = []; // Limpar chunks para não processar no onstop
+      audioChunksRef.current = [];
       setIsRecording(false);
       if (recordingIntervalRef.current) {
         clearInterval(recordingIntervalRef.current);
@@ -682,16 +656,12 @@ export default function ChatArea({
     ? 'Assumir atendimento'
     : 'Encerrar atendimento IA e assumir';
 
-  // Nome principal: cliente vinculado ou contato
   const mainName = conversation.cliente?.nome_razao_social || 
     (conversation.is_group ? conversation.group_name : conversation.contact_name || conversation.contact_phone);
-  const secondaryInfo = conversation.assigned_user ? `Atendente: ${conversation.assigned_user.nome}` : conversation.instance?.nome;
 
-  // Deduplica instâncias para as tabs - apenas uma tab por instance_id
   const uniqueInstanceConversations = useMemo(() => {
     const seen = new Map<string, WhatsappConversation>();
     groupedConversations.forEach(conv => {
-      // Mantém apenas a primeira conversa de cada instância (mais recente já vem ordenada)
       if (!seen.has(conv.instance_id)) {
         seen.set(conv.instance_id, conv);
       }
@@ -699,9 +669,9 @@ export default function ChatArea({
     return Array.from(seen.values());
   }, [groupedConversations]);
 
-  // Verificar se há múltiplas instâncias
   const hasMultipleInstances = uniqueInstanceConversations.length > 1;
   const visibleQuickButtons = isMobile ? quickButtons.slice(0, 4) : quickButtons;
+
   return (
     <div className="flex flex-col h-full bg-[#efeae2]">
       {/* Header - WhatsApp style */}
@@ -729,18 +699,15 @@ export default function ChatArea({
           </Avatar>
           <div className="min-w-0 flex-1">
             <p className={cn('font-medium text-[#111b21] truncate leading-tight', isMobile ? 'text-sm' : 'text-base')}>{mainName}</p>
-            {/* Secundário: Nome da Instância + Atendente */}
             <p className={cn('text-[#667781] truncate', isMobile ? 'text-[11px] mb-0.5' : 'text-[13px] mb-1')}>
               {conversation.instance?.nome} {conversation.assigned_user ? `• Atendente: ${conversation.assigned_user.nome}` : ''}
             </p>
             
-            {/* Tabs para múltiplas instâncias - Destacadas */}
             {hasMultipleInstances && (
               <div className={cn('flex items-center gap-2 mt-0.5 overflow-x-auto', isMobile && 'pr-2 pb-0.5')}>
                 {uniqueInstanceConversations.map((conv) => {
                   const isActive = conv.instance_id === conversation.instance_id;
                   const instanceName = conv.instance?.nome || 'Instância';
-                  // Somar não lidos de todas conversas desta instância
                   const totalUnread = groupedConversations
                     .filter(c => c.instance_id === conv.instance_id)
                     .reduce((sum, c) => sum + (c.unread_count || 0), 0);
@@ -824,7 +791,6 @@ export default function ChatArea({
             </Button>
           )}
           
-          {/* Botões mantidos fora do menu conforme solicitado */}
           {isFinished ? (
             <Button 
               variant="outline"
@@ -849,7 +815,6 @@ export default function ChatArea({
         </div>
       </div>
 
-      {/* Aviso de instância desconectada */}
       {conversation.instance?.status !== 'connected' && (
         <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 flex items-center gap-2">
           <WifiOff className="h-4 w-4 text-amber-600 flex-shrink-0" />
@@ -859,10 +824,10 @@ export default function ChatArea({
         </div>
       )}
 
-      {/* Messages area with WhatsApp doodle pattern - usa flex-1 e min-h-0 para não estourar */}
       <div 
         className="flex-1 min-h-0 overflow-y-auto"
         ref={scrollRef}
+        onScroll={handleScroll}
         style={{
           backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23d4cfc4' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
           backgroundColor: '#efeae2'
@@ -870,9 +835,18 @@ export default function ChatArea({
       >
         <div className={cn('space-y-1 min-h-full flex flex-col justify-end', isMobile ? 'p-2.5' : 'p-4')}>
           {isLoading ? (
-            <div className="text-center text-[#667781]">Carregando mensagens...</div>
+            <div className="text-center text-[#667781] py-4">Carregando mensagens...</div>
           ) : (
             <>
+              {isFetching && !isInitialLoadRef.current && (
+                <div className="flex justify-center py-2 animate-in fade-in duration-300">
+                  <div className="bg-white/80 backdrop-blur-sm rounded-full px-3 py-1 shadow-sm border border-[#d1d7db] flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin text-[#00a884]" />
+                    <span className="text-[10px] font-medium text-[#54656f]">Carregando histórico...</span>
+                  </div>
+                </div>
+              )}
+
               {messages.map((msg, index) => {
                 const currentDate = new Date(msg.created_at);
                 const prevMsg = index > 0 ? messages[index - 1] : null;
@@ -950,7 +924,6 @@ export default function ChatArea({
                 );
               })}
               
-              {/* Mensagem interna de atendimento finalizado */}
               {conversation.status === 'finished' && conversation.finished_user && (
                 <div className="flex justify-center my-2">
                   <div className="bg-[#fdf4e3] text-[#856404] text-xs px-4 py-2 rounded-lg shadow-sm border border-[#f5d185]">
@@ -963,9 +936,7 @@ export default function ChatArea({
         </div>
       </div>
 
-      {/* Input area - WhatsApp style - flex-shrink-0 para não comprimir */}
       <div className="flex-shrink-0 bg-[#f0f2f5] border-t border-[#d1d7db] relative">
-        {/* Autocomplete suggestions - aparece ACIMA da área de input */}
         {showSuggestions && suggestedReplies.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 mb-1 mx-4 bg-white border border-[#d1d7db] rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
             {suggestedReplies.map((reply) => (
@@ -988,7 +959,6 @@ export default function ChatArea({
           </div>
         )}
 
-        {/* Quoted message preview */}
         {replyingTo && (
           <div className="px-4 py-2 bg-[#f0f2f5] border-b border-[#00a884]/20 flex items-center justify-between animate-in slide-in-from-bottom-2 duration-200">
             <div className="flex-1 min-w-0 border-l-4 border-[#00a884] pl-3 py-1 bg-white/50 rounded-r-md">
@@ -1008,7 +978,6 @@ export default function ChatArea({
           </div>
         )}
 
-        {/* File preview */}
         {selectedFile && (
           <div className="px-4 py-2 bg-white border-b border-[#d1d7db] flex items-center gap-3">
             {previewUrl ? (
@@ -1049,14 +1018,12 @@ export default function ChatArea({
                   <button 
                     onClick={cancelRecording}
                     className="p-2 text-[#ea4335] hover:bg-red-50 rounded-full transition-colors"
-                    title="Cancelar"
                   >
                     <Trash2 className="h-5 w-5" />
                   </button>
                   <button 
                     onClick={stopRecording}
                     className="p-2 text-[#00a884] hover:bg-green-50 rounded-full transition-colors"
-                    title="Enviar áudio"
                   >
                     <CheckCircle2 className="h-5 w-5" />
                   </button>
@@ -1064,7 +1031,6 @@ export default function ChatArea({
               </div>
             ) : (
               <>
-                {/* Emoji picker */}
                 <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
                   <PopoverTrigger asChild>
                     <button className="p-2 text-[#54656f] hover:text-[#3b4a54] transition-colors">
@@ -1086,7 +1052,6 @@ export default function ChatArea({
                   </PopoverContent>
                 </Popover>
 
-                {/* File attachment */}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1157,7 +1122,6 @@ export default function ChatArea({
                 {message.trim() || selectedFile ? (
                   <button
                     onClick={handleSend}
-                    disabled={isSending}
                     className="p-2 rounded-full text-[#111b21] hover:bg-[#e9edef] transition-colors"
                   >
                     <Send className="h-6 w-6 ml-0.5" />
@@ -1166,7 +1130,6 @@ export default function ChatArea({
                   <button
                     onClick={startRecording}
                     className="p-2 text-[#54656f] hover:text-[#3b4a54] transition-colors"
-                    title="Gravar áudio"
                   >
                     <Mic className="h-6 w-6" />
                   </button>
@@ -1174,26 +1137,23 @@ export default function ChatArea({
               </>
             )}
           </div>
-        {/* Quick replies bar - ABAIXO do input */}
+        </div>
+
         {quickReplies.length > 0 && (
           <div className={cn('bg-[#f0f2f5] border-t border-[#d1d7db]', isMobile ? 'px-2 py-1' : 'px-3 py-1.5')}>
             <div className={cn('flex items-center gap-1', isMobile ? 'overflow-x-auto whitespace-nowrap' : 'flex-wrap')}>
               <Zap className="h-4 w-4 text-[#54656f] mr-1 flex-shrink-0" />
               
-              {/* Quick action buttons */}
               {visibleQuickButtons.map((reply) => (
-                <Button
+                <button
                   key={reply.id}
-                  variant="ghost"
-                  size="sm"
                   onClick={() => handleQuickReplySelect(reply.conteudo)}
-                  className="h-7 px-2 text-xs bg-white border border-[#d1d7db] hover:bg-[#e9edef] text-[#111b21] flex-shrink-0"
+                  className="h-7 px-2 text-xs bg-white border border-[#d1d7db] hover:bg-[#e9edef] text-[#111b21] rounded-md transition-colors flex-shrink-0"
                 >
                   {reply.titulo}
-                </Button>
+                </button>
               ))}
 
-              {/* Ver todas button */}
               <Popover open={showQuickRepliesPopover} onOpenChange={setShowQuickRepliesPopover}>
                 <PopoverTrigger asChild>
                   <Button
@@ -1256,7 +1216,6 @@ export default function ChatArea({
         )}
       </div>
 
-      {/* Transfer dialog */}
       <TransferirAtendimentoDialog
         open={showTransferDialog}
         onOpenChange={setShowTransferDialog}
@@ -1264,7 +1223,6 @@ export default function ChatArea({
         instanceId={conversation.instance_id}
       />
 
-      {/* Forward dialog */}
       <ForwardMessageDialog
         open={showForwardDialog}
         onOpenChange={setShowForwardDialog}
@@ -1275,7 +1233,6 @@ export default function ChatArea({
           media_mimetype: messageToForward.media_mimetype || messageToForward.media_mime_type
         } : null}
       />
-    </div>
     </div>
   );
 }

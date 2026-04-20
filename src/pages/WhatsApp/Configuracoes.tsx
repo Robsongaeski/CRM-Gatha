@@ -1,10 +1,11 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MessageSquare, Settings } from 'lucide-react';
+import { MessageSquare, Settings, Trash2, ShieldAlert } from 'lucide-react';
 import Instancias from './Instancias';
 import QuickRepliesTab from '@/components/WhatsApp/QuickRepliesTab';
+import StorageMaintenance from '@/components/WhatsApp/StorageMaintenance';
 import { usePermissions } from '@/hooks/usePermissions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ShieldAlert } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function Configuracoes() {
   const { can, isAdmin, isLoading } = usePermissions();
@@ -12,12 +13,13 @@ export default function Configuracoes() {
   const canConfigureWhatsapp = can('whatsapp.configurar') || can('ecommerce.whatsapp.configurar');
   const canSeeInstances = isAdmin || canConfigureWhatsapp || can('whatsapp.instancias.gerenciar') || can('whatsapp.visualizar');
   const canManageReplies = isAdmin || canConfigureWhatsapp || can('whatsapp.respostas_rapidas.gerenciar');
+  const canManageStorage = isAdmin; // Apenas admins podem apagar mídias do storage
   
   if (isLoading) {
     return <div className="p-6">Carregando permissões...</div>;
   }
 
-  if (!canSeeInstances && !canManageReplies) {
+  if (!canSeeInstances && !canManageReplies && !canManageStorage) {
     return (
       <div className="p-6">
         <Alert variant="destructive">
@@ -31,15 +33,20 @@ export default function Configuracoes() {
     );
   }
 
+  const tabCount = [canSeeInstances, canManageReplies, canManageStorage].filter(Boolean).length;
+
   return (
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Configurações do WhatsApp</h1>
-        <p className="text-muted-foreground">Gerencie suas instâncias e respostas rápidas</p>
+        <p className="text-muted-foreground">Gerencie suas instâncias, respostas rápidas e manutenção do storage</p>
       </div>
 
       <Tabs defaultValue={canSeeInstances ? "instancias" : "respostas"} className="space-y-4">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className={cn(
+          "grid w-full max-w-2xl",
+          tabCount === 3 ? "grid-cols-3" : "grid-cols-2"
+        )}>
           {canSeeInstances && (
             <TabsTrigger value="instancias" className="flex items-center gap-2">
               <Settings className="h-4 w-4" />
@@ -50,6 +57,12 @@ export default function Configuracoes() {
             <TabsTrigger value="respostas" className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />
               Respostas Rápidas
+            </TabsTrigger>
+          )}
+          {canManageStorage && (
+            <TabsTrigger value="manutencao" className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4" />
+              Manutenção
             </TabsTrigger>
           )}
         </TabsList>
@@ -65,7 +78,14 @@ export default function Configuracoes() {
             <QuickRepliesTab />
           </TabsContent>
         )}
+
+        {canManageStorage && (
+          <TabsContent value="manutencao" className="space-y-4">
+            <StorageMaintenance />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
 }
+

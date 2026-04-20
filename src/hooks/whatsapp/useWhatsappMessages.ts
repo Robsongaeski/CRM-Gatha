@@ -50,13 +50,13 @@ interface SendMutationContext {
   tempMessageId: string;
 }
 
-const MESSAGE_LIMIT = 200;
+export const MESSAGE_LIMIT = 50;
 
-export function useWhatsappMessages(conversationId: string | null) {
+export function useWhatsappMessages(conversationId: string | null, limit = MESSAGE_LIMIT) {
   const queryClient = useQueryClient();
 
   const query = useQuery({
-    queryKey: ['whatsapp-messages', conversationId],
+    queryKey: ['whatsapp-messages', conversationId, limit],
     queryFn: async () => {
       if (!conversationId) return [];
 
@@ -65,7 +65,7 @@ export function useWhatsappMessages(conversationId: string | null) {
         .select('*')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
-        .limit(MESSAGE_LIMIT);
+        .limit(limit);
 
       if (error) throw error;
 
@@ -89,11 +89,15 @@ export function useWhatsappMessages(conversationId: string | null) {
           filter: `conversation_id=eq.${conversationId}`
         },
         (payload) => {
-          queryClient.setQueryData(['whatsapp-messages', conversationId], (old: WhatsappMessage[] = []) => {
-            const newMessage = payload.new as WhatsappMessage;
-            if (old.some((message) => message.id === newMessage.id)) return old;
-            return [...old, newMessage];
-          });
+          // Atualiza todas as queries de mensagens desta conversa (independente do limite atual)
+          queryClient.setQueriesData(
+            { queryKey: ['whatsapp-messages', conversationId], exact: false },
+            (old: WhatsappMessage[] = []) => {
+              const newMessage = payload.new as WhatsappMessage;
+              if (old.some((message) => message.id === newMessage.id)) return old;
+              return [...old, newMessage];
+            }
+          );
         }
       )
       .on(
@@ -105,11 +109,14 @@ export function useWhatsappMessages(conversationId: string | null) {
           filter: `conversation_id=eq.${conversationId}`
         },
         (payload) => {
-          queryClient.setQueryData(['whatsapp-messages', conversationId], (old: WhatsappMessage[] = []) => {
-            return old.map((message) =>
-              message.id === payload.new.id ? (payload.new as WhatsappMessage) : message,
-            );
-          });
+          queryClient.setQueriesData(
+            { queryKey: ['whatsapp-messages', conversationId], exact: false },
+            (old: WhatsappMessage[] = []) => {
+              return old.map((message) =>
+                message.id === payload.new.id ? (payload.new as WhatsappMessage) : message,
+              );
+            }
+          );
         }
       )
       .subscribe();

@@ -128,6 +128,11 @@ interface ConversationQueryOptions {
   searchLimit?: number;
 }
 
+interface WhatsappConversationsResult {
+  data: WhatsappConversation[];
+  totalCount: number;
+}
+
 export function useWhatsappConversations(
   filters: ConversationFilters,
   allowedInstanceIds?: string[],
@@ -147,7 +152,7 @@ export function useWhatsappConversations(
       options?.searchLimit ?? null,
       canViewAllConversations,
     ],
-    queryFn: async () => {
+    queryFn: async (): Promise<WhatsappConversationsResult> => {
       const hasInstanceFilter = Array.isArray(allowedInstanceIds);
       const filteredInstanceIds = hasInstanceFilter
         ? Array.from(new Set((allowedInstanceIds || []).filter(Boolean)))
@@ -155,7 +160,7 @@ export function useWhatsappConversations(
 
       // Evita vazar conversas quando o usuário não possui instâncias vinculadas.
       if (hasInstanceFilter && filteredInstanceIds.length === 0) {
-        return [] as WhatsappConversation[];
+        return { data: [], totalCount: 0 };
       }
       // Usar left join para manter conversas mesmo se instância foi removida
       // Hint necessário pois profiles tem 2 FK (assigned_to e finished_by)
@@ -167,7 +172,7 @@ export function useWhatsappConversations(
           assigned_user:profiles!whatsapp_conversations_assigned_to_fkey(id, nome),
           finished_user:profiles!whatsapp_conversations_finished_by_fkey(id, nome),
           cliente:clientes!left(id, nome_razao_social)
-        `)
+        `, { count: 'exact' })
         .order('last_message_at', { ascending: false });
 
       const searchTerm = filters.search.trim();
@@ -200,7 +205,7 @@ export function useWhatsappConversations(
       // Filtro de instância (do filtro UI)
       if (filters.instanceId) {
         if (hasInstanceFilter && !filteredInstanceIds.includes(filters.instanceId)) {
-          return [] as WhatsappConversation[];
+          return { data: [], totalCount: 0 };
         }
         query = query.eq('instance_id', filters.instanceId);
       }
@@ -281,7 +286,7 @@ export function useWhatsappConversations(
       const fetchLimit = hasSearch
         ? (options?.searchLimit ?? CONVERSATION_SEARCH_LIMIT)
         : (options?.limit ?? DEFAULT_CONVERSATION_LIST_LIMIT);
-      const { data, error } = await query.limit(fetchLimit + 1);
+      const { data, error, count } = await query.limit(fetchLimit + 1);
       if (error) throw error;
 
       // Busca client-side final (normalizacao e consistencia de filtros)
@@ -326,8 +331,11 @@ export function useWhatsappConversations(
         });
       }
 
-      return results.slice(0, fetchLimit);
-    }
+      return {
+        data: results.slice(0, fetchLimit),
+        totalCount: count || 0
+      };
+    },
   });
 
   // Realtime subscription - granular para evitar cascata de re-renders
@@ -357,13 +365,16 @@ export function useWhatsappConversations(
           // Para UPDATE, atualiza diretamente no cache sem recarregar tudo
           queryClient.setQueriesData(
             { queryKey: ['whatsapp-conversations'], exact: false },
-            (old: WhatsappConversation[] | undefined) => {
-              if (!old) return old;
-              return old.map(conv =>
-                conv.id === payload.new.id
-                  ? { ...conv, ...(payload.new as Partial<WhatsappConversation>) }
-                  : conv
-                );
+            (old: WhatsappConversationsResult | undefined) => {
+              if (!old || !old.data) return old;
+              return {
+                ...old,
+                data: old.data.map(conv =>
+                  conv.id === payload.new.id
+                    ? { ...conv, ...(payload.new as Partial<WhatsappConversation>) }
+                    : conv
+                )
+              };
             }
           );
 

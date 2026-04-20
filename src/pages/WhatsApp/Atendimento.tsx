@@ -99,15 +99,18 @@ export default function Atendimento() {
   });
 
   // Buscar conversas apenas das instâncias permitidas
-  const { data: conversations = [], isLoading: loadingConversations } = useWhatsappConversations(
+  const { data: conversationsData, isLoading: loadingConversations } = useWhatsappConversations(
     filters,
     allowedInstanceIds,
     { limit: conversationLimit, searchLimit: 5000 },
     canFilterByAttendant,
   );
 
+  const conversations = conversationsData?.data || [];
+  const totalConversations = conversationsData?.totalCount || 0;
+
   const isSearching = filters.search.trim().length > 0;
-  const hasMoreConversations = !isSearching && conversations.length >= conversationLimit;
+  const hasMoreConversations = !isSearching && conversations.length < totalConversations;
 
   useEffect(() => {
     setConversationLimit(INITIAL_CONVERSATION_LIMIT);
