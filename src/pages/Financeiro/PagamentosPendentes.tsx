@@ -125,7 +125,8 @@ export default function PagamentosPendentes() {
   }
 
   // Agrupar pagamentos por pedido
-  const pagamentosPorPedido = pagamentos.reduce((acc: any, p: any) => {
+  const pagamentosArray = Array.isArray(pagamentos) ? pagamentos : [];
+  const pagamentosPorPedido = pagamentosArray.reduce((acc: any, p: any) => {
     const pedidoId = p.pedido_id;
     if (!acc[pedidoId]) {
       acc[pedidoId] = {

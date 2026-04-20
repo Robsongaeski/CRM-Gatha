@@ -28,27 +28,32 @@ export default function Dashboard() {
     [instances]
   );
 
-  const { data: allConversations = [] } = useWhatsappConversations({ 
+  const { data: allConversationsData } = useWhatsappConversations({ 
     assignment: 'all', 
     status: 'all', 
     search: '' 
   }, allowedInstanceIds);
-  const { data: unreadConversations = [] } = useWhatsappConversations({ 
+  const { data: unreadConversationsData } = useWhatsappConversations({ 
     assignment: 'all', 
     status: 'unread', 
     search: '' 
   }, allowedInstanceIds);
-  const { data: finishedConversations = [] } = useWhatsappConversations({ 
+  const { data: finishedConversationsData } = useWhatsappConversations({ 
     assignment: 'all', 
     status: 'finished', 
     search: '' 
   }, allowedInstanceIds);
   const { data: dashboardMetrics, isLoading: isLoadingMetrics } = useWhatsappDashboard(allowedInstanceIds);
 
+  // Extrair arrays do retorno do hook (que retorna { data, totalCount })
+  const allConversations = allConversationsData?.data || [];
+  const unreadConversations = unreadConversationsData?.data || [];
+  const finishedConversations = finishedConversationsData?.data || [];
+
   const connectedInstances = instances.filter(i => i.status === 'connected').length;
-  const totalUnread = unreadConversations.reduce((acc, c) => acc + (c.unread_count || 0), 0);
-  const pendingConversations = allConversations.filter(c => c.status === 'pending').length;
-  const inProgressConversations = allConversations.filter(c => c.status === 'in_progress').length;
+  const totalUnread = unreadConversations.reduce((acc: number, c: any) => acc + (c.unread_count || 0), 0);
+  const pendingConversations = allConversations.filter((c: any) => c.status === 'pending').length;
+  const inProgressConversations = allConversations.filter((c: any) => c.status === 'in_progress').length;
 
   const stats = [
     {
@@ -93,7 +98,6 @@ export default function Dashboard() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Dashboard WhatsApp</h1>
         <p className="text-muted-foreground">
           Visão geral do atendimento via WhatsApp
         </p>

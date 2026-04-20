@@ -26,6 +26,18 @@ export class ErrorBoundary extends React.Component<
   }
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+    // Detectar erro de chunk desatualizado (após novo deploy no Vercel)
+    const isChunkError =
+      error?.message?.includes('Failed to fetch dynamically imported module') ||
+      error?.message?.includes('Importing a module script failed') ||
+      error?.message?.includes('dynamically imported module');
+
+    if (isChunkError) {
+      // Auto-reload silencioso — o usuário mal vai perceber
+      window.location.reload();
+      return { hasError: false, errorMessage: '', errorStack: '', componentStack: '' };
+    }
+
     return {
       hasError: true,
       errorMessage: error?.message || "Erro inesperado na interface.",
