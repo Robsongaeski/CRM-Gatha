@@ -642,7 +642,7 @@ export default function ChatArea({
   const getInitials = (name: string) => {
     return name
       .split(' ')
-      .map((n) => n[0])
+      .map((n: string) => n[0])
       .slice(0, 2)
       .join('')
       .toUpperCase();
@@ -705,7 +705,7 @@ export default function ChatArea({
             
             {hasMultipleInstances && (
               <div className={cn('flex items-center gap-2 mt-0.5 overflow-x-auto', isMobile && 'pr-2 pb-0.5')}>
-                {uniqueInstanceConversations?.map((conv) => {
+                {(uniqueInstanceConversations || []).map((conv) => {
                   const isActive = conv.instance_id === conversation.instance_id;
                   const instanceName = conv.instance?.nome || 'Instância';
                   const totalUnread = groupedConversations
@@ -847,7 +847,7 @@ export default function ChatArea({
                 </div>
               )}
 
-              {messages.map((msg, index) => {
+              {(messages || []).map((msg, index) => {
                 const currentDate = new Date(msg.created_at);
                 const prevMsg = index > 0 ? messages[index - 1] : null;
                 const prevDate = prevMsg ? new Date(prevMsg.created_at) : null;
@@ -939,7 +939,7 @@ export default function ChatArea({
       <div className="flex-shrink-0 bg-[#f0f2f5] border-t border-[#d1d7db] relative">
         {showSuggestions && suggestedReplies.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 mb-1 mx-4 bg-white border border-[#d1d7db] rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
-            {suggestedReplies.map((reply) => (
+            {(suggestedReplies || []).map((reply) => (
               <button
                 key={reply.id}
                 onClick={() => handleSuggestionSelect(reply.conteudo)}
@@ -1144,7 +1144,7 @@ export default function ChatArea({
             <div className={cn('flex items-center gap-1', isMobile ? 'overflow-x-auto whitespace-nowrap' : 'flex-wrap')}>
               <Zap className="h-4 w-4 text-[#54656f] mr-1 flex-shrink-0" />
               
-              {visibleQuickButtons.map((reply) => (
+              {(visibleQuickButtons || []).map((reply) => (
                 <button
                   key={reply.id}
                   onClick={() => handleQuickReplySelect(reply.conteudo)}
@@ -1184,7 +1184,7 @@ export default function ChatArea({
                       </div>
                     ) : (
                       <div className="p-1">
-                        {filteredQuickReplies.map((reply) => (
+                        {(filteredQuickReplies || []).map((reply) => (
                           <button
                             key={reply.id}
                             onClick={() => handleQuickReplySelect(reply.conteudo)}

@@ -50,7 +50,7 @@ export default function Dashboard() {
   const unreadConversations = unreadConversationsData?.data || [];
   const finishedConversations = finishedConversationsData?.data || [];
 
-  const connectedInstances = instances.filter(i => i.status === 'connected').length;
+  const connectedInstances = instances ? instances.filter(i => i.status === 'connected').length : 0;
   const totalUnread = unreadConversations.reduce((acc: number, c: any) => acc + (c.unread_count || 0), 0);
   const pendingConversations = allConversations.filter((c: any) => c.status === 'pending').length;
   const inProgressConversations = allConversations.filter((c: any) => c.status === 'in_progress').length;
@@ -291,7 +291,7 @@ export default function Dashboard() {
             <p className="text-muted-foreground text-sm">Nenhuma instância vinculada ao seu usuário</p>
           ) : (
             <div className="space-y-2">
-              {instances.map((instance) => (
+              {(instances || []).map((instance) => (
                 <div
                   key={instance.id}
                   className="flex items-center justify-between p-3 rounded-lg border"

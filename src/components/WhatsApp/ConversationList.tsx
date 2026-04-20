@@ -195,7 +195,7 @@ export default function ConversationList({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos os atendentes</SelectItem>
-                {attendants?.map((attendant) => (
+                {(attendants || []).map((attendant) => (
                   <SelectItem key={attendant.id} value={attendant.id}>
                     {attendant.nome}
                   </SelectItem>
@@ -216,7 +216,7 @@ export default function ConversationList({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas instâncias</SelectItem>
-                {instances?.map((inst) => (
+                {(instances || []).map((inst) => (
                   <SelectItem key={inst.id} value={inst.id}>
                     <span className="flex items-center gap-1.5">
                       {inst.nome}
@@ -241,7 +241,7 @@ export default function ConversationList({
             </div>
           ) : (
             <div>
-              {groupedConversations?.map((group) => {
+              {(groupedConversations || []).map((group) => {
                 const hasMultipleInstances = group.instances.length > 1;
                 const isSelected = group.groupKey === selectedGroupKey;
                 const unreadCount = group.totalUnread || 0;
@@ -338,7 +338,7 @@ export default function ConversationList({
                         <div className="flex items-center gap-1 truncate max-w-[50%]">
                           <LayoutGrid className="h-3 w-3 text-[#6a67f1]" />
                           <span className="truncate">
-                            {group.instances?.map(i => i.nome).join(', ')}
+                            {(group.instances || []).map(i => i.nome).join(', ')}
                           </span>
                         </div>
                         {group.hasFollowup && (

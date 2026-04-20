@@ -245,7 +245,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
         customer_name: cart.customer_name,
         customer_phone: cart.customer_phone,
         total: cart.total,
-        items: Array.isArray(cart.items) ? (cart.items as unknown as AbandonedCartItem[]) : JSON.parse(String(cart.items) || '[]'),
+        items: Array.isArray(cart.items) ? (cart.items as unknown as AbandonedCartItem[]) : (JSON.parse(cart.items ? String(cart.items) : '[]') || []),
         recovery_url: cart.recovery_url,
         status: cart.status,
         abandoned_at: cart.abandoned_at,
@@ -399,7 +399,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
                   Carrinhos Abandonados
                 </h5>
                 <div className="space-y-2">
-                  {abandonedCarts.map((cart) => (
+                  {(abandonedCarts || []).map((cart) => (
                     <Collapsible 
                       key={cart.id} 
                       open={expandedCartId === cart.id}
@@ -444,7 +444,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
                           <div className="px-2 pb-2 space-y-2">
                             {/* Items list */}
                             <div className="bg-white rounded p-2 text-xs space-y-1 overflow-hidden">
-                              {cart.items.map((item, idx) => (
+                              {(cart.items || []).map((item, idx) => (
                                 <div key={idx} className="text-[#111b21]">
                                   <span className="break-words">
                                     {item.quantity}x {item.name}
@@ -519,7 +519,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
                   Pedidos E-commerce
                 </h5>
                 <div className="space-y-2">
-                  {ecommerceOrdersVisible.map((order) => (
+                  {(ecommerceOrdersVisible || []).map((order) => (
                     <button
                       key={order.id}
                       onClick={() => setSelectedEcommerceOrderId(order.id)}
@@ -571,7 +571,7 @@ export default function ConversationInfo({ conversation }: ConversationInfoProps
                   Pedidos Internos
                 </h5>
                 <div className="space-y-2">
-                  {pedidosInternosVisible.map((order) => {
+                  {(pedidosInternosVisible || []).map((order) => {
                     const badge = getPedidoInternoBadge(order);
 
                     return (
