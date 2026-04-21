@@ -31,17 +31,17 @@ export default function WhatsAppDashboard() {
   const instances = isAdmin ? allInstances : userInstances;
   const instanceIds = instances.map(i => i.id);
   
-  const { data: allConversations = [] } = useWhatsappConversations({ 
+  const { data: allConversationsData } = useWhatsappConversations({ 
     assignment: 'all', 
     status: 'all', 
     search: '' 
   }, instanceIds);
-  const { data: unreadConversations = [] } = useWhatsappConversations({ 
+  const { data: unreadConversationsData } = useWhatsappConversations({ 
     assignment: 'all', 
     status: 'unread', 
     search: '' 
   }, instanceIds);
-  const { data: finishedConversations = [] } = useWhatsappConversations({ 
+  const { data: finishedConversationsData } = useWhatsappConversations({ 
     assignment: 'all', 
     status: 'finished', 
     search: '' 
@@ -51,6 +51,10 @@ export default function WhatsAppDashboard() {
   const { data: dashboardMetrics, isLoading: isLoadingMetrics } = useWhatsappDashboard(
     isAdmin ? undefined : instanceIds
   );
+
+  const allConversations = Array.isArray(allConversationsData?.data) ? allConversationsData.data : [];
+  const unreadConversations = Array.isArray(unreadConversationsData?.data) ? unreadConversationsData.data : [];
+  const finishedConversations = Array.isArray(finishedConversationsData?.data) ? finishedConversationsData.data : [];
 
   const connectedInstances = instances.filter(i => i.status === 'connected').length;
   const totalUnread = unreadConversations.reduce((acc, c) => acc + (c.unread_count || 0), 0);

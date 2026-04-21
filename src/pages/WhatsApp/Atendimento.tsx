@@ -164,12 +164,13 @@ export default function Atendimento() {
   }, []);
 
   const findConversationInCache = useCallback((conversationId: string): WhatsappConversation | null => {
-    const cachedQueries = queryClient.getQueriesData<WhatsappConversation[]>({
+    const cachedQueries = queryClient.getQueriesData<{ data?: WhatsappConversation[] }>({
       queryKey: ['whatsapp-conversations'],
     });
 
-    for (const [, cachedConversations] of cachedQueries) {
-      const conversation = cachedConversations?.find((c) => c.id === conversationId);
+    for (const [, cachedResult] of cachedQueries) {
+      const cachedConversations = Array.isArray(cachedResult?.data) ? cachedResult.data : [];
+      const conversation = cachedConversations.find((c) => c.id === conversationId);
       if (conversation) return conversation;
     }
 
