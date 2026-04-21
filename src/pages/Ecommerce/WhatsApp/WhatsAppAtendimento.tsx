@@ -96,15 +96,17 @@ export default function WhatsAppAtendimento() {
   });
 
   // Buscar conversas apenas das instâncias permitidas
-  const { data: conversations = [], isLoading: loadingConversations } = useWhatsappConversations(
+  const { data: conversationsData, isLoading: loadingConversations } = useWhatsappConversations(
     filters,
     allowedInstanceIds,
     { limit: conversationLimit, searchLimit: 5000 },
     canFilterByAttendant,
   );
+  const conversations = Array.isArray(conversationsData?.data) ? conversationsData.data : [];
+  const totalConversations = conversationsData?.totalCount || 0;
 
   const isSearching = filters.search.trim().length > 0;
-  const hasMoreConversations = !isSearching && conversations.length >= conversationLimit;
+  const hasMoreConversations = !isSearching && conversations.length < totalConversations;
 
   useEffect(() => {
     setConversationLimit(INITIAL_CONVERSATION_LIMIT);
@@ -158,12 +160,13 @@ export default function WhatsAppAtendimento() {
   }, []);
 
   const findConversationInCache = useCallback((conversationId: string): WhatsappConversation | null => {
-    const cachedQueries = queryClient.getQueriesData<WhatsappConversation[]>({
+    const cachedQueries = queryClient.getQueriesData<{ data?: WhatsappConversation[] }>({
       queryKey: ['whatsapp-conversations'],
     });
 
-    for (const [, cachedConversations] of cachedQueries) {
-      const conversation = cachedConversations?.find((c) => c.id === conversationId);
+    for (const [, cachedResult] of cachedQueries) {
+      const cachedConversations = Array.isArray(cachedResult?.data) ? cachedResult.data : [];
+      const conversation = cachedConversations.find((c) => c.id === conversationId);
       if (conversation) return conversation;
     }
 

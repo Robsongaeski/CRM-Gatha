@@ -27,11 +27,12 @@ export default function ForwardMessageDialog({ open, onOpenChange, message }: Fo
   const { data: userInstances = [] } = useUserInstances();
   const allowedInstanceIds = userInstances.map((instance) => instance.id);
 
-  const { data: conversations = [], isLoading } = useWhatsappConversations({
+  const { data: conversationsResult, isLoading } = useWhatsappConversations({
     assignment: 'all',
     status: 'all',
     search: search
   }, allowedInstanceIds, { searchLimit: 5000 });
+  const conversations = Array.isArray(conversationsResult?.data) ? conversationsResult.data : [];
 
   const sendMessage = useSendWhatsappMessage();
 

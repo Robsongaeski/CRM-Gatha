@@ -70,14 +70,17 @@ export default function ChatArea({
   const lastScrollHeightRef = useRef<number>(0);
   const isInitialLoadRef = useRef(true);
 
-  const { data: messages = [], isLoading, isFetching } = useWhatsappMessages(conversation.id, displayLimit);
-  const { data: quickReplies = [] } = useWhatsappQuickReplies();
+  const { data: messagesData, isLoading, isFetching } = useWhatsappMessages(conversation.id, displayLimit);
+  const { data: quickRepliesData } = useWhatsappQuickReplies();
   const sendMessage = useSendWhatsappMessage();
   const assignConversation = useAssignConversation();
   const finishConversation = useFinishConversation();
   const updateConversation = useUpdateConversation();
   const markAsRead = useMarkMessagesAsRead();
   const createSystemMessage = useCreateSystemMessage();
+  const messages = Array.isArray(messagesData) ? messagesData : [];
+  const quickReplies = Array.isArray(quickRepliesData) ? quickRepliesData : [];
+  const safeGroupedConversations = Array.isArray(groupedConversations) ? groupedConversations : [];
 
   // Buscar perfil do usuário atual para ter o nome
   const { data: currentUserProfile } = useQuery({
@@ -520,11 +523,13 @@ export default function ChatArea({
     }
     
     if (abandonedCart) {
-      const items = Array.isArray(abandonedCart.items) 
+      const itemsRaw = Array.isArray(abandonedCart.items) 
         ? abandonedCart.items 
-        : JSON.parse(String(abandonedCart.items) || '[]');
+        : (typeof abandonedCart.items === 'string' ? JSON.parse(abandonedCart.items || '[]') : []);
       
-      const produtosLista = (items || []).map((item: any) => 
+      const itemsArray = Array.isArray(itemsRaw) ? itemsRaw : [];
+      
+      const produtosLista = itemsArray.map((item: any) => 
         `• ${item.quantity || item.qtd || 1}x ${item.name || item.produto || 'Produto'}`
       ).join('\n');
       
@@ -661,13 +666,13 @@ export default function ChatArea({
 
   const uniqueInstanceConversations = useMemo(() => {
     const seen = new Map<string, WhatsappConversation>();
-    groupedConversations?.forEach(conv => {
+    safeGroupedConversations.forEach(conv => {
       if (!seen.has(conv.instance_id)) {
         seen.set(conv.instance_id, conv);
       }
     });
     return Array.from(seen.values());
-  }, [groupedConversations]);
+  }, [safeGroupedConversations]);
 
   const hasMultipleInstances = uniqueInstanceConversations.length > 1;
   const visibleQuickButtons = isMobile ? quickButtons.slice(0, 4) : quickButtons;
@@ -708,7 +713,7 @@ export default function ChatArea({
                 {(uniqueInstanceConversations || []).map((conv) => {
                   const isActive = conv.instance_id === conversation.instance_id;
                   const instanceName = conv.instance?.nome || 'Instância';
-                  const totalUnread = groupedConversations
+                  const totalUnread = safeGroupedConversations
                     .filter(c => c.instance_id === conv.instance_id)
                     .reduce((sum, c) => sum + (c.unread_count || 0), 0);
                   
