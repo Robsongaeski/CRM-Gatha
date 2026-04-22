@@ -148,10 +148,24 @@ export const usePedidos = (filters?: {
         const buscaLike = `%${buscaClean}%`;
         
         if (!isNaN(buscaNumero)) {
-          // Busca exata pelo número OU parcial pelo nome do cliente
-          query = query.or(`numero_pedido.eq.${buscaNumero},cliente.nome_razao_social.ilike.${buscaLike}`);
+          // Busca exata pelo número
+          query = query.eq('numero_pedido', buscaNumero);
         } else {
-          query = query.ilike('cliente.nome_razao_social', buscaLike);
+          // Busca em duas etapas para clientes
+          const { data: clientesEncontrados, error: clientesError } = await supabase
+            .from('clientes')
+            .select('id')
+            .or(`nome_razao_social.ilike.${buscaLike},telefone.ilike.${buscaLike}`);
+
+          if (clientesError) throw clientesError;
+          const clienteIds = (clientesEncontrados || []).map(c => c.id);
+
+          if (clienteIds.length > 0) {
+            query = query.in('cliente_id', clienteIds);
+          } else {
+            // Se não achou cliente, força retorno vazio
+            query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+          }
         }
       }
 

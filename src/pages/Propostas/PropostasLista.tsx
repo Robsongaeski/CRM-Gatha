@@ -98,18 +98,30 @@ export default function PropostasLista() {
   const search = searchParams.get('search') || '';
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const pageParam = searchParams.get('page');
+  const [currentPage, setCurrentPage] = useState(pageParam ? parseInt(pageParam) : 1);
   const [localSearch, setLocalSearch] = useState(search);
 
-  // Sincronizar busca local com a URL apenas no carregamento inicial
+  // Sincronizar busca local com a URL
   useEffect(() => {
     setLocalSearch(search);
   }, [search]);
 
+  // Sincronizar página atual com a URL (para navegação back/forward)
+  useEffect(() => {
+    if (pageParam) {
+      setCurrentPage(parseInt(pageParam));
+    } else {
+      setCurrentPage(1);
+    }
+  }, [pageParam]);
+
   // Debounce para atualizar os filtros na URL
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (localSearch !== search) {
+      // Usar comparação rigorosa para evitar gatilhos desnecessários
+      const currentSearch = search || '';
+      if (localSearch !== currentSearch) {
         updateFilters({ search: localSearch });
       }
     }, 500);

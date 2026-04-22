@@ -49,12 +49,13 @@ export function usePropostas(filters?: {
       const pageSize = filters?.pageSize || 20;
       const from = page * pageSize;
       const to = from + pageSize - 1;
+      const searchTerm = filters?.search?.trim() || '';
 
       let query = supabase
         .from('propostas')
         .select(`
           *,
-          cliente:clientes${filters?.search ? '!inner' : ''}(id, nome_razao_social, telefone, email),
+          cliente:clientes(id, nome_razao_social, telefone, email),
           vendedor:profiles(nome, email, whatsapp)
         `, { count: 'exact' });
       
@@ -62,8 +63,21 @@ export function usePropostas(filters?: {
       if (filters?.clienteId) query = query.eq('cliente_id', filters.clienteId);
       if (filters?.vendedorId) query = query.eq('vendedor_id', filters.vendedorId);
       
-      if (filters?.search) {
-        query = query.or(`observacoes.ilike.%${filters.search}%,cliente.nome_razao_social.ilike.%${filters.search}%`);
+      if (searchTerm) {
+        // Busca em duas etapas para garantir que o filtro funcione corretamente em tabelas vinculadas
+        const { data: clientesEncontrados, error: clientesError } = await supabase
+          .from('clientes')
+          .select('id')
+          .or(`nome_razao_social.ilike.%${searchTerm}%,telefone.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+
+        if (clientesError) throw clientesError;
+        const clienteIds = (clientesEncontrados || []).map(c => c.id);
+
+        if (clienteIds.length > 0) {
+          query = query.or(`observacoes.ilike.%${searchTerm}%,cliente_id.in.(${clienteIds.join(',')})`);
+        } else {
+          query = query.ilike('observacoes', `%${searchTerm}%`);
+        }
       }
       
       const { data, error, count } = await query
