@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { usePropostas, useDeleteProposta, useUpdatePropostaStatus, StatusProposta } from '@/hooks/usePropostas';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -129,7 +129,7 @@ export default function PropostasLista() {
     return () => clearTimeout(timer);
   }, [localSearch, search]);
 
-  const { data: response, isLoading } = usePropostas({
+  const { data: response, isLoading, isFetching } = usePropostas({
     status: statusFilter === 'all' ? undefined : statusFilter,
     search: search || undefined,
     page: currentPage - 1,
@@ -199,14 +199,11 @@ export default function PropostasLista() {
   );
 
   useEffect(() => {
+    // Resetar para página 1 apenas quando mudar o filtro ou busca
     setCurrentPage(1);
   }, [search, statusFilter]);
 
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
+  // Remover o efeito que forçava volta para página 1 se totalPages fosse 0 durante loading
 
   const formatCurrency = (value: number | string) => {
     const numValue = typeof value === 'string' ? parseFloat(value) : value;
@@ -254,31 +251,33 @@ export default function PropostasLista() {
     updateFilters({ search: '', status: 'all' });
   };
 
-  const temFiltrosAtivos = statusFilter !== 'all' || search.trim().length > 0;
-  const agora = new Date();
-  const inicioMesAtual = startOfMonth(agora);
-  const fimMesAtual = endOfMonth(agora);
-  const propostasMesAtual = propostas.filter((proposta: any) => {
-    if (!proposta.created_at) return false;
-    return isWithinInterval(new Date(proposta.created_at), {
-      start: inicioMesAtual,
-      end: fimMesAtual,
+  const stats = useMemo(() => {
+    const agora = new Date();
+    const inicioMesAtual = startOfMonth(agora);
+    const fimMesAtual = endOfMonth(agora);
+    
+    const propostasMesAtual = propostas.filter((proposta: any) => {
+      if (!proposta.created_at) return false;
+      return isWithinInterval(new Date(proposta.created_at), {
+        start: inicioMesAtual,
+        end: fimMesAtual,
+      });
     });
-  });
-  const mesAtualLabel = format(agora, "MMMM 'de' yyyy", { locale: ptBR });
 
-  const stats = {
-    total: propostasMesAtual.length,
-    ganhas: propostasMesAtual.filter((p: any) => p.status === 'ganha').length,
-    valorTotal: propostasMesAtual
-      .filter((p: any) => p.status !== 'perdida')
-      .reduce((sum: number, p: any) => sum + calcularValorFinalProposta(p), 0),
-    lembretesHoje: propostasMesAtual.filter(
-      (p: any) => p.data_follow_up && isToday(new Date(p.data_follow_up))
-    ).length,
-  };
+    return {
+      total: propostasMesAtual.length,
+      ganhas: propostasMesAtual.filter((p: any) => p.status === 'ganha').length,
+      valorTotal: propostasMesAtual
+        .filter((p: any) => p.status !== 'perdida')
+        .reduce((sum: number, p: any) => sum + calcularValorFinalProposta(p), 0),
+      lembretesHoje: propostasMesAtual.filter(
+        (p: any) => p.data_follow_up && isToday(new Date(p.data_follow_up))
+      ).length,
+      mesAtualLabel: format(agora, "MMMM 'de' yyyy", { locale: ptBR })
+    };
+  }, [propostas]);
 
-  if (isLoading) {
+  if (isLoading && !response) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
@@ -289,12 +288,19 @@ export default function PropostasLista() {
     );
   }
 
+  const temFiltrosAtivos = statusFilter !== 'all' || search.trim().length > 0;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Propostas</h1>
-          <p className="text-sm text-muted-foreground capitalize">Resumo do mês: {mesAtualLabel}</p>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold">Propostas</h1>
+            {isFetching && (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground capitalize">Resumo do mês: {stats.mesAtualLabel}</p>
         </div>
         {podeCriar && (
           <Button onClick={() => navigate('/propostas/nova')}>

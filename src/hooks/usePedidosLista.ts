@@ -44,7 +44,7 @@ export const usePedidos = (filters?: PedidoListFilters) => {
         cliente:clientes(id, nome_razao_social, telefone, whatsapp),
         vendedor:profiles(id, nome),
         etapa_producao:etapa_producao(id, nome_etapa, cor_hex),
-        itens:pedido_itens(id, foto_modelo_url, produto:produtos(id, nome))
+        itens:pedido_itens(id, foto_modelo_url, nome_customizado, produto:produtos(id, nome))
       `;
 
       let query = supabase

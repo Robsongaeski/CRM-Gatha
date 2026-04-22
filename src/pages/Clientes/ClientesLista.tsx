@@ -31,7 +31,7 @@ export default function ClientesLista() {
   const ITENS_POR_PAGINA = 15;
   const { data: segmentos = [] } = useSegmentos();
 
-  const { data: response, isLoading } = useClientes({
+  const { data: response, isLoading, isFetching } = useClientes({
     search: search || undefined,
     segmentoId: segmentoFilter !== 'todos' ? segmentoFilter : undefined,
     page: currentPage - 1,
@@ -51,11 +51,7 @@ export default function ClientesLista() {
     setCurrentPage(1);
   }, [search, segmentoFilter]);
 
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
+  // Removido reset automático de página que causava saltos durante o carregamento
 
   const renderPagination = () => (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -90,7 +86,12 @@ export default function ClientesLista() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Clientes</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold">Clientes</h1>
+            {isFetching && (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            )}
+          </div>
           <p className="text-muted-foreground">Gerencie sua base de clientes</p>
         </div>
         {podeCriar && (
@@ -135,7 +136,7 @@ export default function ClientesLista() {
           )}
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isLoading && totalCount === 0 ? (
             <p className="text-center py-8 text-muted-foreground">Carregando...</p>
           ) : totalCount === 0 ? (
             <p className="text-center py-8 text-muted-foreground">Nenhum cliente encontrado</p>

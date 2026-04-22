@@ -63,7 +63,7 @@ export default function LeadsLista() {
   const { can } = usePermissions();
   const { user } = useAuth();
   
-  const { data: leadsResponse, isLoading } = useLeads({
+  const { data: leadsResponse, isLoading, isFetching } = useLeads({
     status: status !== 'todos' ? status : undefined,
     segmento_id: segmentoId !== 'todos' ? segmentoId : undefined,
     vendedor_id: meusContatos ? user?.id : (vendedorId !== 'todos' ? vendedorId : undefined),
@@ -84,12 +84,14 @@ export default function LeadsLista() {
     return leads.filter(l => (l as any).ativo !== false);
   }, [leads]);
 
-  const stats = {
-    total: leadsAtivos.length,
-    novos: leadsAtivos.filter(l => l.status === 'novo').length,
-    qualificados: leadsAtivos.filter(l => l.status === 'qualificado').length,
-    convertidos: leadsAtivos.filter(l => l.status === 'convertido').length,
-  };
+  const stats = useMemo(() => {
+    return {
+      total: leadsAtivos.length,
+      novos: leadsAtivos.filter(l => l.status === 'novo').length,
+      qualificados: leadsAtivos.filter(l => l.status === 'qualificado').length,
+      convertidos: leadsAtivos.filter(l => l.status === 'convertido').length,
+    };
+  }, [leadsAtivos]);
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -148,7 +150,12 @@ export default function LeadsLista() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Prospecção de Clientes</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold">Prospecção de Clientes</h1>
+            {isFetching && (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            )}
+          </div>
           <p className="text-muted-foreground">Gerencie seus leads e converta em clientes</p>
         </div>
         <div className="flex gap-2">
@@ -309,7 +316,7 @@ export default function LeadsLista() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? (
+                {isLoading && leadsAtivos.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center">Carregando...</TableCell>
                   </TableRow>

@@ -65,6 +65,19 @@ const pedidoSchemaBase = z.object({
       foto_modelo_url: z.string().optional(),
       tipo_estampa_id: z.string().optional(),
       grades: z.array(z.object({
+  caminho_arquivos: z.string().optional(),
+  desconto_percentual: z.number().min(0, 'Desconto minimo: 0%').max(100, 'Desconto maximo: 100%').default(0),
+  status: z.enum(['rascunho', 'em_producao', 'pronto', 'entregue', 'cancelado']),
+  itens: z.array(
+    z.object({
+      id: z.string().optional(),
+      produto_id: z.string(),
+      quantidade: z.number().min(1, 'Quantidade mínima é 1'),
+      valor_unitario: z.number().min(0, 'Valor deve ser positivo'),
+      observacoes: z.string().optional(),
+      foto_modelo_url: z.string().optional(),
+      tipo_estampa_id: z.string().optional(),
+      grades: z.array(z.object({
         codigo: z.string(),
         nome: z.string(),
         quantidade: z.number(),
@@ -73,6 +86,8 @@ const pedidoSchemaBase = z.object({
         tipo_detalhe: z.string(),
         valor: z.string(),
       })).optional(),
+      nome_customizado: z.string().optional(),
+      valor_base_customizado: z.number().optional(),
     })
   ),
 });
@@ -364,6 +379,8 @@ const pedidoToSnapshot = (pedido: any): PedidoFormData => ({
       tipo_detalhe: d.tipo_detalhe || '',
       valor: d.valor || '',
     })),
+    nome_customizado: item.nome_customizado || '',
+    valor_base_customizado: Number(item.valor_base_customizado || 0),
   })),
 });
 
@@ -553,6 +570,8 @@ export default function PedidoForm() {
             tipo_detalhe: d.tipo_detalhe || '',
             valor: d.valor || '',
           })),
+          nome_customizado: item.nome_customizado || '',
+          valor_base_customizado: Number(item.valor_base_customizado || 0),
         })) || [],
       });
     } else if (proposta && !isEditing && propostaId) {
@@ -575,6 +594,8 @@ export default function PedidoForm() {
           foto_modelo_url: index === 0 ? (proposta.imagem_aprovacao_url || '') : '',
           grades: [],
           detalhes: [],
+          nome_customizado: item.nome_customizado || '',
+          valor_base_customizado: Number(item.valor_base_customizado || 0),
         })) || [],
       });
     } else if (pedidoDuplicar && !isEditing && duplicarDeId) {
@@ -604,6 +625,8 @@ export default function PedidoForm() {
             tipo_detalhe: d.tipo_detalhe || '',
             valor: d.valor || '',
           })),
+          nome_customizado: item.nome_customizado || '',
+          valor_base_customizado: Number(item.valor_base_customizado || 0),
         })) || [],
       });
     }
@@ -731,6 +754,8 @@ export default function PedidoForm() {
             tipo_estampa_id: item.tipo_estampa_id,
             grades: item.grades?.filter(g => g.codigo && g.nome && g.quantidade) as PedidoItemGrade[] | undefined,
             detalhes: item.detalhes?.filter(d => d.tipo_detalhe && d.valor) as DetalheItem[] | undefined,
+            nome_customizado: item.nome_customizado || null,
+            valor_base_customizado: item.valor_base_customizado || null,
           })),
         });
 
@@ -763,6 +788,8 @@ export default function PedidoForm() {
           tipo_estampa_id: item.tipo_estampa_id,
           grades: item.grades?.filter(g => g.codigo && g.nome && g.quantidade) as PedidoItemGrade[] | undefined,
           detalhes: item.detalhes?.filter(d => d.tipo_detalhe && d.valor) as DetalheItem[] | undefined,
+          nome_customizado: item.nome_customizado || null,
+          valor_base_customizado: item.valor_base_customizado || null,
         })),
       };
 
@@ -819,6 +846,10 @@ export default function PedidoForm() {
 
       for (let index = 0; index < itens.length; index++) {
         const item = itens[index];
+        const produto = produtos?.find(p => p.id === item.produto_id);
+        
+        // Ignorar validação para produto manual (XX)
+        if (produto?.nome === 'XX') continue;
         
         // Buscar faixa diretamente do banco (segurança extra)
         const { data: faixaData, error } = await supabase.rpc('buscar_faixa_preco', {
@@ -969,6 +1000,13 @@ export default function PedidoForm() {
       
       if (faixa) {
         form.setValue(`itens.${index}.valor_unitario`, Number(faixa.preco_maximo));
+      } else if (produto.nome === 'XX') {
+        // Para produto XX, usar o valor base customizado se existir, senão manter o atual ou 0
+        const valorAtual = form.getValues(`itens.${index}.valor_unitario`);
+        if (!valorAtual || valorAtual === 0) {
+          const itemValores = form.getValues(`itens.${index}`);
+          form.setValue(`itens.${index}.valor_unitario`, Number(itemValores?.valor_base_customizado || 0));
+        }
       } else {
         form.setValue(`itens.${index}.valor_unitario`, Number(produto.valor_base));
       }
@@ -997,6 +1035,14 @@ export default function PedidoForm() {
 
   const verificarPrecoMinimo = (index: number) => {
     const item = form.watch(`itens.${index}`);
+    const produto = produtos?.find(p => p.id === item?.produto_id);
+    
+    // Ignorar validação para produto manual (XX)
+    if (produto?.nome === 'XX') {
+      setItemsAbaixoMinimo(prev => prev.filter(i => i !== index));
+      return;
+    }
+
     const valorUnitario = item?.valor_unitario;
     const faixa = faixasPreco[index];
     
@@ -1160,6 +1206,8 @@ export default function PedidoForm() {
       tipo_estampa_id: item.tipo_estampa_id,
       grades: [...(item.grades || [])],
       detalhes: [...(item.detalhes || [])],
+      nome_customizado: item.nome_customizado,
+      valor_base_customizado: item.valor_base_customizado,
     });
     toast({
       title: 'Item duplicado',
@@ -1560,7 +1608,11 @@ export default function PedidoForm() {
                         <div className="space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-semibold">Item {index + 1}</span>
-                            {produtoSelecionado?.nome ? (
+                            {produtoSelecionado?.nome === 'XX' ? (
+                              <span className="text-sm font-medium text-blue-600">
+                                {itemAtual?.nome_customizado || 'Produto XX (Personalizado)'}
+                              </span>
+                            ) : produtoSelecionado?.nome ? (
                               <span className="text-sm text-foreground">{produtoSelecionado.nome}</span>
                             ) : (
                               <span className="text-sm text-muted-foreground">Produto ainda não selecionado</span>
@@ -1642,6 +1694,53 @@ export default function PedidoForm() {
                         )}
                       />
                     </div>
+                    
+                    {produtoSelecionado?.nome === 'XX' && (
+                      <>
+                        <div className="md:col-span-6">
+                          <FormField
+                            control={form.control}
+                            name={`itens.${index}.nome_customizado`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-blue-600">Descrição do Produto Manual</FormLabel>
+                                <FormControl>
+                                  <Input 
+                                    {...field} 
+                                    placeholder="Ex: Camiseta Especial Evento X" 
+                                    disabled={camposDesabilitados}
+                                    className="border-blue-200 focus-visible:ring-blue-500"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                        <div className="md:col-span-3">
+                          <FormField
+                            control={form.control}
+                            name={`itens.${index}.valor_base_customizado`}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-blue-600">Valor Base (R$)</FormLabel>
+                                <FormControl>
+                                  <CurrencyInput 
+                                    value={field.value} 
+                                    onChange={field.onChange}
+                                    disabled={camposDesabilitados}
+                                    className="border-blue-200 focus-visible:ring-blue-500"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                        {/* Espaçador para manter alinhamento se necessário ou apenas deixar fluir */}
+                        <div className="md:col-span-3"></div>
+                      </>
+                    )}
 
                     <div className="md:col-span-1">
                       <FormField
@@ -1920,26 +2019,6 @@ export default function PedidoForm() {
                     data_entrega: data.data_entrega || undefined,
                     entrega_obrigatoria: Boolean(data.entrega_obrigatoria),
                     observacao: data.observacao,
-                    caminho_arquivos: data.caminho_arquivos,
-                    desconto_percentual: descontoPercentualRascunho,
-                    desconto_aguardando_aprovacao: !isAdmin && descontoPercentualRascunho > 3,
-                    status: 'rascunho' as const,
-                    itens: data.itens.map(item => ({
-                      id: item.id,
-                      produto_id: item.produto_id || '',
-                      quantidade: item.quantidade || 1,
-                      valor_unitario: item.valor_unitario || 0,
-                      observacoes: item.observacoes,
-                      foto_modelo_url: item.foto_modelo_url,
-                      tipo_estampa_id: item.tipo_estampa_id || null,
-                      grades: item.grades?.filter(g => g.codigo && g.nome && g.quantidade) as PedidoItemGrade[] | undefined,
-                      detalhes: item.detalhes?.filter(d => d.tipo_detalhe && d.valor) as DetalheItem[] | undefined,
-                    })),
-                  };
-
-                  if (isEditing) {
-                    await updatePedido.mutateAsync(formData);
-                  } else {
                     await createPedido.mutateAsync(formData);
                   }
 

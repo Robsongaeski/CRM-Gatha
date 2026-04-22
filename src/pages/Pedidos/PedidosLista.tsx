@@ -266,7 +266,7 @@ export default function PedidosLista() {
     includeValues: canViewPedidoValues,
   };
 
-  const { data: response, isLoading } = usePedidos(filtros);
+  const { data: response, isLoading, isFetching } = usePedidos(filtros);
   const { data: pedidosBase = [], totalCount = 0 } = response || {};
   
   const listaPedidos = canViewPedidoValues && saldoLancamentosEmAbertoFilter
@@ -323,7 +323,7 @@ export default function PedidosLista() {
 
   useEffect(() => {
     if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
+      // setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
 
@@ -421,7 +421,7 @@ export default function PedidosLista() {
   const temFiltrosAtivos = statusFilter.length > 0 || statusPagamentoFilter.length > 0 || 
     vendedorFilter !== 'todos' || clienteFilter !== 'todos' || buscaFilter || dataInicioFilter || dataFimFilter || saldoLancamentosEmAbertoFilter;
 
-  if (isLoading) {
+  if (isLoading && !response) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -435,7 +435,12 @@ export default function PedidosLista() {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Gestão de Pedidos</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-3xl font-bold">Gestão de Pedidos</h1>
+          {isFetching && (
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          )}
+        </div>
         {podeCriar && (
           <Button onClick={() => navigate('/pedidos/novo')}>
             <Plus className="mr-2 h-4 w-4" />

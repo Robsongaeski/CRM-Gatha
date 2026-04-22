@@ -30,6 +30,8 @@ export interface PedidoItem {
   tipo_estampa_id?: string;
   grades?: PedidoItemGrade[];
   detalhes?: DetalheItem[];
+  nome_customizado?: string;
+  valor_base_customizado?: number;
 }
 
 export interface PedidoFormData {
@@ -256,7 +258,9 @@ export const useCreatePedido = () => {
         valor_unitario: item.valor_unitario,
         observacoes: item.observacoes || null,
         foto_modelo_url: item.foto_modelo_url || null,
-        tipo_estampa_id: item.tipo_estampa_id || null, // Converter string vazia para null
+        tipo_estampa_id: item.tipo_estampa_id || null,
+        nome_customizado: item.nome_customizado || null,
+        valor_base_customizado: item.valor_base_customizado || null,
       }));
 
       const { data: itensData, error: itensError } = await supabase
@@ -494,6 +498,8 @@ export const useUpdatePedido = (id: string) => {
             observacoes: item.observacoes || null,
             foto_modelo_url: item.foto_modelo_url || null,
             tipo_estampa_id: item.tipo_estampa_id || null,
+            nome_customizado: item.nome_customizado || null,
+            valor_base_customizado: item.valor_base_customizado || null,
           })
           .eq('id', item.id);
 
@@ -544,6 +550,8 @@ export const useUpdatePedido = (id: string) => {
           observacoes: item.observacoes || null,
           foto_modelo_url: item.foto_modelo_url || null,
           tipo_estampa_id: item.tipo_estampa_id || null,
+          nome_customizado: item.nome_customizado || null,
+          valor_base_customizado: item.valor_base_customizado || null,
         }));
 
         const { data: novosItensData, error: insertError } = await supabase

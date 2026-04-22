@@ -257,8 +257,17 @@ export function FichaPedidoPrint({ pedido, pagamentos }: FichaPedidoPrintProps) 
             {/* Cabeçalho do Item */}
             <div className="item-header flex items-center gap-3 mb-2 bg-gray-100 px-2 py-1 rounded">
               <span className="text-sm font-bold">
-                ITEM {index + 1}: {item.produto?.nome || 'Produto'}
-                {item.produto?.codigo && <span className="text-gray-600 font-semibold ml-1">[{item.produto.codigo}]</span>}
+                ITEM {index + 1}: {item.produto?.nome === 'XX' && item.nome_customizado 
+                  ? item.nome_customizado 
+                  : item.produto?.nome || 'Produto'}
+                {item.produto?.codigo && item.produto?.nome !== 'XX' && (
+                  <span className="text-gray-600 font-semibold ml-1">[{item.produto.codigo}]</span>
+                )}
+                {item.produto?.nome === 'XX' && (
+                  <span className="ml-2 px-1 bg-blue-100 text-blue-800 border border-blue-300 rounded text-[9px] uppercase">
+                    Produto Manual
+                  </span>
+                )}
               </span>
               {item.tipo_estampa?.nome_tipo_estampa && (
                 <span className="px-2 py-0.5 bg-blue-200 text-blue-900 rounded text-[10px] font-bold border border-blue-400">

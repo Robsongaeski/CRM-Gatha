@@ -587,11 +587,20 @@ export default function PedidoDetalhes() {
                   <div className="flex-1 space-y-3">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-semibold text-lg">{item.produto?.nome}</h4>
-                        {item.produto?.codigo && (
+                        <h4 className="font-semibold text-lg">
+                          {item.produto?.nome === 'XX' && item.nome_customizado 
+                            ? item.nome_customizado 
+                            : item.produto?.nome}
+                        </h4>
+                        {item.produto?.codigo && item.produto?.nome !== 'XX' && (
                           <span className="text-xs text-muted-foreground font-mono bg-muted px-2 py-0.5 rounded">
                             {item.produto.codigo}
                           </span>
+                        )}
+                        {item.produto?.nome === 'XX' && (
+                          <Badge variant="outline" className="text-blue-600 border-blue-200">
+                            Produto Manual
+                          </Badge>
                         )}
                       </div>
                       {item.tipo_estampa?.nome_tipo_estampa && (
