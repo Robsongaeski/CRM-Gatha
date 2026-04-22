@@ -836,7 +836,7 @@ export default function PedidoForm() {
         const produto = produtos?.find(p => p.id === item.produto_id);
         
         // Ignorar validação para produto manual (XX)
-        if (produto?.nome === 'XX') continue;
+        if (produto?.nome?.toUpperCase() === 'XX') continue;
         
         // Buscar faixa diretamente do banco (segurança extra)
         const { data: faixaData, error } = await supabase.rpc('buscar_faixa_preco', {
@@ -987,7 +987,7 @@ export default function PedidoForm() {
       
       if (faixa) {
         form.setValue(`itens.${index}.valor_unitario`, Number(faixa.preco_maximo));
-      } else if (produto.nome === 'XX') {
+      } else if (produto.nome?.toUpperCase() === 'XX') {
         // Para produto XX, usar o valor base customizado se existir, senão manter o atual ou 0
         const valorAtual = form.getValues(`itens.${index}.valor_unitario`);
         if (!valorAtual || valorAtual === 0) {
@@ -1025,7 +1025,7 @@ export default function PedidoForm() {
     const produto = produtos?.find(p => p.id === item?.produto_id);
     
     // Ignorar validação para produto manual (XX)
-    if (produto?.nome === 'XX') {
+    if (produto?.nome?.toUpperCase() === 'XX') {
       setItemsAbaixoMinimo(prev => prev.filter(i => i !== index));
       return;
     }
@@ -1588,7 +1588,7 @@ export default function PedidoForm() {
                         <div className="space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-semibold">Item {index + 1}</span>
-                            {produtoSelecionado?.nome === 'XX' ? (
+                            {produtoSelecionado?.nome?.toUpperCase() === 'XX' ? (
                               <span className="text-sm font-medium text-blue-600">
                                 {itemAtual?.nome_customizado || 'Produto XX (Personalizado)'}
                               </span>
@@ -1675,7 +1675,7 @@ export default function PedidoForm() {
                       />
                     </div>
                     
-                    {produtoSelecionado?.nome === 'XX' && (
+                    {produtoSelecionado?.nome?.toUpperCase() === 'XX' && (
                       <>
                         <div className="md:col-span-6">
                           <FormField

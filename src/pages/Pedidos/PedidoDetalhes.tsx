@@ -588,7 +588,7 @@ export default function PedidoDetalhes() {
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <h4 className="font-semibold text-lg">
-                          {item.produto?.nome === 'XX' && item.nome_customizado 
+                          {item.produto?.nome?.toUpperCase() === 'XX' && item.nome_customizado 
                             ? item.nome_customizado 
                             : item.produto?.nome}
                         </h4>
@@ -597,7 +597,7 @@ export default function PedidoDetalhes() {
                             {item.produto.codigo}
                           </span>
                         )}
-                        {item.produto?.nome === 'XX' && (
+                        {item.produto?.nome?.toUpperCase() === 'XX' && (
                           <Badge variant="outline" className="text-blue-600 border-blue-200">
                             Produto Manual
                           </Badge>
