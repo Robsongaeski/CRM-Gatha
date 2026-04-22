@@ -12,6 +12,7 @@ interface PedidoListFilters {
   dataFim?: string;
   page?: number;
   pageSize?: number;
+  includeValues?: boolean;
 }
 
 export const usePedidos = (filters?: PedidoListFilters) => {
@@ -24,21 +25,31 @@ export const usePedidos = (filters?: PedidoListFilters) => {
       const pageSize = filters?.pageSize || 20;
       const from = page * pageSize;
       const to = from + pageSize - 1;
+      const includeValues = filters?.includeValues ?? true;
+      const selectFields = `
+        id,
+        numero_pedido,
+        data_pedido,
+        data_entrega,
+        status,
+        status_pagamento,
+        vendedor_id,
+        cliente_id,
+        etapa_producao_id,
+        observacao,
+        requer_aprovacao_preco,
+        imagem_aprovacao_url,
+        imagem_aprovada,
+        ${includeValues ? 'valor_total,' : ''}
+        cliente:clientes(id, nome_razao_social, telefone, whatsapp),
+        vendedor:profiles(id, nome),
+        etapa_producao:etapa_producao(id, nome_etapa, cor_hex),
+        itens:pedido_itens(id, foto_modelo_url, produto:produtos(id, nome))
+      `;
 
       let query = supabase
         .from('pedidos')
-        .select(
-          `
-            *,
-            imagem_aprovacao_url,
-            imagem_aprovada,
-            cliente:clientes(id, nome_razao_social, telefone, whatsapp),
-            vendedor:profiles(id, nome),
-            etapa_producao:etapa_producao(id, nome_etapa, cor_hex),
-            itens:pedido_itens(id, foto_modelo_url, produto:produtos(id, nome))
-          `,
-          { count: 'exact' }
-        );
+        .select(selectFields, { count: 'exact' });
 
       if (filters?.status) {
         if (Array.isArray(filters.status)) {
@@ -54,7 +65,9 @@ export const usePedidos = (filters?: PedidoListFilters) => {
         } else {
           query = query.eq('status_pagamento', filters.statusPagamento);
         }
-        query = query.gt('valor_total', 0);
+        if (includeValues) {
+          query = query.gt('valor_total', 0);
+        }
       }
 
       if (filters?.clienteId) {

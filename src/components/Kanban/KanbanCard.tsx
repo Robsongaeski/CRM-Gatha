@@ -2,7 +2,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, Package, DollarSign, Printer, AlertTriangle } from 'lucide-react';
+import { Calendar, Package, Printer, AlertTriangle } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -13,7 +13,7 @@ interface KanbanCardProps {
     id: string;
     numero_pedido: number;
     cliente: { nome_razao_social: string } | null;
-    valor_total: number;
+    valor_total?: number | null;
     data_entrega: string | null;
     entrega_obrigatoria?: boolean | null;
     observacao: string | null;
@@ -132,15 +132,11 @@ export function KanbanCard({ pedido, onClick, onPrint }: KanbanCardProps) {
             {pedido.cliente?.nome_razao_social || 'Cliente não informado'}
           </p>
 
-          {/* Qtd + Valor + Entrega em uma linha */}
+          {/* Qtd + Entrega em uma linha */}
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
             <span className="flex items-center gap-0.5">
               <Package className="h-2.5 w-2.5" />
               {quantidadeTotal}
-            </span>
-            <span className="flex items-center gap-0.5">
-              <DollarSign className="h-2.5 w-2.5" />
-              {pedido.valor_total.toFixed(0)}
             </span>
               {pedido.data_entrega && (
               <span className={cn(

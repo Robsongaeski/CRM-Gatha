@@ -43,8 +43,12 @@ export interface PagamentoFormData {
   observacao?: string;
 }
 
+interface UsePagamentosOptions {
+  enabled?: boolean;
+}
+
 // Listar pagamentos de um pedido
-export function usePagamentos(pedidoId?: string) {
+export function usePagamentos(pedidoId?: string, options?: UsePagamentosOptions) {
   return useQuery({
     queryKey: ['pagamentos', pedidoId],
     queryFn: async () => {
@@ -81,7 +85,7 @@ export function usePagamentos(pedidoId?: string) {
 
       return data as Pagamento[];
     },
-    enabled: !!pedidoId,
+    enabled: !!pedidoId && (options?.enabled ?? true),
   });
 }
 

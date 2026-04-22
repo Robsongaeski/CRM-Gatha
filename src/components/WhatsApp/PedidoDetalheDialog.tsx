@@ -26,6 +26,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { usePedido } from '@/hooks/usePedidos';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useCanViewPedidoValues } from '@/hooks/useCanViewPedidoValues';
 import { useEtapasProducao } from '@/hooks/pcp/useEtapasProducao';
 import { useMovimentoEtapa } from '@/hooks/pcp/useMovimentoEtapa';
 import { supabase } from '@/integrations/supabase/client';
@@ -39,7 +40,7 @@ interface PedidoDetalheDialogProps {
     id: string;
     numero_pedido: number;
     data_pedido: string;
-    valor_total: number;
+    valor_total?: number | null;
     status: string;
     etapa_producao_id: string | null;
   } | null;
@@ -135,6 +136,7 @@ export default function PedidoDetalheDialog({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { can, isAdmin } = usePermissions();
+  const { canViewPedidoValues } = useCanViewPedidoValues();
   const { etapas } = useEtapasProducao();
   const { moverPedido, isMoving } = useMovimentoEtapa();
   const { data: pedidoCompleto, isLoading } = usePedido(pedido?.id);
@@ -380,7 +382,7 @@ export default function PedidoDetalheDialog({
                 <div className="space-y-2">
                   <h4 className="font-semibold text-sm flex items-center gap-2">
                     <Calendar className="h-4 w-4" />
-                    Datas e Valor
+                    Datas
                   </h4>
                   <div className="text-sm space-y-1">
                     <div className="flex items-center justify-between gap-3">
@@ -443,13 +445,15 @@ export default function PedidoDetalheDialog({
                         </div>
                       </div>
                     )}
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-muted-foreground flex items-center gap-1">
-                        <DollarSign className="h-3.5 w-3.5" />
-                        Valor Total
-                      </span>
-                      <span className="font-semibold">{formatCurrency(valorTotal)}</span>
-                    </div>
+                    {canViewPedidoValues && (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground flex items-center gap-1">
+                          <DollarSign className="h-3.5 w-3.5" />
+                          Valor Total
+                        </span>
+                        <span className="font-semibold">{formatCurrency(valorTotal)}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -473,7 +477,10 @@ export default function PedidoDetalheDialog({
                         <div key={item?.id || `${nomeProduto}-${quantidade}`} className="rounded-md bg-secondary/40 p-3">
                           <div className="font-medium text-sm">{nomeProduto}</div>
                           <div className="text-xs text-muted-foreground mt-1">
-                            {quantidade} un x {formatCurrency(valorUnitario)} = {formatCurrency(valorItem)}
+                            {quantidade} un
+                            {canViewPedidoValues && (
+                              <> x {formatCurrency(valorUnitario)} = {formatCurrency(valorItem)}</>
+                            )}
                           </div>
                           {item?.observacoes && (
                             <div className="text-xs text-muted-foreground mt-1 italic">{item.observacoes}</div>

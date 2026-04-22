@@ -25,6 +25,7 @@ import { FichaPedidoPrint } from '@/components/Pedidos/FichaPedidoPrint';
 import { createRoot } from 'react-dom/client';
 import { parseDateString } from '@/lib/formatters';
 import { parsePedidoObservacoes } from '@/lib/pedidoObservacoes';
+import { useCanViewPedidoValues } from '@/hooks/useCanViewPedidoValues';
 
 const statusPedidoLabels = {
   rascunho: 'Rascunho',
@@ -66,9 +67,10 @@ export default function PedidoDetalhes() {
   const { id } = useParams();
   const { isAdmin, isVendedor, isPcp } = useUserRole();
   const { can } = usePermissions();
+  const { canViewPedidoValues } = useCanViewPedidoValues();
   const podeEditar = isAdmin || isVendedor || isPcp || can('pedidos.editar') || can('pedidos.editar_todos');
   const { data: pedido, isLoading } = usePedido(id);
-  const { data: pagamentos = [] } = usePagamentos(id);
+  const { data: pagamentos = [] } = usePagamentos(id, { enabled: canViewPedidoValues });
   const { data: historico = [] } = usePedidoHistorico(id);
   const { data: aprovacao } = usePedidoAprovacao(id);
   const [modalOpen, setModalOpen] = useState(false);
@@ -413,6 +415,8 @@ export default function PedidoDetalhes() {
         </CardContent>
       </Card>
 
+      {canViewPedidoValues && (
+        <>
       {/* Resumo Financeiro */}
       <Card>
         <CardHeader>
@@ -516,6 +520,9 @@ export default function PedidoDetalhes() {
         </CardContent>
       </Card>
 
+        </>
+      )}
+
       {/* Imagem Aprovada - Exibida em destaque quando existe */}
       {pedido.imagem_aprovada && pedido.imagem_aprovacao_url && (
         <Card className="border-green-500/50 bg-green-50/30 dark:bg-green-950/10">
@@ -595,11 +602,16 @@ export default function PedidoDetalhes() {
                     </div>
 
                     <p className="text-sm">
-                      <span className="font-medium">Quantidade:</span> {item.quantidade} x{' '}
-                      {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(item.valor_unitario))} ={' '}
-                      <span className="font-bold">
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(item.valor_total))}
-                      </span>
+                      <span className="font-medium">Quantidade:</span> {item.quantidade}
+                      {canViewPedidoValues && (
+                        <>
+                          {' '}x{' '}
+                          {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(item.valor_unitario))} ={' '}
+                          <span className="font-bold">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(item.valor_total))}
+                          </span>
+                        </>
+                      )}
                     </p>
 
                     {/* Grade de Tamanhos */}

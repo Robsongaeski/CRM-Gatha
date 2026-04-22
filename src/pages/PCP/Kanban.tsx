@@ -17,6 +17,7 @@ import { usePropostasKanban } from '@/hooks/pcp/usePropostasKanban';
 import { useMovimentoEtapa } from '@/hooks/pcp/useMovimentoEtapa';
 import { useMovimentoEtapaProposta } from '@/hooks/pcp/useMovimentoEtapaProposta';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useCanViewPedidoValues } from '@/hooks/useCanViewPedidoValues';
 import { KanbanCard } from '@/components/Kanban/KanbanCard';
 import { KanbanColumn } from '@/components/Kanban/KanbanColumn';
 import { KanbanFilters } from '@/components/Kanban/KanbanFilters';
@@ -41,6 +42,7 @@ export default function Kanban() {
 
   // Verificar permissões do usuário
   const { can, isAdmin } = usePermissions();
+  const { canViewPedidoValues } = useCanViewPedidoValues();
   
   // Verificar se usuário pode ver colunas de aprovação de propostas
   const canViewApprovalColumns = isAdmin || can('pcp.kanban.aprovacao.visualizar');
@@ -49,7 +51,9 @@ export default function Kanban() {
   const dragScrollRef = useDragScroll();
 
   // Hook para pedidos (etapas de produção)
-  const { etapas, pedidos, pedidosPorEtapa, pedidosSemEtapa, isLoading: loadingPedidos } = usePedidosKanban(filtros);
+  const { etapas, pedidos, pedidosPorEtapa, pedidosSemEtapa, isLoading: loadingPedidos } = usePedidosKanban(filtros, {
+    includeValues: canViewPedidoValues,
+  });
   
   // Hook para propostas (etapas de aprovação) - só buscar se tiver permissão
   const { etapasAprovacao, propostas, propostasPorEtapa, isLoading: loadingPropostas } = usePropostasKanban({
@@ -351,7 +355,7 @@ export default function Kanban() {
                 id: pedidoDetalheCompleto.id,
                 numero_pedido: pedidoDetalheCompleto.numero_pedido,
                 data_pedido: pedidoDetalheCompleto.data_pedido,
-                valor_total: Number(pedidoDetalheCompleto.valor_total || 0),
+                valor_total: canViewPedidoValues ? Number(pedidoDetalheCompleto.valor_total || 0) : undefined,
                 status: pedidoDetalheCompleto.status,
                 etapa_producao_id: pedidoDetalheCompleto.etapa_producao_id,
               }

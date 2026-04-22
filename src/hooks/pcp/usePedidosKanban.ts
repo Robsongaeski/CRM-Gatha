@@ -10,7 +10,11 @@ export interface FiltrosKanban {
   mostrarEntregues?: boolean;
 }
 
-export function usePedidosKanban(filtros?: FiltrosKanban) {
+interface UsePedidosKanbanOptions {
+  includeValues?: boolean;
+}
+
+export function usePedidosKanban(filtros?: FiltrosKanban, options?: UsePedidosKanbanOptions) {
   const { data: etapas = [], isLoading: loadingEtapas } = useQuery({
     queryKey: ['etapas-kanban-producao'],
     queryFn: async () => {
@@ -27,18 +31,17 @@ export function usePedidosKanban(filtros?: FiltrosKanban) {
   });
 
   const { data: pedidos = [], isLoading: loadingPedidos } = useQuery({
-    queryKey: ['pedidos-kanban', filtros],
+    queryKey: ['pedidos-kanban', filtros, options?.includeValues],
     queryFn: async () => {
-      let query = supabase
-        .from('pedidos')
-        .select(`
+      const includeValues = options?.includeValues ?? true;
+      const selectFields = `
           id,
           numero_pedido,
           data_pedido,
           data_entrega,
           entrega_obrigatoria,
           status,
-          valor_total,
+          ${includeValues ? 'valor_total,' : ''}
           observacao,
           etapa_producao_id,
           requer_aprovacao_preco,
@@ -52,7 +55,10 @@ export function usePedidosKanban(filtros?: FiltrosKanban) {
             tipo_estampa:tipo_estampa(id, nome_tipo_estampa)
           ),
           pedido_tags:pedido_tags(id, nome, cor)
-        `)
+        `;
+      let query = supabase
+        .from('pedidos')
+        .select(selectFields)
         .in('status', filtros?.mostrarEntregues ? ['em_producao', 'pronto', 'entregue'] : ['em_producao', 'pronto'])
         // Exibir no Kanban apenas pedidos ativos (nao aguardando aprovacao de preco)
         // Aceita false e null para cobrir registros antigos.

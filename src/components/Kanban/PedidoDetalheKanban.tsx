@@ -10,6 +10,7 @@ import { usePedido } from '@/hooks/usePedidos';
 import { useMovimentoEtapa } from '@/hooks/pcp/useMovimentoEtapa';
 import { useEtapasProducao } from '@/hooks/pcp/useEtapasProducao';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useCanViewPedidoValues } from '@/hooks/useCanViewPedidoValues';
 import { TagSelector } from './TagSelector';
 import { ImagemAprovacaoUpload } from './ImagemAprovacaoUpload';
 import { ImagemItemAprovacaoUpload } from './ImagemItemAprovacaoUpload';
@@ -19,7 +20,6 @@ import { parseDateString } from '@/lib/formatters';
 import { 
   Calendar, 
   User, 
-  DollarSign, 
   Package, 
   FileText, 
   Printer, 
@@ -61,6 +61,7 @@ export function PedidoDetalheKanban({
   const { etapas } = useEtapasProducao();
   const { moverPedido, isMoving } = useMovimentoEtapa();
   const { isAdmin } = useUserRole();
+  const { canViewPedidoValues } = useCanViewPedidoValues();
 
   const [novaObservacao, setNovaObservacao] = useState('');
   const [observacoes, setObservacoes] = useState<Array<{ data: string; texto: string }>>([]);
@@ -288,11 +289,6 @@ export function PedidoDetalheKanban({
                     <span className="text-muted-foreground">Vendedor:</span>
                     <span>{pedido.vendedor?.nome}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-muted-foreground">Valor:</span>
-                    <span className="font-semibold">R$ {pedido.valor_total.toFixed(2)}</span>
-                  </div>
                   {pedido.caminho_arquivos && (
                     <div className="flex items-center gap-2">
                       <FolderOpen className="h-3 w-3 text-muted-foreground" />
@@ -422,8 +418,10 @@ export function PedidoDetalheKanban({
                           </div>
                           
                           <p className="text-sm text-muted-foreground">
-                            {item.quantidade} un × R$ {item.valor_unitario.toFixed(2)} = R${' '}
-                            {item.valor_total?.toFixed(2)}
+                            {item.quantidade} un
+                            {canViewPedidoValues && (
+                              <> × R$ {item.valor_unitario.toFixed(2)} = R$ {item.valor_total?.toFixed(2)}</>
+                            )}
                           </p>
                           
                           {/* Grades de tamanho */}

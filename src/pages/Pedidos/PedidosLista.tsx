@@ -19,6 +19,7 @@ import { useDeletePedido, StatusPedido } from '@/hooks/usePedidos';
 import { usePedidos } from '@/hooks/usePedidosLista';
 import { useUserRole } from '@/hooks/useUserRole';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useCanViewPedidoValues } from '@/hooks/useCanViewPedidoValues';
 import { useAuth } from '@/hooks/useAuth';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -95,6 +96,7 @@ export default function PedidosLista() {
   const location = useLocation();
   const { isAdmin, isVendedor } = useUserRole();
   const { can } = usePermissions();
+  const { canViewPedidoValues } = useCanViewPedidoValues();
   const podeCriar = can('pedidos.criar');
   const podeEditar = isAdmin || isVendedor || can('pedidos.editar') || can('pedidos.editar_todos');
   const { user } = useAuth();
@@ -214,6 +216,7 @@ export default function PedidosLista() {
       if (error) throw error;
       return data;
     },
+    enabled: canViewPedidoValues,
   });
 
   const calcularValorPendente = (pedidoId: string, valorTotal: number) => {
@@ -260,12 +263,13 @@ export default function PedidosLista() {
     ...(dataFimFilter && { dataFim: dataFimFilter }),
     page: currentPage - 1,
     pageSize: ITENS_POR_PAGINA,
+    includeValues: canViewPedidoValues,
   };
 
   const { data: response, isLoading } = usePedidos(filtros);
   const { data: pedidosBase = [], totalCount = 0 } = response || {};
   
-  const listaPedidos = saldoLancamentosEmAbertoFilter
+  const listaPedidos = canViewPedidoValues && saldoLancamentosEmAbertoFilter
     ? pedidosBase.filter((pedido: any) => calcularSaldoComPagamentosLancados(pedido.id, Number(pedido.valor_total)) > 0)
     : pedidosBase;
 
@@ -310,6 +314,12 @@ export default function PedidosLista() {
   useEffect(() => {
     setCurrentPage(1);
   }, [statusFilter, statusPagamentoFilter, vendedorFilter, clienteFilter, buscaFilter, dataInicioFilter, dataFimFilter, saldoLancamentosEmAbertoFilter]);
+
+  useEffect(() => {
+    if (!canViewPedidoValues && saldoLancamentosEmAbertoFilter) {
+      setSaldoLancamentosEmAbertoFilter(false);
+    }
+  }, [canViewPedidoValues, saldoLancamentosEmAbertoFilter]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -564,16 +574,18 @@ export default function PedidosLista() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Saldo c/ Lançamentos</label>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <Checkbox
-                      checked={saldoLancamentosEmAbertoFilter}
-                      onCheckedChange={(checked) => setSaldoLancamentosEmAbertoFilter(checked === true)}
-                    />
-                    <span className="text-sm">Mostrar só pedidos com saldo em aberto</span>
-                  </label>
-                </div>
+                {canViewPedidoValues && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Saldo c/ Lançamentos</label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <Checkbox
+                        checked={saldoLancamentosEmAbertoFilter}
+                        onCheckedChange={(checked) => setSaldoLancamentosEmAbertoFilter(checked === true)}
+                      />
+                      <span className="text-sm">Mostrar só pedidos com saldo em aberto</span>
+                    </label>
+                  </div>
+                )}
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -591,9 +603,9 @@ export default function PedidosLista() {
                 <TableHead>Nº Pedido</TableHead>
                 <TableHead>Data</TableHead>
                 <TableHead>Cliente</TableHead>
-                <TableHead>Valor Total</TableHead>
-                <TableHead>Valor Pendente</TableHead>
-                <TableHead>Saldo c/ Lançamentos</TableHead>
+                {canViewPedidoValues && <TableHead>Valor Total</TableHead>}
+                {canViewPedidoValues && <TableHead>Valor Pendente</TableHead>}
+                {canViewPedidoValues && <TableHead>Saldo c/ Lançamentos</TableHead>}
                 <TableHead>Status Pagamento</TableHead>
                 <TableHead>Etapa</TableHead>
                 <TableHead>Status</TableHead>
@@ -603,11 +615,12 @@ export default function PedidosLista() {
             </TableHeader>
             <TableBody>
               {paginatedPedidos.map((pedido: any) => {
-                const valorPendente = calcularValorPendente(pedido.id, Number(pedido.valor_total));
-                const saldoComPagamentosLancados = calcularSaldoComPagamentosLancados(
-                  pedido.id,
-                  Number(pedido.valor_total)
-                );
+                const valorPendente = canViewPedidoValues
+                  ? calcularValorPendente(pedido.id, Number(pedido.valor_total))
+                  : 0;
+                const saldoComPagamentosLancados = canViewPedidoValues
+                  ? calcularSaldoComPagamentosLancados(pedido.id, Number(pedido.valor_total))
+                  : 0;
                 // Priorizar imagem aprovada, senão pegar primeira foto disponível dos itens
                 const primeiraFoto = (pedido.imagem_aprovada && pedido.imagem_aprovacao_url) 
                   ? pedido.imagem_aprovacao_url 
@@ -643,17 +656,21 @@ export default function PedidosLista() {
                       {format(parseDateString(pedido.data_pedido) || new Date(), 'dd/MM/yyyy', { locale: ptBR })}
                     </TableCell>
                     <TableCell>{pedido.cliente?.nome_razao_social}</TableCell>
-                    <TableCell>{formatCurrency(Number(pedido.valor_total))}</TableCell>
-                    <TableCell>
-                      <span className={valorPendente > 0 ? 'text-orange-600 font-semibold' : 'text-green-600'}>
-                        {formatCurrency(valorPendente)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className={saldoComPagamentosLancados > 0 ? 'text-amber-600 font-semibold' : 'text-green-600'}>
-                        {formatCurrency(saldoComPagamentosLancados)}
-                      </span>
-                    </TableCell>
+                    {canViewPedidoValues && <TableCell>{formatCurrency(Number(pedido.valor_total))}</TableCell>}
+                    {canViewPedidoValues && (
+                      <TableCell>
+                        <span className={valorPendente > 0 ? 'text-orange-600 font-semibold' : 'text-green-600'}>
+                          {formatCurrency(valorPendente)}
+                        </span>
+                      </TableCell>
+                    )}
+                    {canViewPedidoValues && (
+                      <TableCell>
+                        <span className={saldoComPagamentosLancados > 0 ? 'text-amber-600 font-semibold' : 'text-green-600'}>
+                          {formatCurrency(saldoComPagamentosLancados)}
+                        </span>
+                      </TableCell>
+                    )}
                     <TableCell>
                       <div className="flex flex-col gap-1">
                         <Badge variant={pedido.status_pagamento === 'quitado' ? 'default' : 'secondary'}>
@@ -801,7 +818,7 @@ export default function PedidosLista() {
               })}
               {!listaPedidos.length && (
                 <TableRow>
-                  <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={canViewPedidoValues ? 12 : 9} className="text-center py-8 text-muted-foreground">
                     Nenhum pedido encontrado
                   </TableCell>
                 </TableRow>
