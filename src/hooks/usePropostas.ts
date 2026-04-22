@@ -54,7 +54,7 @@ export function usePropostas(filters?: {
         .from('propostas')
         .select(`
           *,
-          cliente:clientes(id, nome_razao_social, telefone, email),
+          cliente:clientes${filters?.search ? '!inner' : ''}(id, nome_razao_social, telefone, email),
           vendedor:profiles(nome, email, whatsapp)
         `, { count: 'exact' });
       
@@ -63,7 +63,7 @@ export function usePropostas(filters?: {
       if (filters?.vendedorId) query = query.eq('vendedor_id', filters.vendedorId);
       
       if (filters?.search) {
-        query = query.or(`observacoes.ilike.%${filters.search}%,cliente_nome_razao_social_temp.ilike.%${filters.search}%`);
+        query = query.or(`observacoes.ilike.%${filters.search}%,cliente.nome_razao_social.ilike.%${filters.search}%`);
       }
       
       const { data, error, count } = await query

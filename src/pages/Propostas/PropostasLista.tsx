@@ -99,6 +99,23 @@ export default function PropostasLista() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [localSearch, setLocalSearch] = useState(search);
+
+  // Sincronizar busca local com a URL apenas no carregamento inicial
+  useEffect(() => {
+    setLocalSearch(search);
+  }, [search]);
+
+  // Debounce para atualizar os filtros na URL
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearch !== search) {
+        updateFilters({ search: localSearch });
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [localSearch, search]);
 
   const { data: response, isLoading } = usePropostas({
     status: statusFilter === 'all' ? undefined : statusFilter,
@@ -335,8 +352,8 @@ export default function PropostasLista() {
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Input
                   placeholder="Buscar por cliente, vendedor ou telefone..."
-                  value={search}
-                  onChange={(e) => updateFilters({ search: e.target.value })}
+                  value={localSearch}
+                  onChange={(e) => setLocalSearch(e.target.value)}
                   className="flex-1"
                 />
                 <Select

@@ -98,7 +98,7 @@ export const usePedidos = (filters?: {
           *,
           imagem_aprovacao_url,
           imagem_aprovada,
-          cliente:clientes(id, nome_razao_social, telefone, whatsapp),
+          cliente:clientes${filters?.busca ? '!inner' : ''}(id, nome_razao_social, telefone, whatsapp),
           vendedor:profiles(id, nome),
           etapa_producao:etapa_producao(id, nome_etapa, cor_hex),
           itens:pedido_itens(id, foto_modelo_url, produto:produtos(id, nome))
@@ -149,9 +149,9 @@ export const usePedidos = (filters?: {
         
         if (!isNaN(buscaNumero)) {
           // Busca exata pelo número OU parcial pelo nome do cliente
-          query = query.or(`numero_pedido.eq.${buscaNumero},cliente_nome_razao_social_temp.ilike.${buscaLike}`);
+          query = query.or(`numero_pedido.eq.${buscaNumero},cliente.nome_razao_social.ilike.${buscaLike}`);
         } else {
-          query = query.ilike('clientes.nome_razao_social', buscaLike);
+          query = query.ilike('cliente.nome_razao_social', buscaLike);
         }
       }
 
@@ -470,7 +470,7 @@ export const useUpdatePedido = (id: string) => {
         const oldItem = antigoPorId.get(item.id!);
         if (!oldItem) continue;
 
-        // Atualizar o item
+        // Atualizar the item
         await supabase
           .from('pedido_itens')
           .update({
@@ -713,4 +713,3 @@ export const useDeletePedido = () => {
     },
   });
 };
-
