@@ -36,6 +36,7 @@ export function usePedidosKanban(filtros?: FiltrosKanban) {
           numero_pedido,
           data_pedido,
           data_entrega,
+          entrega_obrigatoria,
           status,
           valor_total,
           observacao,

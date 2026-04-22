@@ -2745,6 +2745,7 @@ export type Database = {
           desconto_aguardando_aprovacao: boolean | null
           desconto_percentual: number | null
           data_entrega: string | null
+          entrega_obrigatoria: boolean
           data_fim_producao: string | null
           data_inicio_producao: string | null
           data_pedido: string
@@ -2769,6 +2770,7 @@ export type Database = {
           desconto_aguardando_aprovacao?: boolean | null
           desconto_percentual?: number | null
           data_entrega?: string | null
+          entrega_obrigatoria?: boolean
           data_fim_producao?: string | null
           data_inicio_producao?: string | null
           data_pedido?: string
@@ -2793,6 +2795,7 @@ export type Database = {
           desconto_aguardando_aprovacao?: boolean | null
           desconto_percentual?: number | null
           data_entrega?: string | null
+          entrega_obrigatoria?: boolean
           data_fim_producao?: string | null
           data_inicio_producao?: string | null
           data_pedido?: string

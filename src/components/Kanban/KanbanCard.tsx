@@ -2,7 +2,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, Package, DollarSign, Printer } from 'lucide-react';
+import { Calendar, Package, DollarSign, Printer, AlertTriangle } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,7 @@ interface KanbanCardProps {
     cliente: { nome_razao_social: string } | null;
     valor_total: number;
     data_entrega: string | null;
+    entrega_obrigatoria?: boolean | null;
     observacao: string | null;
     imagem_aprovacao_url?: string | null;
     imagem_aprovada?: boolean | null;
@@ -149,6 +150,9 @@ export function KanbanCard({ pedido, onClick, onPrint }: KanbanCardProps) {
               )}>
                 <Calendar className="h-2.5 w-2.5" />
                 {format(parseDateString(pedido.data_entrega) || new Date(), 'dd/MM', { locale: ptBR })}
+                {pedido.entrega_obrigatoria && (
+                  <AlertTriangle className="h-3 w-3 text-amber-500" title="Entrega obrigatoria" />
+                )}
               </span>
             )}
           </div>

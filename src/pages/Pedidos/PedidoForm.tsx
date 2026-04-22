@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ClienteCombobox } from '@/components/Pedidos/ClienteCombobox';
 import { ProdutoCombobox } from '@/components/Pedidos/ProdutoCombobox';
@@ -49,6 +50,7 @@ const pedidoSchemaBase = z.object({
   data_pedido: z.string(),
   cliente_id: z.string(),
   data_entrega: z.string(),
+  entrega_obrigatoria: z.boolean().default(false),
   observacao: z.string().optional(),
   caminho_arquivos: z.string().optional(),
   desconto_percentual: z.number().min(0, 'Desconto minimo: 0%').max(100, 'Desconto maximo: 100%').default(0),
@@ -339,6 +341,7 @@ const pedidoToSnapshot = (pedido: any): PedidoFormData => ({
   data_pedido: extractDateOnly(pedido.data_pedido) || '',
   cliente_id: pedido.cliente_id,
   data_entrega: extractDateOnly(pedido.data_entrega) || undefined,
+  entrega_obrigatoria: Boolean(pedido.entrega_obrigatoria),
   observacao: pedido.observacao || '',
   caminho_arquivos: pedido.caminho_arquivos || '',
   desconto_percentual: Number(pedido.desconto_percentual || 0),
@@ -369,6 +372,7 @@ const getCamposAlterados = (anterior: PedidoFormData, novo: PedidoFormData) => {
   if ((anterior.data_pedido || '') !== (novo.data_pedido || '')) campos.push('data_pedido');
   if ((anterior.cliente_id || '') !== (novo.cliente_id || '')) campos.push('cliente_id');
   if ((anterior.data_entrega || '') !== (novo.data_entrega || '')) campos.push('data_entrega');
+  if (Boolean(anterior.entrega_obrigatoria) !== Boolean(novo.entrega_obrigatoria)) campos.push('entrega_obrigatoria');
   if ((anterior.observacao || '') !== (novo.observacao || '')) campos.push('observacao');
   if ((anterior.caminho_arquivos || '') !== (novo.caminho_arquivos || '')) campos.push('caminho_arquivos');
   if (Number(anterior.desconto_percentual || 0) !== Number(novo.desconto_percentual || 0)) campos.push('desconto_percentual');
@@ -492,6 +496,7 @@ export default function PedidoForm() {
       data_pedido: format(new Date(), 'yyyy-MM-dd'),
       cliente_id: '',
       data_entrega: '',
+      entrega_obrigatoria: false,
       observacao: '',
       caminho_arquivos: '',
       desconto_percentual: 0,
@@ -526,6 +531,7 @@ export default function PedidoForm() {
         data_pedido: extractDateOnly(pedido.data_pedido) || format(new Date(), 'yyyy-MM-dd'),
         cliente_id: pedido.cliente_id,
         data_entrega: extractDateOnly(pedido.data_entrega) || '',
+        entrega_obrigatoria: Boolean((pedido as any).entrega_obrigatoria),
         observacao: pedido.observacao || '',
         caminho_arquivos: (pedido as any).caminho_arquivos || '',
         desconto_percentual: Number((pedido as any).desconto_percentual || 0),
@@ -555,6 +561,7 @@ export default function PedidoForm() {
         data_pedido: format(new Date(), 'yyyy-MM-dd'),
         cliente_id: proposta.cliente_id,
         data_entrega: '',
+        entrega_obrigatoria: false,
         observacao: proposta.observacoes || '',
         caminho_arquivos: proposta.caminho_arquivos || '',
         desconto_percentual: Number((proposta as any).desconto_percentual || 0),
@@ -576,6 +583,7 @@ export default function PedidoForm() {
         data_pedido: format(new Date(), 'yyyy-MM-dd'),
         cliente_id: pedidoDuplicar.cliente_id,
         data_entrega: '',
+        entrega_obrigatoria: Boolean((pedidoDuplicar as any).entrega_obrigatoria),
         observacao: pedidoDuplicar.observacao || '',
         caminho_arquivos: (pedidoDuplicar as any).caminho_arquivos || '',
         desconto_percentual: Number((pedidoDuplicar as any).desconto_percentual || 0),
@@ -673,6 +681,7 @@ export default function PedidoForm() {
           data.data_pedido !== (extractDateOnly(pedido.data_pedido) || format(new Date(), 'yyyy-MM-dd')) ||
           data.cliente_id !== pedido.cliente_id ||
           data.data_entrega !== (extractDateOnly(pedido.data_entrega) || '') ||
+          Boolean(data.entrega_obrigatoria) !== Boolean((pedido as any).entrega_obrigatoria) ||
           data.observacao !== (pedido.observacao || '') ||
           Number(descontoNormalizado) !== Number((pedido as any).desconto_percentual || 0) ||
           JSON.stringify(data.itens) !== JSON.stringify(pedido.itens?.map((item: any) => ({
@@ -706,6 +715,7 @@ export default function PedidoForm() {
           data_pedido: data.data_pedido,
           cliente_id: data.cliente_id,
           data_entrega: data.data_entrega || undefined,
+          entrega_obrigatoria: Boolean(data.entrega_obrigatoria),
           observacao: data.observacao,
           caminho_arquivos: data.caminho_arquivos,
           desconto_percentual: descontoNormalizado,
@@ -736,6 +746,7 @@ export default function PedidoForm() {
         data_pedido: data.data_pedido,
         cliente_id: data.cliente_id,
         data_entrega: data.data_entrega || undefined,
+        entrega_obrigatoria: Boolean(data.entrega_obrigatoria),
         observacao: data.observacao,
         caminho_arquivos: data.caminho_arquivos,
         desconto_percentual: descontoNormalizado,
@@ -1321,6 +1332,28 @@ export default function PedidoForm() {
 
                 <FormField
                   control={form.control}
+                  name="entrega_obrigatoria"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border px-3 py-3">
+                      <div className="space-y-0.5">
+                        <FormLabel>Entrega obrigatoria</FormLabel>
+                        <p className="text-sm text-muted-foreground">
+                          Marca o pedido como prioridade de prazo para a equipe.
+                        </p>
+                      </div>
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+                          disabled={camposDesabilitados}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
                   name="status"
                   render={({ field }) => (
                     <FormItem>
@@ -1885,6 +1918,7 @@ export default function PedidoForm() {
                     data_pedido: data.data_pedido,
                     cliente_id: data.cliente_id || '',
                     data_entrega: data.data_entrega || undefined,
+                    entrega_obrigatoria: Boolean(data.entrega_obrigatoria),
                     observacao: data.observacao,
                     caminho_arquivos: data.caminho_arquivos,
                     desconto_percentual: descontoPercentualRascunho,

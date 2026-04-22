@@ -36,6 +36,7 @@ export interface PedidoFormData {
   data_pedido?: string;
   cliente_id: string;
   data_entrega?: string;
+  entrega_obrigatoria?: boolean;
   observacao?: string;
   caminho_arquivos?: string;
   desconto_percentual?: number;
@@ -219,6 +220,7 @@ export const useCreatePedido = () => {
         ...pedidoData,
         data_pedido: pedidoData.data_pedido ? `${pedidoData.data_pedido}T12:00:00` : undefined,
         data_entrega: pedidoData.data_entrega ? `${pedidoData.data_entrega}T12:00:00` : undefined,
+        entrega_obrigatoria: Boolean(pedidoData.entrega_obrigatoria),
         vendedor_id: user.id,
         ...(etapaInicialProducaoId ? { etapa_producao_id: etapaInicialProducaoId } : {}),
       };
@@ -427,6 +429,7 @@ export const useUpdatePedido = (id: string) => {
         ...pedidoData,
         data_pedido: pedidoData.data_pedido ? `${pedidoData.data_pedido}T12:00:00` : undefined,
         data_entrega: pedidoData.data_entrega ? `${pedidoData.data_entrega}T12:00:00` : undefined,
+        entrega_obrigatoria: Boolean(pedidoData.entrega_obrigatoria),
         vendedor_id: pedidoMeta?.vendedor_id,
         ...(etapaProducaoIdForcada ? { etapa_producao_id: etapaProducaoIdForcada } : {}),
       };
