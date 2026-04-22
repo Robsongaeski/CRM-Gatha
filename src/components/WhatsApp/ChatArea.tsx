@@ -901,6 +901,7 @@ export default function ChatArea({
                         sender_phone: msg.sender_phone,
                         media_url: msg.media_url,
                         media_mimetype: msg.media_mime_type,
+                        media_filename: msg.media_filename,
                         status: msg.status,
                         created_at: msg.created_at,
                         quoted_message:

@@ -5,6 +5,7 @@ import { Check, CheckCheck, X, Clock, AlertTriangle, Download, FileIcon, Reply, 
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,6 +21,7 @@ interface Message {
   sender_phone?: string | null;
   media_url: string | null;
   media_mimetype: string | null;
+  media_filename?: string | null;
   status: string | null;
   created_at: string;
   quoted_message?: {
@@ -111,6 +113,7 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
   const normalizedQuotedContent = extractDisplayText(message.quoted_message?.content ?? null);
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [modalImageUrl, setModalImageUrl] = useState<string | null>(null);
+  const [isDownloadingFile, setIsDownloadingFile] = useState(false);
   const incomingGroupSender = !isOutgoing && isGroup
     ? (senderName?.trim() || message.sender_phone || null)
     : null;
@@ -131,6 +134,67 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
   const handleImageClick = (url: string) => {
     setModalImageUrl(url);
     setImageModalOpen(true);
+  };
+
+  const getFileName = () => {
+    if (message.media_filename?.trim()) {
+      return message.media_filename.trim();
+    }
+
+    if (normalizedContent && !normalizedContent.includes('http')) {
+      return normalizedContent;
+    }
+
+    try {
+      const url = new URL(message.media_url || '');
+      const pathParts = url.pathname.split('/');
+      const filename = pathParts[pathParts.length - 1];
+      if (filename && filename.length > 0) {
+        return decodeURIComponent(filename);
+      }
+    } catch {
+      // ignore
+    }
+
+    return 'Arquivo';
+  };
+
+  const getFileTypeLabel = (mimetype: string, fileName: string) => {
+    const fileExtension = fileName.split('.').pop()?.toUpperCase() || 'FILE';
+    if (mimetype.includes('pdf')) return 'PDF';
+    if (mimetype.includes('word') || mimetype.includes('document')) return 'DOC';
+    if (mimetype.includes('excel') || mimetype.includes('spreadsheet')) return 'XLS';
+    if (mimetype.includes('powerpoint') || mimetype.includes('presentation')) return 'PPT';
+    return fileExtension;
+  };
+
+  const handleFileDownload = async () => {
+    if (!message.media_url || isDownloadingFile) return;
+
+    const fileName = getFileName();
+
+    try {
+      setIsDownloadingFile(true);
+      const response = await fetch(message.media_url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      console.error('Erro ao baixar arquivo do WhatsApp:', error);
+      toast.error('Nao foi possivel baixar o anexo.');
+    } finally {
+      setIsDownloadingFile(false);
+    }
   };
 
   const renderMedia = () => {
@@ -176,44 +240,13 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
         return <audio src={message.media_url} controls className="max-w-[250px]" />;
       }
 
-      // Document or other file - extract filename from URL or content
-      const getFileName = () => {
-        // Try to get filename from content (usually contains the original filename)
-        if (normalizedContent && !normalizedContent.includes('http')) {
-          return normalizedContent;
-        }
-        // Try to extract from URL
-        try {
-          const url = new URL(message.media_url!);
-          const pathParts = url.pathname.split('/');
-          const filename = pathParts[pathParts.length - 1];
-          if (filename && filename.length > 0) {
-            return decodeURIComponent(filename);
-          }
-        } catch {
-          // ignore
-        }
-        return 'Arquivo';
-      };
-
       const fileName = getFileName();
-      const fileExtension = fileName.split('.').pop()?.toUpperCase() || 'FILE';
-      
-      // Get file size hint from mimetype if available
-      const getFileTypeLabel = () => {
-        if (mimetype.includes('pdf')) return 'PDF';
-        if (mimetype.includes('word') || mimetype.includes('document')) return 'DOC';
-        if (mimetype.includes('excel') || mimetype.includes('spreadsheet')) return 'XLS';
-        if (mimetype.includes('powerpoint') || mimetype.includes('presentation')) return 'PPT';
-        return fileExtension;
-      };
 
       return (
-        <a
-          href={message.media_url}
-          download={fileName}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          onClick={handleFileDownload}
+          disabled={isDownloadingFile}
           className="flex items-center gap-3 bg-[#f0f2f5] hover:bg-[#e4e6e9] rounded-lg p-3 mb-1 transition-colors min-w-[200px]"
         >
           <div className="flex-shrink-0 w-10 h-10 bg-[#8696a0] rounded flex items-center justify-center">
@@ -223,12 +256,12 @@ export default function MessageBubble({ message, senderName, isGroup = false, on
             <p className="text-sm font-medium text-[#111b21] truncate" title={fileName}>
               {fileName}
             </p>
-            <p className="text-xs text-[#667781]">{getFileTypeLabel()}</p>
+            <p className="text-xs text-[#667781]">{getFileTypeLabel(mimetype, fileName)}</p>
           </div>
           <div className="flex-shrink-0">
             <Download className="h-5 w-5 text-[#8696a0]" />
           </div>
-        </a>
+        </button>
       );
     }
 
