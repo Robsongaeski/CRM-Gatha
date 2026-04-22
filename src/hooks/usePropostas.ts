@@ -12,6 +12,8 @@ export interface PropostaItem {
   quantidade: number;
   valor_unitario: number;
   observacoes?: string | null;
+  nome_customizado?: string | null;
+  valor_base_customizado?: number | null;
 }
 
 export interface PropostaFormData {
@@ -168,6 +170,8 @@ export function useCreateProposta() {
           quantidade: item.quantidade,
           valor_unitario: item.valor_unitario,
           observacoes: item.observacoes || null,
+          nome_customizado: item.nome_customizado || null,
+          valor_base_customizado: item.valor_base_customizado || null,
         }));
 
         const { error: itensError } = await supabase
@@ -256,6 +260,8 @@ export function useUpdateProposta(id: string) {
             quantidade: item.quantidade,
             valor_unitario: item.valor_unitario,
             observacoes: item.observacoes || null,
+            nome_customizado: item.nome_customizado || null,
+            valor_base_customizado: item.valor_base_customizado || null,
           }));
 
           const { data: itensInseridos, error: itensError } = await supabase

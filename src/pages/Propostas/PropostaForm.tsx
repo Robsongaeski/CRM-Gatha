@@ -66,6 +66,8 @@ const propostaSchema = z.object({
     quantidade: z.number().min(1, 'Quantidade mínima: 1'),
     valor_unitario: z.number().min(0, 'Valor deve ser positivo'),
     observacoes: z.string().optional().nullable(),
+    nome_customizado: z.string().optional().nullable(),
+    valor_base_customizado: z.number().optional().nullable(),
   })).min(1, 'Adicione ao menos um produto'),
 }).refine((data) => {
   if (data.status === 'perdida') {
@@ -217,7 +219,7 @@ export default function PropostaForm() {
       imagem_referencia_url: '',
       data_proposta: new Date(),
       vendedor_id: null,
-      itens: [{ produto_id: '', quantidade: 1, valor_unitario: 0, observacoes: '' }],
+      itens: [{ produto_id: '', quantidade: 1, valor_unitario: 0, observacoes: '', nome_customizado: '', valor_base_customizado: 0 }],
     },
   });
 
@@ -262,7 +264,7 @@ export default function PropostaForm() {
       setDescontoValorInput(subtotalProposta);
     }
   }, [descontoModo, descontoValorInput, subtotalProposta]);
-  
+
   // useEffect para carregar dados da proposta ao editar
   useEffect(() => {
     if (proposta && isEditing) {
@@ -271,7 +273,9 @@ export default function PropostaForm() {
         quantidade: item.quantidade,
         valor_unitario: parseFloat(item.valor_unitario),
         observacoes: item.observacoes || '',
-      })) || [{ produto_id: '', quantidade: 1, valor_unitario: 0, observacoes: '' }];
+        nome_customizado: item.nome_customizado || '',
+        valor_base_customizado: item.valor_base_customizado ? parseFloat(item.valor_base_customizado) : 0,
+      })) || [{ produto_id: '', quantidade: 1, valor_unitario: 0, observacoes: '', nome_customizado: '', valor_base_customizado: 0 }];
 
       form.reset({
         cliente_id: proposta.cliente_id,
@@ -301,74 +305,19 @@ export default function PropostaForm() {
       });
     }
   }, [proposta, isEditing]);
-  
-  // Verificar permissões (APÓS todos os hooks)
+
+  // Verificar permissões
   const podeEditarProposta = can('propostas.editar') || can('propostas.editar_todos') || can('propostas.editar_todas');
   const podeCriarProposta = can('propostas.criar');
   const podeEditarTodasPropostas = can('propostas.editar_todos') || can('propostas.editar_todas');
-  
+
   // Verificar se é própria proposta ou tem permissão admin
   const isPropriaPropostaOuAdmin = !isEditing || 
     proposta?.vendedor_id === user?.id || 
     podeEditarTodasPropostas;
-  
+
   // Determinar se campos devem ser desabilitados
   const camposDesabilitados = isEditing && (!podeEditarProposta || !isPropriaPropostaOuAdmin);
-
-  // Bloquear acesso se não tem permissão (APÓS todos os hooks)
-  if (isEditing && !podeEditarProposta) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Editar Proposta</h1>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-center text-muted-foreground">
-              Você não tem permissão para editar propostas.
-            </p>
-            <Button onClick={() => navigate(returnTo)} className="mt-4">
-              Voltar
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-  
-  if (!isEditing && !podeCriarProposta) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Nova Proposta</h1>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-center text-muted-foreground">
-              Você não tem permissão para criar propostas.
-            </p>
-            <Button onClick={() => navigate(returnTo)} className="mt-4">
-              Voltar
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (isEditing && proposta && !isPropriaPropostaOuAdmin) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Editar Proposta</h1>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-center text-muted-foreground">
-              Você não tem permissão para editar propostas de outros vendedores.
-            </p>
-            <Button onClick={() => navigate(returnTo)} className="mt-4">
-              Voltar
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   const onSubmit = async (data: PropostaFormValues) => {
     const subtotalAtual = data.itens.reduce((total, item) => total + (item.quantidade * item.valor_unitario), 0);
@@ -377,7 +326,7 @@ export default function PropostaForm() {
         ? (subtotalAtual > 0 ? Math.min((Math.max(descontoValorInput || 0, 0) / subtotalAtual) * 100, 100) : 0)
         : Math.min(Math.max(Number(data.desconto_percentual || 0), 0), 100);
     const descontoAguardandoAprovacao = !isAdmin && descontoNormalizado > 3;
-    // Se for admin e selecionou vendedor válido, usar esse. Se for edição, manter o vendedor atual.
+    
     let vendedorIdFinal: string | undefined;
     if (isAdmin && data.vendedor_id && data.vendedor_id.length > 0) {
       vendedorIdFinal = data.vendedor_id;
@@ -405,6 +354,8 @@ export default function PropostaForm() {
         quantidade: item.quantidade!,
         valor_unitario: item.valor_unitario!,
         observacoes: item.observacoes || null,
+        nome_customizado: item.nome_customizado || null,
+        valor_base_customizado: item.valor_base_customizado || null,
       })),
     };
     
@@ -443,11 +394,9 @@ export default function PropostaForm() {
     if (produto) {
       form.setValue(`itens.${index}.produto_id`, produtoId);
       
-      // Buscar faixa de preço baseada na quantidade atual
       const quantidade = form.watch(`itens.${index}.quantidade`) || 1;
       const faixa = await buscarFaixaPreco(produtoId, quantidade, index);
       
-      // Usar preço da faixa ou valor base
       const valorUnitario = faixa 
         ? Number(faixa.preco_maximo) 
         : Number(produto.valor_base);
@@ -468,7 +417,6 @@ export default function PropostaForm() {
       const produto = produtos.find(p => p.id === produtoId);
       const faixa = await buscarFaixaPreco(produtoId, quantidade, index);
       
-      // Usar preço da faixa ou valor base
       const valorUnitario = faixa 
         ? Number(faixa.preco_maximo) 
         : Number(produto?.valor_base || 0);
@@ -477,17 +425,9 @@ export default function PropostaForm() {
     }
   };
 
-  const calcularValorTotal = () => {
-    return subtotalProposta;
-  };
-
-  const calcularValorDesconto = () => {
-    return descontoValorNormalizado;
-  };
-
-  const calcularValorFinal = () => {
-    return valorFinalProposta;
-  };
+  const calcularValorTotal = () => subtotalProposta;
+  const calcularValorDesconto = () => descontoValorNormalizado;
+  const calcularValorFinal = () => valorFinalProposta;
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -498,13 +438,11 @@ export default function PropostaForm() {
 
   const handleModoDescontoChange = (modo: 'percentual' | 'valor') => {
     if (modo === descontoModo) return;
-
     if (modo === 'valor') {
       setDescontoValorInput((subtotalProposta * descontoPercentual) / 100);
     } else {
       form.setValue('desconto_percentual', descontoPercentualEfetivo, { shouldDirty: true });
     }
-
     setDescontoModo(modo);
   };
 
@@ -512,20 +450,30 @@ export default function PropostaForm() {
     setDescontoValorInput(Math.min(Math.max(valor || 0, 0), subtotalProposta));
   };
 
+  if (isEditing && !podeEditarProposta) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold">Editar Proposta</h1>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-center text-muted-foreground">Você não tem permissão para editar propostas.</p>
+            <Button onClick={() => navigate(returnTo)} className="mt-4">Voltar</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">
-          {isEditing ? 'Editar Proposta' : 'Nova Proposta'}
-        </h1>
+        <h1 className="text-3xl font-bold">{isEditing ? 'Editar Proposta' : 'Nova Proposta'}</h1>
       </div>
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Dados da Proposta</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Dados da Proposta</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
@@ -537,29 +485,14 @@ export default function PropostaForm() {
                       <Popover>
                         <PopoverTrigger asChild>
                           <FormControl>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                'pl-3 text-left font-normal',
-                                !field.value && 'text-muted-foreground'
-                              )}
-                            >
-                              {field.value ? (
-                                format(field.value, 'dd/MM/yyyy')
-                              ) : (
-                                <span>Selecione uma data</span>
-                              )}
+                            <Button variant="outline" className={cn('pl-3 text-left font-normal', !field.value && 'text-muted-foreground')}>
+                              {field.value ? format(field.value, 'dd/MM/yyyy') : <span>Selecione uma data</span>}
                               <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            initialFocus
-                          />
+                          <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
                         </PopoverContent>
                       </Popover>
                       <FormMessage />
@@ -574,26 +507,15 @@ export default function PropostaForm() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Vendedor Responsável</FormLabel>
-                        <Select 
-                          onValueChange={(value) => field.onChange(value || '')} 
-                          value={field.value || ''}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione um vendedor" />
-                            </SelectTrigger>
-                          </FormControl>
+                        <Select onValueChange={(value) => field.onChange(value || '')} value={field.value || ''}>
+                          <FormControl><SelectTrigger><SelectValue placeholder="Selecione um vendedor" /></SelectTrigger></FormControl>
                           <SelectContent>
                             {vendedorAtualNaoListado && proposta?.vendedor_id && (
                               <SelectItem value={proposta.vendedor_id}>
-                                {proposta?.vendedor?.nome || 'Vendedor atual (inativo ou sem perfil vendedor)'}
+                                {proposta?.vendedor?.nome || 'Vendedor atual'}
                               </SelectItem>
                             )}
-                            {vendedores.map((vendedor) => (
-                              <SelectItem key={vendedor.id} value={vendedor.id}>
-                                {vendedor.nome}
-                              </SelectItem>
-                            ))}
+                            {vendedores.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -602,6 +524,7 @@ export default function PropostaForm() {
                   />
                 )}
               </div>
+
               <FormField
                 control={form.control}
                 name="cliente_id"
@@ -612,17 +535,8 @@ export default function PropostaForm() {
                       <Popover open={clienteSearchOpen} onOpenChange={setClienteSearchOpen}>
                         <PopoverTrigger asChild>
                           <FormControl>
-                            <Button
-                              variant="outline"
-                              role="combobox"
-                              className={cn(
-                                'flex-1 justify-between',
-                                !field.value && 'text-muted-foreground'
-                              )}
-                            >
-                              {field.value
-                                ? clientes.find((c) => c.id === field.value)?.nome_razao_social
-                                : 'Selecione um cliente'}
+                            <Button variant="outline" role="combobox" className={cn('flex-1 justify-between', !field.value && 'text-muted-foreground')}>
+                              {field.value ? clientes.find((c) => c.id === field.value)?.nome_razao_social : 'Selecione um cliente'}
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
@@ -632,16 +546,9 @@ export default function PropostaForm() {
                             <CommandList>
                               <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
                               <CommandGroup>
-                                {clientes.map((cliente) => (
-                                  <CommandItem
-                                    key={cliente.id}
-                                    value={cliente.nome_razao_social}
-                                    onSelect={() => {
-                                      form.setValue('cliente_id', cliente.id);
-                                      setClienteSearchOpen(false);
-                                    }}
-                                  >
-                                    {cliente.nome_razao_social}
+                                {clientes.map((c) => (
+                                  <CommandItem key={c.id} value={c.nome_razao_social} onSelect={() => { form.setValue('cliente_id', c.id); setClienteSearchOpen(false); }}>
+                                    {c.nome_razao_social}
                                   </CommandItem>
                                 ))}
                               </CommandGroup>
@@ -649,14 +556,7 @@ export default function PropostaForm() {
                           </Command>
                         </PopoverContent>
                       </Popover>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => setQuickAddOpen(true)}
-                      >
-                        <UserPlus className="h-4 w-4" />
-                      </Button>
+                      <Button type="button" variant="outline" size="icon" onClick={() => setQuickAddOpen(true)}><UserPlus className="h-4 w-4" /></Button>
                     </div>
                     <FormMessage />
                   </FormItem>
@@ -670,11 +570,7 @@ export default function PropostaForm() {
                   <FormItem>
                     <FormLabel>Status</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
+                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="pendente">Pendente</SelectItem>
                         <SelectItem value="enviada">Enviada</SelectItem>
@@ -695,58 +591,25 @@ export default function PropostaForm() {
                   <FormItem>
                     <FormLabel>Desconto para pagamento a vista</FormLabel>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <Select
-                        value={descontoModo}
-                        onValueChange={(value) => handleModoDescontoChange(value as 'percentual' | 'valor')}
-                        disabled={camposDesabilitados}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
+                      <Select value={descontoModo} onValueChange={(v) => handleModoDescontoChange(v as any)} disabled={camposDesabilitados}>
+                        <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                         <SelectContent>
                           <SelectItem value="percentual">Porcentagem (%)</SelectItem>
                           <SelectItem value="valor">Valor (R$)</SelectItem>
                         </SelectContent>
                       </Select>
-
                       {descontoModo === 'percentual' ? (
                         <FormControl>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step="0.1"
-                            value={field.value ?? 0}
-                            onChange={(e) => field.onChange(Math.min(Math.max(parseFloat(e.target.value) || 0, 0), 100))}
-                            disabled={camposDesabilitados}
-                          />
+                          <Input type="number" min={0} max={100} step="0.1" value={field.value ?? 0} onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)} disabled={camposDesabilitados} />
                         </FormControl>
                       ) : (
                         <FormControl>
-                          <CurrencyInput
-                            value={descontoValorInput}
-                            onChange={handleDescontoValorChange}
-                            disabled={camposDesabilitados}
-                          />
+                          <CurrencyInput value={descontoValorInput} onChange={handleDescontoValorChange} disabled={camposDesabilitados} />
                         </FormControl>
                       )}
                     </div>
-                    <FormDescription>
-                      Use apenas quando o cliente pagar o valor integral no momento do pedido (a vista). Se nao for a vista, mantenha 0%.
-                      Ate 3% liberado para vendedor; acima disso exige aprovacao do administrador.
-                    </FormDescription>
-                    {descontoModo === 'valor' && descontoValorNormalizado > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        Equivale a {descontoPercentualEfetivo.toFixed(2)}% sobre o subtotal.
-                      </p>
-                    )}
-                    {descontoAcimaLimite && (
-                      <p className="text-sm font-medium text-amber-600">
-                        Desconto a vista acima de 3%: sera marcado como pendente para aprovacao do administrador.
-                      </p>
-                    )}
+                    <FormDescription>Desconto liberado até 3% para vendedores.</FormDescription>
+                    {descontoAcimaLimite && <p className="text-sm font-medium text-amber-600">Desconto acima de 3%: exige aprovação.</p>}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -762,31 +625,13 @@ export default function PropostaForm() {
                       <Popover>
                         <PopoverTrigger asChild>
                           <FormControl>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                'pl-3 text-left font-normal',
-                                !field.value && 'text-muted-foreground'
-                              )}
-                            >
-                              {field.value ? (
-                                format(field.value, 'PPP', { locale: undefined })
-                              ) : (
-                                <span>Selecione uma data</span>
-                              )}
+                            <Button variant="outline" className={cn('pl-3 text-left font-normal', !field.value && 'text-muted-foreground')}>
+                              {field.value ? format(field.value, 'dd/MM/yyyy') : <span>Selecione uma data</span>}
                               <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                             </Button>
                           </FormControl>
                         </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value || undefined}
-                            onSelect={field.onChange}
-                            initialFocus
-                            className="pointer-events-auto"
-                          />
-                        </PopoverContent>
+                        <PopoverContent className="w-auto p-0" align="start"><Calendar mode="single" selected={field.value || undefined} onSelect={field.onChange} initialFocus /></PopoverContent>
                       </Popover>
                       <FormMessage />
                     </FormItem>
@@ -801,9 +646,7 @@ export default function PropostaForm() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Motivo da Perda</FormLabel>
-                      <FormControl>
-                        <Textarea {...field} value={field.value || ''} />
-                      </FormControl>
+                      <FormControl><Textarea {...field} value={field.value || ''} /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -816,15 +659,12 @@ export default function PropostaForm() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Observações</FormLabel>
-                    <FormControl>
-                      <Textarea {...field} value={field.value || ''} />
-                    </FormControl>
+                    <FormControl><Textarea {...field} value={field.value || ''} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              {/* Campo de Imagem de Referência - sempre visível */}
               <FormField
                 control={form.control}
                 name="imagem_referencia_url"
@@ -835,74 +675,23 @@ export default function PropostaForm() {
                       <div className="space-y-3">
                         {field.value && (
                           <div className="relative inline-block">
-                            <img 
-                              src={field.value} 
-                              alt="Imagem de referência" 
-                              className="max-h-48 rounded-lg border object-contain"
-                            />
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="icon"
-                              className="absolute -top-2 -right-2 h-6 w-6"
-                              onClick={() => field.onChange('')}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
+                            <img src={field.value} alt="Ref" className="max-h-48 rounded-lg border object-contain" />
+                            <Button type="button" variant="destructive" size="icon" className="absolute -top-2 -right-2 h-6 w-6" onClick={() => field.onChange('')}><X className="h-4 w-4" /></Button>
                           </div>
                         )}
                         <div className="flex items-center gap-2">
-                          <Input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            id="imagem-referencia-upload-principal"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              
-                              const compressed = await compressImage(file);
-                              const fileExt = 'jpg';
-                              const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-                              const filePath = `propostas-referencia/${fileName}`;
-                              
-                              const { error: uploadError } = await supabase.storage
-                                .from('pedidos-fotos-modelos')
-                                .upload(filePath, compressed);
-                              
-                              if (uploadError) {
-                                console.error('Erro ao fazer upload:', uploadError);
-                                return;
-                              }
-                              
-                              const { data: urlData } = supabase.storage
-                                .from('pedidos-fotos-modelos')
-                                .getPublicUrl(filePath);
-                              
-                              field.onChange(urlData.publicUrl);
-                              e.target.value = '';
-                            }}
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => document.getElementById('imagem-referencia-upload-principal')?.click()}
-                          >
-                            <Upload className="h-4 w-4 mr-2" />
-                            {field.value ? 'Trocar Imagem' : 'Enviar Imagem'}
-                          </Button>
-                          {!field.value && (
-                            <span className="text-sm text-muted-foreground flex items-center gap-1">
-                              <ImageIcon className="h-4 w-4" />
-                              Nenhuma imagem selecionada
-                            </span>
-                          )}
+                          <Input type="file" accept="image/*" className="hidden" id="img-ref" onChange={async (e) => {
+                            const file = e.target.files?.[0]; if (!file) return;
+                            const compressed = await compressImage(file);
+                            const path = `propostas-referencia/${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
+                            await supabase.storage.from('pedidos-fotos-modelos').upload(path, compressed);
+                            const { data } = supabase.storage.from('pedidos-fotos-modelos').getPublicUrl(path);
+                            field.onChange(data.publicUrl);
+                          }} />
+                          <Button type="button" variant="outline" onClick={() => document.getElementById('img-ref')?.click()}><Upload className="h-4 w-4 mr-2" />{field.value ? 'Trocar' : 'Enviar'}</Button>
                         </div>
                       </div>
                     </FormControl>
-                    <FormDescription>
-                      Imagem enviada pelo cliente como referência para a proposta
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -910,184 +699,70 @@ export default function PropostaForm() {
             </CardContent>
           </Card>
 
-          {/* Card de Criação de Arte */}
           <Card className="border-amber-500/30 bg-amber-500/5">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Palette className="h-5 w-5 text-amber-600" />
-                Criação de Arte
-              </CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-2"><Palette className="h-5 w-5 text-amber-600" />Criação de Arte</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <FormField
                 control={form.control}
                 name="criar_previa"
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel className="cursor-pointer">
-                        Criar Prévia para Cliente
-                      </FormLabel>
-                      <FormDescription>
-                        Marque se for necessário criar uma arte de aprovação antes de confirmar o pedido.
-                        A proposta será enviada para o Kanban de aprovação.
-                      </FormDescription>
-                    </div>
+                    <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                    <div className="space-y-1 leading-none"><FormLabel className="cursor-pointer">Criar Prévia para Cliente</FormLabel></div>
                   </FormItem>
                 )}
               />
-
               {criarPrevia && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="caminho_arquivos"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Caminho dos Arquivos / Logos *</FormLabel>
-                        <FormControl>
-                          <Input 
-                            placeholder="Ex: \\servidor\clientes\nome_cliente\logos" 
-                            {...field} 
-                            value={field.value || ''} 
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          Informe o caminho onde estão os arquivos e logos do cliente
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="descricao_criacao"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Descrição Detalhada para Criação *</FormLabel>
-                        <FormControl>
-                          <Textarea 
-                            placeholder="Descreva detalhadamente o que o cliente deseja para que os designers possam criar o modelo..."
-                            rows={4}
-                            {...field} 
-                            value={field.value || ''} 
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          Quanto mais detalhes, melhor será o resultado da criação
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                </>
+                <div className="space-y-4">
+                  <FormField control={form.control} name="caminho_arquivos" render={({ field }) => (
+                    <FormItem><FormLabel>Caminho dos Arquivos *</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="descricao_criacao" render={({ field }) => (
+                    <FormItem><FormLabel>Descrição para Criação *</FormLabel><FormControl><Textarea {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                </div>
               )}
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Itens da Proposta</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Itens da Proposta</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               {fields.map((field, index) => {
                 const item = form.watch(`itens.${index}`);
-                const valorTotal = item.quantidade * item.valor_unitario;
-                const produtoSelecionado = produtos.find((p) => p.id === item.produto_id);
-                const quantidadeMinimaAviso = getQuantidadeMinimaAviso(produtoSelecionado);
-                const quantidadeAbaixoMinima =
-                  quantidadeMinimaAviso !== null && Number(item.quantidade) < quantidadeMinimaAviso;
-
+                const prod = produtos.find((p) => p.id === item.produto_id);
+                const qtdMin = getQuantidadeMinimaAviso(prod);
                 return (
                   <Card key={field.id} className="border-muted">
                     <CardContent className="pt-6 space-y-4">
                       <div className="flex justify-between items-center">
                         <h4 className="font-semibold">Item {index + 1}</h4>
                         <div className="flex gap-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              const currentItem = form.getValues(`itens.${index}`);
-                              append({
-                                produto_id: currentItem.produto_id,
-                                quantidade: currentItem.quantidade,
-                                valor_unitario: currentItem.valor_unitario,
-                                observacoes: currentItem.observacoes || '',
-                              });
-                            }}
-                            title="Duplicar item"
-                          >
-                            <Copy className="h-4 w-4" />
-                          </Button>
-                          {fields.length > 1 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => remove(index)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
+                          <Button type="button" variant="ghost" size="icon" onClick={() => append({ ...form.getValues(`itens.${index}`) })}><Copy className="h-4 w-4" /></Button>
+                          {fields.length > 1 && <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}><Trash2 className="h-4 w-4" /></Button>}
                         </div>
                       </div>
-
                       <FormField
                         control={form.control}
                         name={`itens.${index}.produto_id`}
                         render={({ field }) => (
                           <FormItem className="flex flex-col">
                             <FormLabel>Produto</FormLabel>
-                            <Popover
-                              open={produtoSearchOpen === index}
-                              onOpenChange={(open) => setProdutoSearchOpen(open ? index : null)}
-                            >
+                            <Popover open={produtoSearchOpen === index} onOpenChange={(o) => setProdutoSearchOpen(o ? index : null)}>
                               <PopoverTrigger asChild>
-                                <FormControl>
-                                  <Button
-                                    variant="outline"
-                                    role="combobox"
-                                    className={cn(
-                                      'justify-between',
-                                      !field.value && 'text-muted-foreground'
-                                    )}
-                                  >
-                                    {field.value
-                                      ? produtos.find((p) => p.id === field.value)?.nome
-                                      : 'Selecione um produto'}
-                                  </Button>
-                                </FormControl>
+                                <FormControl><Button variant="outline" className={cn('justify-between', !field.value && 'text-muted-foreground')}>
+                                  {field.value ? produtos.find((p) => p.id === field.value)?.nome : 'Selecione um produto'}
+                                </Button></FormControl>
                               </PopoverTrigger>
-                              <PopoverContent className="w-[400px] p-0" align="start">
-                                <Command shouldFilter={true}>
-                                  <CommandInput placeholder="Buscar produto..." autoFocus />
-                                  <CommandList className="max-h-[300px] overflow-y-auto">
+                              <PopoverContent className="w-[400px] p-0">
+                                <Command>
+                                  <CommandInput placeholder="Buscar produto..." />
+                                  <CommandList>
                                     <CommandEmpty>Nenhum produto encontrado.</CommandEmpty>
                                     <CommandGroup>
-                                      {produtos.map((produto) => (
-                                        <CommandItem
-                                          key={produto.id}
-                                          value={produto.nome}
-                                          onSelect={() => handleProdutoSelect(index, produto.id)}
-                                        >
-                                          <div className="flex flex-col">
-                                            <span>{produto.nome}</span>
-                                            {(produto as any).codigo && (
-                                              <span className="text-xs text-muted-foreground font-mono">
-                                                Código: {(produto as any).codigo}
-                                              </span>
-                                            )}
-                                          </div>
+                                      {produtos.map((p) => (
+                                        <CommandItem key={p.id} value={p.nome} onSelect={() => handleProdutoSelect(index, p.id)}>
+                                          <div className="flex flex-col"><span>{p.nome}</span></div>
                                         </CommandItem>
                                       ))}
                                     </CommandGroup>
@@ -1100,149 +775,60 @@ export default function PropostaForm() {
                         )}
                       />
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <FormField
-                          control={form.control}
-                          name={`itens.${index}.quantidade`}
-                          render={({ field }) => (
+                      {prod?.nome?.toLowerCase() === 'xx' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <FormField control={form.control} name={`itens.${index}.nome_customizado`} render={({ field }) => (
+                            <FormItem><FormLabel>Nome do Produto (Manual)</FormLabel><FormControl><Input {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem>
+                          )} />
+                          <FormField control={form.control} name={`itens.${index}.valor_base_customizado`} render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Quantidade</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  {...field}
-                                  onChange={(e) => {
-                                    const qtd = parseInt(e.target.value) || 0;
-                                    field.onChange(qtd);
-                                    handleQuantidadeChange(index, qtd);
-                                  }}
-                                />
-                              </FormControl>
+                              <FormLabel>Valor Base (Tabela)</FormLabel>
+                              <FormControl><Input type="number" step="0.01" {...field} value={field.value || 0} onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                field.onChange(val);
+                                if (form.getValues(`itens.${index}.valor_unitario`) === 0) form.setValue(`itens.${index}.valor_unitario`, val);
+                              }} /></FormControl>
                               <FormMessage />
                             </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name={`itens.${index}.valor_unitario`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Valor Unitário</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  {...field}
-                                  onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                                  className={cn(
-                                    faixasPreco[index] && 
-                                    field.value < Number(faixasPreco[index].preco_minimo) && 
-                                    "border-red-500 focus-visible:ring-red-500"
-                                  )}
-                                />
-                              </FormControl>
-                              {faixasPreco[index] && (
-                                <div className="mt-1 space-y-1">
-                                  <p className="text-xs text-muted-foreground">
-                                    Min: {formatCurrency(Number(faixasPreco[index].preco_minimo))} / 
-                                    Max: {formatCurrency(Number(faixasPreco[index].preco_maximo))}
-                                  </p>
-                                  {field.value < Number(faixasPreco[index].preco_minimo) && (
-                                    <p className="text-xs font-medium text-red-500 animate-pulse">
-                                      Atenção: valor abaixo do mínimo para esta quantidade
-                                    </p>
-                                  )}
-                                </div>
-                              )}
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-
-                      {quantidadeAbaixoMinima && (
-                        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                          Atenção: este produto tem quantidade mínima recomendada de {quantidadeMinimaAviso} peças e este item está com {item.quantidade}. Confirme se está correto.
+                          )} />
                         </div>
                       )}
 
-                      <div className="text-sm font-medium">
-                        Valor Total: {formatCurrency(valorTotal)}
-                      </div>
-
-                      <FormField
-                        control={form.control}
-                        name={`itens.${index}.observacoes`}
-                        render={({ field }) => (
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField control={form.control} name={`itens.${index}.quantidade`} render={({ field }) => (
+                          <FormItem><FormLabel>Quantidade</FormLabel><FormControl><Input type="number" {...field} onChange={(e) => { const q = parseInt(e.target.value) || 0; field.onChange(q); handleQuantidadeChange(index, q); }} /></FormControl><FormMessage /></FormItem>
+                        )} />
+                        <FormField control={form.control} name={`itens.${index}.valor_unitario`} render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Observações</FormLabel>
-                            <FormControl>
-                              <Textarea {...field} value={field.value || ''} rows={2} />
-                            </FormControl>
+                            <FormLabel>Valor Unitário</FormLabel>
+                            <FormControl><Input type="number" step="0.01" {...field} onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
                             <FormMessage />
                           </FormItem>
-                        )}
-                      />
+                        )} />
+                      </div>
+                      {qtdMin && Number(item.quantidade) < qtdMin && <div className="text-xs text-amber-600">Atenção: quantidade mínima é {qtdMin}.</div>}
+                      <FormField control={form.control} name={`itens.${index}.observacoes`} render={({ field }) => (
+                        <FormItem><FormLabel>Observações</FormLabel><FormControl><Textarea {...field} value={field.value || ''} rows={2} /></FormControl><FormMessage /></FormItem>
+                      )} />
                     </CardContent>
                   </Card>
                 );
               })}
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  append({ produto_id: '', quantidade: 1, valor_unitario: 0, observacoes: '' })
-                }
-                className="w-full"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Adicionar Produto
-              </Button>
-
-              {itensAbaixoQuantidadeMinima.length > 0 && (
-                <Card className="border-amber-300 bg-amber-50">
-                  <CardContent className="p-4 text-sm text-amber-900">
-                    Existem {itensAbaixoQuantidadeMinima.length} item(ns) abaixo da quantidade mínima recomendada. Revise antes de salvar a proposta.
-                  </CardContent>
-                </Card>
-              )}
-
+              <Button type="button" variant="outline" onClick={() => append({ produto_id: '', quantidade: 1, valor_unitario: 0, observacoes: '', nome_customizado: '', valor_base_customizado: 0 })} className="w-full"><Plus className="h-4 w-4 mr-2" />Adicionar Produto</Button>
               <div className="text-right space-y-1">
-                <p className="text-sm text-muted-foreground">
-                  Subtotal: {formatCurrency(calcularValorTotal())}
-                </p>
-                {descontoValorNormalizado > 0 && (
-                  <p className="text-sm text-green-600">
-                    Desconto ({descontoPercentualEfetivo.toFixed(2)}%): -{formatCurrency(calcularValorDesconto())}
-                  </p>
-                )}
-                <p className="text-2xl font-bold">
-                  Total Geral: {formatCurrency(calcularValorFinal())}
-                </p>
+                <p className="text-sm text-muted-foreground">Subtotal: {formatCurrency(calcularValorTotal())}</p>
+                <p className="text-2xl font-bold">Total Geral: {formatCurrency(calcularValorFinal())}</p>
               </div>
             </CardContent>
           </Card>
 
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => navigate(returnTo)}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-              {createMutation.isPending || updateMutation.isPending ? 'Salvando...' : 'Salvar'}
-            </Button>
+            <Button type="button" variant="outline" onClick={() => navigate(returnTo)}>Cancelar</Button>
+            <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>Salvar</Button>
           </div>
         </form>
       </Form>
-
-      <ClienteQuickAdd
-        open={quickAddOpen}
-        onOpenChange={setQuickAddOpen}
-        onClienteCreated={(clienteId) => {
-          form.setValue('cliente_id', clienteId);
-        }}
-      />
+      <ClienteQuickAdd open={quickAddOpen} onOpenChange={setQuickAddOpen} onClienteCreated={(cid) => form.setValue('cliente_id', cid)} />
     </div>
   );
 }

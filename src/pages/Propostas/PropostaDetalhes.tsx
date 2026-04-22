@@ -471,11 +471,13 @@ export default function PropostaDetalhes() {
                 {proposta.itens?.map((item: any) => (
                   <TableRow key={item.id}>
                     <TableCell className="font-mono text-sm">{item.produto?.codigo || '-'}</TableCell>
-                    <TableCell className="font-medium">{item.produto?.nome}</TableCell>
+                    <TableCell className="font-medium">{item.nome_customizado || item.produto?.nome}</TableCell>
                     <TableCell className="text-right">{item.quantidade}</TableCell>
                     <TableCell className="text-right text-muted-foreground">
                       {(() => {
-                        const valorBase = item.produto?.valor_base ? parseFloat(item.produto.valor_base) : null;
+                        const valorBase = item.valor_base_customizado 
+                          ? Number(item.valor_base_customizado) 
+                          : (item.produto?.valor_base ? parseFloat(item.produto.valor_base) : null);
                         const valorUnit = parseFloat(item.valor_unitario);
                         // Se unitário > base (adicionais), mostrar unitário como preço normal
                         const precoNormal = valorBase && valorUnit > valorBase ? valorUnit : (valorBase || valorUnit);
@@ -484,7 +486,9 @@ export default function PropostaDetalhes() {
                     </TableCell>
                     <TableCell className="text-right">
                       {(() => {
-                        const valorBase = item.produto?.valor_base ? parseFloat(item.produto.valor_base) : null;
+                        const valorBase = item.valor_base_customizado 
+                          ? Number(item.valor_base_customizado) 
+                          : (item.produto?.valor_base ? parseFloat(item.produto.valor_base) : null);
                         const valorUnit = parseFloat(item.valor_unitario);
                         // Se unitário > base (adicionais), ajustar base para igualar
                         const baseAjustado = valorBase && valorUnit > valorBase ? valorUnit : valorBase;

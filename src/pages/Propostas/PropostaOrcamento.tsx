@@ -39,6 +39,8 @@ export default function PropostaOrcamento() {
     quantidade: number;
     valor_unitario: string;
     observacoes?: string | null;
+    nome_customizado?: string | null;
+    valor_base_customizado?: string | null;
     produto?: {
       nome?: string | null;
       valor_base?: string | null;
@@ -58,7 +60,9 @@ export default function PropostaOrcamento() {
   }, item) => {
     const quantidade = Number(item.quantidade || 0);
     const valorUnitario = Number.parseFloat(item.valor_unitario || '0');
-    const valorBaseProduto = item.produto?.valor_base ? Number.parseFloat(item.produto.valor_base) : null;
+    const valorBaseProduto = item.valor_base_customizado 
+      ? Number.parseFloat(item.valor_base_customizado)
+      : (item.produto?.valor_base ? Number.parseFloat(item.produto.valor_base) : null);
     const valorBaseAjustado = valorBaseProduto && valorUnitario > valorBaseProduto ? valorUnitario : valorBaseProduto;
     const descontoItem = valorBaseAjustado ? calcularDesconto(valorBaseAjustado, valorUnitario) : null;
 
@@ -228,9 +232,8 @@ export default function PropostaOrcamento() {
               <h1 className="text-2xl print:text-[11px] font-bold text-foreground print:my-0">PROPOSTA COMERCIAL</h1>
             </div>
 
-            {/* Empresa + Vendedor + Proposta + Cliente - 4 colunas na impressão */}
+            {/* Empresa + Vendedor + Proposta + Cliente */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:grid-cols-4 print:gap-2 print-grid-2 print:break-inside-avoid">
-              {/* Dados da Empresa */}
               <div className="bg-muted/30 rounded-lg p-4 print:p-1 space-y-2 print:space-y-0 print-box">
                 <h2 className="text-base print:text-[10px] font-bold text-foreground print:mb-0 print:leading-tight">Empresa</h2>
                 <p className="text-sm print:text-[9px] print:leading-tight">
@@ -241,7 +244,6 @@ export default function PropostaOrcamento() {
                 </p>
               </div>
 
-              {/* Dados do Vendedor */}
               <div className="bg-muted/30 rounded-lg p-4 print:p-1 space-y-2 print:space-y-0 print-box">
                 <h2 className="text-base print:text-[10px] font-bold text-foreground print:mb-0 print:leading-tight">Vendedor</h2>
                 <p className="text-sm print:text-[9px] print:leading-tight">
@@ -257,7 +259,6 @@ export default function PropostaOrcamento() {
                 )}
               </div>
 
-              {/* Informações da Proposta */}
               <div className="bg-muted/30 rounded-lg p-4 print:p-1 space-y-2 print:space-y-0 print-box">
                 <h2 className="text-base print:text-[10px] font-bold text-foreground print:mb-0 print:leading-tight">Proposta</h2>
                 <p className="text-sm print:text-[9px] print:leading-tight">
@@ -273,7 +274,6 @@ export default function PropostaOrcamento() {
                 </p>
               </div>
 
-              {/* Dados do Cliente */}
               <div className="bg-muted/30 rounded-lg p-4 print:p-1 space-y-2 print:space-y-0 print-box">
                 <h2 className="text-base print:text-[10px] font-bold text-foreground print:mb-0 print:leading-tight">Cliente</h2>
                 <p className="text-sm print:text-[9px] print:leading-tight">
@@ -326,15 +326,16 @@ export default function PropostaOrcamento() {
                     {itens.map((item) => {
                       const valorTotalItem = item.quantidade * parseFloat(item.valor_unitario);
                       const valorUnitario = parseFloat(item.valor_unitario);
-                      const valorBaseProduto = item.produto?.valor_base ? parseFloat(item.produto.valor_base) : null;
-                      // Se valor unitário é maior que o base (adicionais), ajustar base para igualar
+                      const valorBaseProduto = item.valor_base_customizado
+                        ? parseFloat(item.valor_base_customizado)
+                        : (item.produto?.valor_base ? parseFloat(item.produto.valor_base) : null);
                       const valorBase = valorBaseProduto && valorUnitario > valorBaseProduto ? valorUnitario : valorBaseProduto;
                       const desconto = valorBase ? calcularDesconto(valorBase, valorUnitario) : null;
                       
                       return (
                         <tr key={item.id}>
                           <td className="border border-border p-3 print:p-1 text-sm print:text-[9px]">
-                            {item.produto?.nome || 'N/A'}
+                            {item.nome_customizado || item.produto?.nome || 'N/A'}
                           </td>
                           <td className="border border-border p-3 print:p-1 text-center text-sm print:text-[9px]">
                             {item.quantidade}
@@ -393,9 +394,8 @@ export default function PropostaOrcamento() {
               </div>
             </div>
 
-            {/* Condições de Pagamento + Observações em linha */}
+            {/* Condições de Pagamento + Observações */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:grid-cols-2 print:gap-2 print:mt-2">
-              {/* Condições de Pagamento */}
               <div className="bg-primary/5 rounded-lg p-6 print:p-1 space-y-3 print:space-y-0 border-l-4 print:border-l-2 border-primary print-box">
                 <h2 className="text-lg print:text-[10px] font-bold text-foreground print:mb-0">Condições de Pagamento</h2>
                 <div className="space-y-3 print:space-y-0 text-sm print:text-[9px] print:leading-tight">
@@ -405,7 +405,6 @@ export default function PropostaOrcamento() {
                 </div>
               </div>
 
-              {/* Observações */}
               {proposta.observacoes ? (
                 <div className="space-y-2 print:space-y-0 print-box print:p-1">
                   <h2 className="text-lg print:text-[10px] font-bold text-foreground print:mb-0">Observações</h2>
@@ -416,7 +415,7 @@ export default function PropostaOrcamento() {
               ) : <div />}
             </div>
 
-            {/* Imagem de Referência - tamanho reduzido na impressão */}
+            {/* Imagem de Referência */}
             {proposta.imagem_referencia_url && (
               <div className="space-y-2 print:space-y-0 print:mt-2 print:break-inside-avoid">
                 <h2 className="text-lg print:text-[10px] font-bold text-foreground print:mb-1">Imagem de Referência</h2>
