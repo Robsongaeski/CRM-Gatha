@@ -65,19 +65,6 @@ const pedidoSchemaBase = z.object({
       foto_modelo_url: z.string().optional(),
       tipo_estampa_id: z.string().optional(),
       grades: z.array(z.object({
-  caminho_arquivos: z.string().optional(),
-  desconto_percentual: z.number().min(0, 'Desconto minimo: 0%').max(100, 'Desconto maximo: 100%').default(0),
-  status: z.enum(['rascunho', 'em_producao', 'pronto', 'entregue', 'cancelado']),
-  itens: z.array(
-    z.object({
-      id: z.string().optional(),
-      produto_id: z.string(),
-      quantidade: z.number().min(1, 'Quantidade mínima é 1'),
-      valor_unitario: z.number().min(0, 'Valor deve ser positivo'),
-      observacoes: z.string().optional(),
-      foto_modelo_url: z.string().optional(),
-      tipo_estampa_id: z.string().optional(),
-      grades: z.array(z.object({
         codigo: z.string(),
         nome: z.string(),
         quantidade: z.number(),
@@ -106,8 +93,8 @@ const pedidoSchema = pedidoSchemaBase.refine((data) => {
 
 const MASTER_ADMIN_EMAIL = 'robsongaeski@gmail.com';
 const normalizarDescontoPercentual = (valor: number) => Math.min(Math.max(valor || 0, 0), 100);
-const calcularSubtotalItens = (itens: Array<{ quantidade: number; valor_unitario: number }>) =>
-  itens.reduce((total, item) => total + (Number(item.quantidade) * Number(item.valor_unitario)), 0);
+const calcularSubtotalItens = (itens: any[]) =>
+  itens.reduce((total, item) => total + (Number(item?.quantidade || 0) * Number(item?.valor_unitario || 0)), 0);
 const calcularPercentualPorValor = (descontoValor: number, subtotal: number) => {
   if (subtotal <= 0) return 0;
   return normalizarDescontoPercentual((Math.max(descontoValor || 0, 0) / subtotal) * 100);
@@ -355,7 +342,7 @@ const dispararCelebracaoFechamentoPedido = ({
 const pedidoToSnapshot = (pedido: any): PedidoFormData => ({
   data_pedido: extractDateOnly(pedido.data_pedido) || '',
   cliente_id: pedido.cliente_id,
-  data_entrega: extractDateOnly(pedido.data_entrega) || undefined,
+  data_entrega: extractDateOnly(pedido.data_entrega) || '',
   entrega_obrigatoria: Boolean(pedido.entrega_obrigatoria),
   observacao: pedido.observacao || '',
   caminho_arquivos: pedido.caminho_arquivos || '',
@@ -387,7 +374,7 @@ const pedidoToSnapshot = (pedido: any): PedidoFormData => ({
 const getCamposAlterados = (anterior: PedidoFormData, novo: PedidoFormData) => {
   const campos: string[] = [];
   if ((anterior.data_pedido || '') !== (novo.data_pedido || '')) campos.push('data_pedido');
-  if ((anterior.cliente_id || '') !== (novo.cliente_id || '')) campos.push('cliente_id');
+  if (anterior.cliente_id !== novo.cliente_id) campos.push('cliente_id');
   if ((anterior.data_entrega || '') !== (novo.data_entrega || '')) campos.push('data_entrega');
   if (Boolean(anterior.entrega_obrigatoria) !== Boolean(novo.entrega_obrigatoria)) campos.push('entrega_obrigatoria');
   if ((anterior.observacao || '') !== (novo.observacao || '')) campos.push('observacao');
@@ -737,7 +724,7 @@ export default function PedidoForm() {
         await updatePedido.mutateAsync({
           data_pedido: data.data_pedido,
           cliente_id: data.cliente_id,
-          data_entrega: data.data_entrega || undefined,
+          data_entrega: data.data_entrega,
           entrega_obrigatoria: Boolean(data.entrega_obrigatoria),
           observacao: data.observacao,
           caminho_arquivos: data.caminho_arquivos,
@@ -770,7 +757,7 @@ export default function PedidoForm() {
       const formData: PedidoFormData = {
         data_pedido: data.data_pedido,
         cliente_id: data.cliente_id,
-        data_entrega: data.data_entrega || undefined,
+        data_entrega: data.data_entrega,
         entrega_obrigatoria: Boolean(data.entrega_obrigatoria),
         observacao: data.observacao,
         caminho_arquivos: data.caminho_arquivos,
@@ -1382,20 +1369,13 @@ export default function PedidoForm() {
                   control={form.control}
                   name="entrega_obrigatoria"
                   render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border px-3 py-3">
-                      <div className="space-y-0.5">
-                        <FormLabel>Entrega obrigatoria</FormLabel>
-                        <p className="text-sm text-muted-foreground">
-                          Marca o pedido como prioridade de prazo para a equipe.
-                        </p>
-                      </div>
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
                       <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={(checked) => field.onChange(Boolean(checked))}
-                          disabled={camposDesabilitados}
-                        />
+                        <Checkbox checked={field.value} onCheckedChange={field.onChange} disabled={camposDesabilitados} />
                       </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>Entrega Obrigatória</FormLabel>
+                      </div>
                     </FormItem>
                   )}
                 />
@@ -2016,9 +1996,31 @@ export default function PedidoForm() {
                   const formData = {
                     data_pedido: data.data_pedido,
                     cliente_id: data.cliente_id || '',
-                    data_entrega: data.data_entrega || undefined,
+                    data_entrega: data.data_entrega,
                     entrega_obrigatoria: Boolean(data.entrega_obrigatoria),
                     observacao: data.observacao,
+                    caminho_arquivos: data.caminho_arquivos,
+                    desconto_percentual: descontoPercentualRascunho,
+                    desconto_aguardando_aprovacao: !isAdmin && descontoPercentualRascunho > 3,
+                    status: 'rascunho' as const,
+                    itens: data.itens.map(item => ({
+                      id: item.id,
+                      produto_id: item.produto_id || '',
+                      quantidade: item.quantidade || 1,
+                      valor_unitario: item.valor_unitario || 0,
+                      observacoes: item.observacoes,
+                      foto_modelo_url: item.foto_modelo_url,
+                      tipo_estampa_id: item.tipo_estampa_id || null,
+                      grades: item.grades?.filter(g => g.codigo && g.nome && g.quantidade) as PedidoItemGrade[] | undefined,
+                      detalhes: item.detalhes?.filter(d => d.tipo_detalhe && d.valor) as DetalheItem[] | undefined,
+                      nome_customizado: item.nome_customizado || null,
+                      valor_base_customizado: item.valor_base_customizado || null,
+                    })),
+                  };
+
+                  if (isEditing) {
+                    await updatePedido.mutateAsync(formData);
+                  } else {
                     await createPedido.mutateAsync(formData);
                   }
 
@@ -2027,19 +2029,19 @@ export default function PedidoForm() {
                     description: 'O pedido foi salvo como rascunho.',
                   });
                   navigate('/pedidos');
-                } catch (error: any) {
-                  const { sanitizeError } = await import('@/lib/errorHandling');
-                  toast({
-                    title: 'Erro ao salvar rascunho',
-                    description: sanitizeError(error),
-                    variant: 'destructive',
-                  });
                 } finally {
                   setSalvandoRascunho(false);
                 }
-                }}
+              }}
               >
-                {salvandoRascunho ? 'Salvando...' : 'Salvar como Rascunho'}
+                {salvandoRascunho ? (
+                  <>
+                    <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    Salvando...
+                  </>
+                ) : (
+                  'Salvar Rascunho'
+                )}
               </Button>
             )}
             <Button 
@@ -2048,14 +2050,19 @@ export default function PedidoForm() {
                 createPedido.isPending || 
                 updatePedido.isPending || 
                 validandoPrecos ||
-                salvandoRascunho ||
                 modoEdicao.bloqueado
               }
             >
-              {validandoPrecos ? 'Validando preços...' : 
-               createPedido.isPending || updatePedido.isPending ? 'Salvando...' : 
-               fluxoSolicitacaoPedidoAprovacao ? 'Enviar para Aprovação' :
-               (isEditing && pedido?.status === 'rascunho' ? 'Ativar Pedido' : 'Salvar Pedido')}
+              {(createPedido.isPending || updatePedido.isPending || validandoPrecos) ? (
+                <>
+                  <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  {validandoPrecos ? 'Validando...' : 'Salvando...'}
+                </>
+              ) : (
+                isEditing 
+                  ? (modoEdicao.apenasStatus ? 'Atualizar Status' : 'Salvar Alterações') 
+                  : 'Lançar Pedido'
+              )}
             </Button>
           </div>
         </form>
