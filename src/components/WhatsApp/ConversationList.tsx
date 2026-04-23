@@ -1,11 +1,12 @@
+import { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Search, Users, ArrowUp, ArrowDown, WifiOff, User, LayoutGrid, ListFilter, AlertCircle } from 'lucide-react';
-import { ConversationFilters, WhatsappConversation } from '@/hooks/whatsapp/useWhatsappConversations';
+import { Search, Users, ArrowUp, ArrowDown, WifiOff, User, LayoutGrid, ListFilter, AlertCircle, Pin } from 'lucide-react';
+import { ConversationFilters, WhatsappConversation, usePinConversation } from '@/hooks/whatsapp/useWhatsappConversations';
 import { useGroupedConversations, GroupedConversation } from '@/hooks/whatsapp/useGroupedConversations';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -50,6 +51,16 @@ export default function ConversationList({
   onSortOrderChange,
   onConversationOpened,
 }: ConversationListProps) {
+  const pinConversation = usePinConversation();
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; group: GroupedConversation } | null>(null);
+
+  // Fecha o menu de contexto ao clicar em qualquer lugar
+  useEffect(() => {
+    const handler = () => setContextMenu(null);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
+
   const normalizePreviewText = (raw: string | null | undefined) => {
     if (!raw) return '';
     const text = String(raw).trim();
@@ -87,8 +98,8 @@ export default function ConversationList({
             </AvatarFallback>
           </Avatar>
           <div className="flex items-center gap-2 text-[#54656f]">
-            <IniciarConversaDialog 
-              instances={instances} 
+            <IniciarConversaDialog
+              instances={instances}
               onConversationOpened={onConversationOpened}
             />
           </div>
@@ -112,9 +123,9 @@ export default function ConversationList({
               "h-8 w-8 text-[#54656f] hover:bg-[#f0f2f5] shrink-0",
               filters.status === 'unread' && "bg-[#20c978]/10 text-[#20c978] hover:bg-[#20c978]/20"
             )}
-            onClick={() => onFiltersChange({ 
-              ...filters, 
-              status: filters.status === 'unread' ? 'active' : 'unread' 
+            onClick={() => onFiltersChange({
+              ...filters,
+              status: filters.status === 'unread' ? 'active' : 'unread'
             })}
             title={filters.status === 'unread' ? "Mostrar todas" : "Filtrar conversas não lidas"}
           >
@@ -231,7 +242,7 @@ export default function ConversationList({
           </div>
         )}
 
-        {/* Conversations list */}
+        {/* Lista de conversas */}
         <div className="flex-1 min-h-0 overflow-y-auto">
           {loading ? (
             <div className="p-4 text-center text-[#667781]">Carregando...</div>
@@ -241,117 +252,142 @@ export default function ConversationList({
             </div>
           ) : (
             <div>
-              {(groupedConversations || []).map((group) => {
+              {(groupedConversations || []).map((group, index) => {
                 const hasMultipleInstances = group.instances.length > 1;
                 const isSelected = group.groupKey === selectedGroupKey;
                 const unreadCount = group.totalUnread || 0;
                 const followupColor = group.followupColor || '#f59e0b';
-                
+                const isPinned = group.isPinned;
+
+                // Separador visual entre fixadas e não fixadas
+                const prevGroup = groupedConversations[index - 1];
+                const showSeparator = index > 0 && prevGroup?.isPinned && !isPinned;
+
                 return (
-                  <div
-                    key={group.groupKey}
-                    onClick={() => onSelectGroup(group)}
-                    className={cn(
-                      'w-full px-3 py-3 flex gap-3 hover:bg-[#f5f6f6] transition-colors text-left border-b border-[#e9edef] cursor-pointer',
-                      isSelected && 'bg-[#f0f2f5]',
-                      unreadCount > 0 && !isSelected && 'bg-[#f0fdf4]'
+                  <div key={group.groupKey}>
+                    {showSeparator && (
+                      <div className="px-3 py-1.5 bg-[#f0f2f5] border-b border-[#e9edef]">
+                        <span className="text-[11px] text-[#667781] font-medium uppercase tracking-wide">Conversas</span>
+                      </div>
                     )}
-                    style={group.hasFollowup ? { borderLeft: `3px solid ${followupColor}` } : undefined}
-                  >
-                    <Avatar className="h-12 w-12 flex-shrink-0">
-                      <AvatarImage src={group.photoUrl || undefined} />
-                      <AvatarFallback className="bg-[#dfe5e7] text-[#54656f]">
-                        {group.isGroup ? (
-                          <Users className="h-5 w-5" />
-                        ) : (
-                          getInitials(group.mainName || '?')
-                        )}
-                      </AvatarFallback>
-                    </Avatar>
-                    
-                    <div className="flex-1 min-w-0 flex flex-col justify-center py-0">
-                      {/* Linha 1: Nome + Hora */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          {group.hasFollowup && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <AlertCircle className="h-3.5 w-3.5 shrink-0" style={{ color: followupColor }} />
-                              </TooltipTrigger>
-                              <TooltipContent side="top">
-                                {group.followupReason || 'Conversa marcada para retorno'}
-                              </TooltipContent>
-                            </Tooltip>
+
+                    <div
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setContextMenu({ x: e.clientX, y: e.clientY, group });
+                      }}
+                      onClick={() => onSelectGroup(group)}
+                      className={cn(
+                        'w-full px-3 py-3 flex gap-3 hover:bg-[#f5f6f6] transition-colors text-left border-b border-[#e9edef] cursor-pointer relative',
+                        isSelected && 'bg-[#f0f2f5]',
+                        unreadCount > 0 && !isSelected && 'bg-[#f0fdf4]',
+                        isPinned && !isSelected && 'bg-[#fffbeb]'
+                      )}
+                      style={group.hasFollowup ? { borderLeft: `3px solid ${followupColor}` } : undefined}
+                    >
+                      {/* Ícone de pin */}
+                      {isPinned && (
+                        <Pin className="absolute top-2 right-2 h-3 w-3 text-[#f59e0b] rotate-45 fill-[#f59e0b]" />
+                      )}
+
+                      <Avatar className="h-12 w-12 flex-shrink-0">
+                        <AvatarImage src={group.photoUrl || undefined} />
+                        <AvatarFallback className="bg-[#dfe5e7] text-[#54656f]">
+                          {group.isGroup ? (
+                            <Users className="h-5 w-5" />
+                          ) : (
+                            getInitials(group.mainName || '?')
                           )}
+                        </AvatarFallback>
+                      </Avatar>
+
+                      <div className="flex-1 min-w-0 flex flex-col justify-center py-0">
+                        {/* Nome + Hora */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {group.hasFollowup && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <AlertCircle className="h-3.5 w-3.5 shrink-0" style={{ color: followupColor }} />
+                                </TooltipTrigger>
+                                <TooltipContent side="top">
+                                  {group.followupReason || 'Conversa marcada para retorno'}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                            <span className={cn(
+                              'text-[16px] text-[#111b21] truncate',
+                              unreadCount > 0 ? 'font-semibold' : 'font-normal'
+                            )}>
+                              {group.mainName}
+                            </span>
+                          </div>
                           <span className={cn(
-                            'text-[16px] text-[#111b21] truncate',
-                            unreadCount > 0 ? 'font-semibold' : 'font-normal'
+                            'text-xs whitespace-nowrap flex-shrink-0',
+                            isPinned ? 'pr-4' : '',
+                            unreadCount > 0 ? 'text-[#25d366] font-medium' : 'text-[#667781]'
                           )}>
-                            {group.mainName}
+                            {formatDistanceToNow(new Date(group.lastMessageAt), {
+                              addSuffix: false,
+                              locale: ptBR,
+                            })}
                           </span>
                         </div>
-                        <span className={cn(
-                          'text-xs whitespace-nowrap flex-shrink-0',
-                          unreadCount > 0 ? 'text-[#25d366] font-medium' : 'text-[#667781]'
-                        )}>
-                          {formatDistanceToNow(new Date(group.lastMessageAt), {
-                            addSuffix: false,
-                            locale: ptBR,
-                          })}
-                        </span>
-                      </div>
-                      
-                      {/* Linha 2: Preview + Badge */}
-                      <div className="flex items-center justify-between gap-2 mt-0.5">
-                        <p className={cn(
-                          'text-sm truncate flex-1',
-                          unreadCount > 0 ? 'text-[#111b21] font-medium' : 'text-[#667781]'
-                        )}>
-                          {normalizePreviewText(group.lastMessagePreview) || 'Sem mensagens'}
-                        </p>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          {hasMultipleInstances && (
-                            <Badge variant="secondary" className="h-4 px-1 text-[10px] bg-[#f0f2f5] text-[#54656f] border border-[#d1d7db]">
-                              {group.instances.length} inst
-                            </Badge>
-                          )}
-                          {unreadCount > 0 && (
-                            <span className="flex items-center justify-center bg-[#25d366] text-white text-[11px] font-bold rounded-full min-w-[20px] h-[20px] px-1.5">
-                              {unreadCount}
+
+                        {/* Preview + Badge */}
+                        <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <p className={cn(
+                            'text-sm truncate flex-1',
+                            unreadCount > 0 ? 'text-[#111b21] font-medium' : 'text-[#667781]'
+                          )}>
+                            {normalizePreviewText(group.lastMessagePreview) || 'Sem mensagens'}
+                          </p>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {hasMultipleInstances && (
+                              <Badge variant="secondary" className="h-4 px-1 text-[10px] bg-[#f0f2f5] text-[#54656f] border border-[#d1d7db]">
+                                {group.instances.length} inst
+                              </Badge>
+                            )}
+                            {unreadCount > 0 && (
+                              <span className="flex items-center justify-center bg-[#25d366] text-white text-[11px] font-bold rounded-full min-w-[20px] h-[20px] px-1.5">
+                                {unreadCount}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Atendente e Instância */}
+                        <div className="flex items-center gap-3 mt-1 text-[11px] text-[#667781]">
+                          <div className="flex items-center gap-1 truncate max-w-[50%]">
+                            {group.isGroup ? (
+                              <Users className="h-3 w-3 text-green-500" />
+                            ) : (
+                              <User className="h-3 w-3 text-[#6a67f1]" />
+                            )}
+                            <span className="truncate">
+                              {group.isGroup ? 'Grupo' : (group.assignedUser?.nome || 'Sem atendente')}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 truncate max-w-[50%]">
+                            <LayoutGrid className="h-3 w-3 text-[#6a67f1]" />
+                            <span className="truncate">
+                              {(group.instances || []).map(i => i.nome).join(', ')}
+                            </span>
+                          </div>
+                          {group.hasFollowup && (
+                            <span className="inline-flex items-center gap-1 truncate" style={{ color: followupColor }}>
+                              <AlertCircle className="h-3 w-3" />
+                              Retorno
                             </span>
                           )}
                         </div>
-                      </div>
-
-                      {/* Linha 3: Atendente e Instância (Mockup Style) */}
-                      <div className="flex items-center gap-3 mt-1 text-[11px] text-[#667781]">
-                        <div className="flex items-center gap-1 truncate max-w-[50%]">
-                          {group.isGroup ? (
-                            <Users className="h-3 w-3 text-green-500" />
-                          ) : (
-                            <User className="h-3 w-3 text-[#6a67f1]" />
-                          )}
-                          <span className="truncate">
-                            {group.isGroup ? 'Grupo' : (group.assignedUser?.nome || 'Sem atendente')}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1 truncate max-w-[50%]">
-                          <LayoutGrid className="h-3 w-3 text-[#6a67f1]" />
-                          <span className="truncate">
-                            {(group.instances || []).map(i => i.nome).join(', ')}
-                          </span>
-                        </div>
-                        {group.hasFollowup && (
-                          <span className="inline-flex items-center gap-1 truncate" style={{ color: followupColor }}>
-                            <AlertCircle className="h-3 w-3" />
-                            Retorno
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>
                 );
               })}
+
               {hasMore && (
                 <div className="p-3 border-t border-[#e9edef] bg-white">
                   <Button
@@ -368,6 +404,37 @@ export default function ConversationList({
           )}
         </div>
       </div>
+
+      {/* Menu de contexto (botão direito) */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 bg-white rounded-lg shadow-xl border border-[#e9edef] py-1 min-w-[190px]"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="w-full px-4 py-2.5 text-sm text-left flex items-center gap-3 hover:bg-[#f5f6f6] transition-colors"
+            onClick={() => {
+              const conversationId = contextMenu.group.conversations[0]?.id;
+              if (conversationId) {
+                pinConversation.mutate({
+                  conversationId,
+                  pinned: !contextMenu.group.isPinned,
+                });
+              }
+              setContextMenu(null);
+            }}
+          >
+            <Pin className={cn(
+              'h-4 w-4 rotate-45',
+              contextMenu.group.isPinned ? 'text-[#f59e0b] fill-[#f59e0b]' : 'text-[#54656f]'
+            )} />
+            <span className="text-[#111b21]">
+              {contextMenu.group.isPinned ? 'Desafixar conversa' : 'Fixar conversa'}
+            </span>
+          </button>
+        </div>
+      )}
     </TooltipProvider>
   );
 }

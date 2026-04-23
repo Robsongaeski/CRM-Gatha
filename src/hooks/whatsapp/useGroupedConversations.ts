@@ -26,6 +26,8 @@ export interface GroupedConversation {
   followupFlaggedAt: string | null;
   // Instâncias envolvidas (com status)
   instances: Array<{ id: string; nome: string; status?: string | null }>;
+  // Conversa fixada no topo
+  isPinned: boolean;
 }
 
 function normalizePhoneForGrouping(phone: string | null): string {
@@ -138,10 +140,16 @@ export function useGroupedConversations(conversations: WhatsappConversation[]): 
         followupReason: followupConversation?.followup_reason || null,
         followupFlaggedAt: followupConversation?.followup_flagged_at || null,
         instances: Array.from(uniqueInstancesMap.values()),
+        isPinned: convs.some(c => c.is_pinned),
       });
     });
 
-    result.sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+    // Fixadas sempre no topo, depois ordena por data
+    result.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
+    });
 
     return result;
   }, [conversations]);

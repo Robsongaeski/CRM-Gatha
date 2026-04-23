@@ -94,6 +94,7 @@ export interface WhatsappConversation {
   followup_color?: string | null;
   followup_reason?: string | null;
   followup_flagged_at?: string | null;
+  is_pinned?: boolean;
   created_at: string;
   instance?: {
     id: string;
@@ -169,7 +170,7 @@ export function useWhatsappConversations(
           id, instance_id, remote_jid, is_group, group_name, group_photo_url, 
           contact_name, contact_phone, contact_photo_url, cliente_id, status, 
           assigned_to, last_message_at, last_message_preview, unread_count, 
-          needs_followup, followup_color, followup_reason, followup_flagged_at, created_at,
+          needs_followup, followup_color, followup_reason, followup_flagged_at, is_pinned, created_at,
           instance:whatsapp_instances!left(id, nome, numero_whatsapp, status),
           assigned_user:profiles!whatsapp_conversations_assigned_to_fkey(id, nome),
           finished_user:profiles!whatsapp_conversations_finished_by_fkey(id, nome),
@@ -510,3 +511,38 @@ export function useSaveInternalNotes() {
     }
   });
 }
+
+export function usePinConversation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ conversationId, pinned }: { conversationId: string; pinned: boolean }) => {
+      const { error } = await supabase
+        .from('whatsapp_conversations')
+        .update({ is_pinned: pinned })
+        .eq('id', conversationId);
+
+      if (error) throw error;
+    },
+    onMutate: async ({ conversationId, pinned }) => {
+      // Atualiza o cache imediatamente (optimistic update)
+      queryClient.setQueriesData(
+        { queryKey: ['whatsapp-conversations'], exact: false },
+        (old: WhatsappConversationsResult | undefined) => {
+          if (!old?.data) return old;
+          return {
+            ...old,
+            data: old.data.map(conv =>
+              conv.id === conversationId ? { ...conv, is_pinned: pinned } : conv
+            )
+          };
+        }
+      );
+    },
+    onError: () => {
+      // Em caso de erro, re-busca do banco para garantir consistência
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'] });
+    }
+  });
+}
+
