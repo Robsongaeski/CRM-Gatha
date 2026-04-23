@@ -202,10 +202,10 @@ export default function ChatArea({
 
   // Mark as read logic
   useEffect(() => {
-    if (conversation.unread_count > 0 && conversation.is_group) {
+    if (conversation.unread_count > 0) {
       markAsRead.mutate(conversation.id);
     }
-  }, [conversation.id, conversation.is_group, conversation.unread_count]);
+  }, [conversation.id, conversation.unread_count, markAsRead]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -391,7 +391,7 @@ export default function ChatArea({
           senderName: currentUserProfile?.nome || 'Atendente',
         });
 
-        if (!conversation.is_group && conversation.unread_count > 0) {
+        if (conversation.unread_count > 0) {
           markAsRead.mutate(conversation.id);
         }
       } catch (error: unknown) {
