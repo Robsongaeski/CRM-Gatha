@@ -113,6 +113,10 @@ export default function PagamentosPendentes() {
     return 'normal';
   };
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filtroVendedor, filtroCliente, filtroForma, filtroPedido, filtroStatus]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -143,10 +147,6 @@ export default function PagamentosPendentes() {
   const startIndex = (safeCurrentPage - 1) * ITENS_POR_PAGINA;
   const inicioItem = totalCount === 0 ? 0 : startIndex + 1;
   const fimItem = Math.min(startIndex + ITENS_POR_PAGINA, totalCount);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [filtroVendedor, filtroCliente, filtroForma, filtroPedido, filtroStatus]);
 
   const renderPagination = () => (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
