@@ -152,27 +152,30 @@ export function useWhatsappConversations(
       options?.searchLimit ?? null,
       canViewAllConversations,
     ],
+    staleTime: 1000 * 10, // 10 segundos de cache para filtros repetidos
     queryFn: async (): Promise<WhatsappConversationsResult> => {
       const hasInstanceFilter = Array.isArray(allowedInstanceIds);
       const filteredInstanceIds = hasInstanceFilter
         ? Array.from(new Set((allowedInstanceIds || []).filter(Boolean)))
         : [];
 
-      // Evita vazar conversas quando o usuário não possui instâncias vinculadas.
       if (hasInstanceFilter && filteredInstanceIds.length === 0) {
         return { data: [], totalCount: 0 };
       }
-      // Usar left join para manter conversas mesmo se instância foi removida
-      // Hint necessário pois profiles tem 2 FK (assigned_to e finished_by)
+
+      // Otimização: Selecionar apenas campos necessários e remover contagem exata (muito lenta)
       let query = supabase
         .from('whatsapp_conversations')
         .select(`
-          *,
+          id, instance_id, remote_jid, is_group, group_name, group_photo_url, 
+          contact_name, contact_phone, contact_photo_url, cliente_id, status, 
+          assigned_to, last_message_at, last_message_preview, unread_count, 
+          needs_followup, followup_color, followup_reason, followup_flagged_at, created_at,
           instance:whatsapp_instances!left(id, nome, numero_whatsapp, status),
           assigned_user:profiles!whatsapp_conversations_assigned_to_fkey(id, nome),
           finished_user:profiles!whatsapp_conversations_finished_by_fkey(id, nome),
           cliente:clientes!left(id, nome_razao_social)
-        `, { count: 'exact' })
+        `)
         .order('last_message_at', { ascending: false });
 
       const searchTerm = filters.search.trim();
@@ -183,10 +186,8 @@ export function useWhatsappConversations(
 
       // Filtro de atribuição
       if (!hasSearch && effectiveAssignment === 'mine' && user) {
-        // "mine" mostra APENAS minhas conversas + grupos
         query = query.or(`assigned_to.eq.${user.id},is_group.eq.true`);
       } else if (!hasSearch && effectiveAssignment === 'mine_and_new' && user) {
-        // "mine_and_new" mostra minhas + sem atribuição (novas) + grupos
         query = query.or(`assigned_to.eq.${user.id},assigned_to.is.null,is_group.eq.true`);
       }
 
@@ -200,9 +201,7 @@ export function useWhatsappConversations(
       } else if (filters.status === 'followup_pending') {
         query = query.eq('needs_followup', true).neq('status', 'finished');
       }
-      // status === 'all' não aplica filtro
 
-      // Filtro de instância (do filtro UI)
       if (filters.instanceId) {
         if (hasInstanceFilter && !filteredInstanceIds.includes(filters.instanceId)) {
           return { data: [], totalCount: 0 };
@@ -212,18 +211,12 @@ export function useWhatsappConversations(
 
       if (effectiveAssignedUserId) {
         query = query.eq('assigned_to', effectiveAssignedUserId);
-      }
-      // Filtro de instâncias permitidas (baseado em vínculos do usuário)
-      else if (hasInstanceFilter) {
+      } else if (hasInstanceFilter) {
         query = query.in('instance_id', filteredInstanceIds);
       }
 
       if (hasSearch) {
-        const serverSearchTerm = searchTerm
-          .replace(/[(),'"]/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-
+        const serverSearchTerm = searchTerm.replace(/[(),'"]/g, ' ').replace(/\s+/g, ' ').trim();
         const searchClauses = new Set<string>();
         const matchedClienteIds = new Set<string>();
 
@@ -246,17 +239,12 @@ export function useWhatsappConversations(
             .ilike('nome_razao_social', `%${serverSearchTerm}%`)
             .limit(100);
 
-          const clienteIds = (matchedClientes || [])
-            .map((cliente) => cliente.id)
-            .filter(Boolean);
-
-          clienteIds.forEach((clienteId) => matchedClienteIds.add(clienteId));
+          (matchedClientes || []).forEach(c => matchedClienteIds.add(c.id));
         }
 
         const orderNumberDigits = onlyDigits(searchTerm);
         if (orderNumberDigits.length > 0) {
           const parsedOrderNumber = Number.parseInt(orderNumberDigits, 10);
-
           if (Number.isFinite(parsedOrderNumber)) {
             const { data: matchedPedidos } = await supabase
               .from('pedidos')
@@ -266,9 +254,7 @@ export function useWhatsappConversations(
               .limit(100);
 
             (matchedPedidos || []).forEach((pedido) => {
-              if (pedido.cliente_id) {
-                matchedClienteIds.add(pedido.cliente_id);
-              }
+              if (pedido.cliente_id) matchedClienteIds.add(pedido.cliente_id);
             });
           }
         }
@@ -286,22 +272,19 @@ export function useWhatsappConversations(
       const fetchLimit = hasSearch
         ? (options?.searchLimit ?? CONVERSATION_SEARCH_LIMIT)
         : (options?.limit ?? DEFAULT_CONVERSATION_LIST_LIMIT);
-      const { data, error, count } = await query.limit(fetchLimit + 1);
+      
+      const { data, error } = await query.limit(fetchLimit + 1);
       if (error) throw error;
 
-      // Busca client-side final (normalizacao e consistencia de filtros)
       let results = (data || []) as WhatsappConversation[];
 
+      // Filtros client-side complementares
       if (effectiveAssignedUserId) {
         results = results.filter((conv) => conv.assigned_to === effectiveAssignedUserId);
       } else if (effectiveAssignment === 'mine' && user) {
-        results = results.filter((conv) =>
-          conv.is_group || conv.assigned_to === user.id
-        );
+        results = results.filter((conv) => conv.is_group || conv.assigned_to === user.id);
       } else if (effectiveAssignment === 'mine_and_new' && user) {
-        results = results.filter((conv) =>
-          conv.is_group || conv.assigned_to === user.id || !conv.assigned_to
-        );
+        results = results.filter((conv) => conv.is_group || conv.assigned_to === user.id || !conv.assigned_to);
       }
 
       if (hasSearch) {
@@ -311,21 +294,13 @@ export function useWhatsappConversations(
         results = results.filter((conv) => {
           const matchesText =
             normalizedSearch.length > 0 &&
-            (
-              normalizeSearchText(conv.contact_name).includes(normalizedSearch) ||
+            (normalizeSearchText(conv.contact_name).includes(normalizedSearch) ||
               normalizeSearchText(conv.group_name).includes(normalizedSearch) ||
               normalizeSearchText(conv.last_message_preview).includes(normalizedSearch) ||
-              normalizeSearchText(conv.cliente?.nome_razao_social).includes(normalizedSearch)
-            );
+              normalizeSearchText(conv.cliente?.nome_razao_social).includes(normalizedSearch));
 
-          const matchesPhone = matchesPhoneSearch(
-            searchTerm,
-            conv.contact_phone,
-            conv.remote_jid,
-          );
-
-          const matchesOrderCliente =
-            !!conv.cliente_id && matchedClienteIdSet.has(conv.cliente_id);
+          const matchesPhone = matchesPhoneSearch(searchTerm, conv.contact_phone, conv.remote_jid);
+          const matchesOrderCliente = !!conv.cliente_id && matchedClienteIdSet.has(conv.cliente_id);
 
           return matchesText || matchesPhone || matchesOrderCliente;
         });
@@ -333,7 +308,7 @@ export function useWhatsappConversations(
 
       return {
         data: results.slice(0, fetchLimit),
-        totalCount: count || 0
+        totalCount: results.length >= fetchLimit ? fetchLimit + 100 : results.length // Estimativa para manter infinite scroll
       };
     },
   });

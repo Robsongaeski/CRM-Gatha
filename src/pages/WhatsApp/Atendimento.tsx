@@ -38,6 +38,7 @@ export default function Atendimento() {
     status: 'active',
     search: '',
   });
+  const [searchTerm, setSearchTerm] = useState('');
   const [conversationLimit, setConversationLimit] = useState(INITIAL_CONVERSATION_LIMIT);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedGroup, setSelectedGroup] = useState<GroupedConversation | null>(null);
@@ -115,6 +116,15 @@ export default function Atendimento() {
   useEffect(() => {
     setConversationLimit(INITIAL_CONVERSATION_LIMIT);
   }, [filters.assignment, filters.status, filters.search, filters.instanceId, filters.assignedUserId]);
+
+  // Debounce para a pesquisa
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters(prev => ({ ...prev, search: searchTerm }));
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     if (!canFilterByAttendant && (filters.assignment === 'all' || filters.assignedUserId)) {
@@ -557,8 +567,22 @@ export default function Atendimento() {
           loadingMore={loadingConversations && conversationLimit > INITIAL_CONVERSATION_LIMIT}
           hasMore={hasMoreConversations}
           onLoadMore={() => setConversationLimit((prev) => prev + CONVERSATION_LIMIT_STEP)}
-          filters={filters}
-          onFiltersChange={setFilters}
+          filters={{ ...filters, search: searchTerm }}
+          onFiltersChange={(newFilters) => {
+            // Se mudou apenas a busca, atualiza o searchTerm (que tem debounce)
+            if (newFilters.search !== searchTerm) {
+              setSearchTerm(newFilters.search);
+            }
+            // Se mudou outros filtros, atualiza o estado de filtros imediatamente
+            if (
+              newFilters.assignment !== filters.assignment ||
+              newFilters.status !== filters.status ||
+              newFilters.instanceId !== filters.instanceId ||
+              newFilters.assignedUserId !== filters.assignedUserId
+            ) {
+              setFilters(newFilters);
+            }
+          }}
           canFilterByAttendant={canFilterByAttendant}
           attendants={attendants}
           selectedGroupKey={selectedGroup?.groupKey}
