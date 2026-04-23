@@ -109,9 +109,20 @@ export function useGroupedConversations(conversations: WhatsappConversation[]): 
       const isValidDisplayPhone = normalizedDisplayPhone.length >= 10 && normalizedDisplayPhone.length <= 11;
       const formattedPhone = isValidDisplayPhone ? displayPhone : null;
 
+      // Tenta encontrar um group_name válido em qualquer conversa do grupo
+      const groupName = convs.map(c => c.group_name).find(n => n && n.trim().length > 0);
+
+      // Fallback para grupos sem nome: usa nome da instância ou parte do remote_jid
+      const groupFallbackName = groupName
+        || primary.instance?.nome
+        || (primary.remote_jid?.split('@')[0]?.replace(/\D/g, '').slice(-8) 
+            ? `Grupo ${primary.remote_jid?.split('@')[0]?.replace(/\D/g, '').slice(-8)}`
+            : 'Grupo');
+
       const displayName = primary.is_group
-        ? primary.group_name
+        ? groupFallbackName
         : (bestContactName || primary.cliente?.nome_razao_social || formattedPhone || 'Contato');
+
 
       const uniqueInstancesMap = new Map<string, { id: string; nome: string; status?: string | null }>();
       convs.forEach(c => {
