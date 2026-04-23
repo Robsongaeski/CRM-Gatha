@@ -79,35 +79,25 @@ export function useWhatsappMessages(conversationId: string | null, limit = MESSA
     if (!conversationId) return;
 
     const channel = supabase
-      .channel(`whatsapp-messages-all-${conversationId}`)
+      .channel(`whatsapp-messages-${conversationId}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
-          table: 'whatsapp_messages'
+          table: 'whatsapp_messages',
+          filter: `conversation_id=eq.${conversationId}`
         },
         (payload) => {
-          const newMessage = payload.new as WhatsappMessage;
-          
-          // Filtra no JS para garantir que pertence a esta conversa
-          if (newMessage.conversation_id !== conversationId) return;
-
-          // Atualiza o cache do React Query
+          // Atualiza todas as queries de mensagens desta conversa (independente do limite atual)
           queryClient.setQueriesData(
             { queryKey: ['whatsapp-messages', conversationId], exact: false },
-            (old: WhatsappMessage[] | undefined) => {
-              const currentMessages = Array.isArray(old) ? old : [];
-              if (currentMessages.some((msg) => msg.id === newMessage.id)) return currentMessages;
-              return [...currentMessages, newMessage];
+            (old: WhatsappMessage[] = []) => {
+              const newMessage = payload.new as WhatsappMessage;
+              if (old.some((message) => message.id === newMessage.id)) return old;
+              return [...old, newMessage];
             }
           );
-
-          // Invalida a query para garantir sincronia (com throttle implícito do react-query)
-          queryClient.invalidateQueries({ 
-            queryKey: ['whatsapp-messages', conversationId],
-            refetchType: 'active' 
-          });
         }
       )
       .on(
@@ -115,30 +105,22 @@ export function useWhatsappMessages(conversationId: string | null, limit = MESSA
         {
           event: 'UPDATE',
           schema: 'public',
-          table: 'whatsapp_messages'
+          table: 'whatsapp_messages',
+          filter: `conversation_id=eq.${conversationId}`
         },
         (payload) => {
-          const updatedMessage = payload.new as WhatsappMessage;
-          
-          // Filtra no JS
-          if (updatedMessage.conversation_id !== conversationId) return;
-
           queryClient.setQueriesData(
             { queryKey: ['whatsapp-messages', conversationId], exact: false },
-            (old: WhatsappMessage[] | undefined) => {
-              const currentMessages = Array.isArray(old) ? old : [];
-              return currentMessages.map((msg) =>
-                msg.id === updatedMessage.id ? updatedMessage : msg
+            (old: WhatsappMessage[] = []) => {
+              const oldArray = Array.isArray(old) ? old : [];
+              return oldArray.map((message) =>
+                message.id === payload.new.id ? (payload.new as WhatsappMessage) : message,
               );
             }
           );
         }
       )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('[Realtime] Subscribed to whatsapp-messages for:', conversationId);
-        }
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
