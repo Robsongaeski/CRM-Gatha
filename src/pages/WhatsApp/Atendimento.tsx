@@ -436,6 +436,10 @@ export default function Atendimento() {
   });
 
   const sortedGroups = [...visibleGroups].sort((a, b) => {
+    // Fixadas sempre no topo, independente do sortOrder
+    if (a.isPinned && !b.isPinned) return -1;
+    if (!a.isPinned && b.isPinned) return 1;
+
     if (filters.status === 'followup_pending') {
       const aTime = a.followupFlaggedAt ? new Date(a.followupFlaggedAt).getTime() : 0;
       const bTime = b.followupFlaggedAt ? new Date(b.followupFlaggedAt).getTime() : 0;

@@ -525,6 +525,12 @@ export function usePinConversation() {
       if (error) throw error;
     },
     onMutate: async ({ conversationId, pinned }) => {
+      // Cancela refetches pendentes para evitar sobrescrita do optimistic update
+      await queryClient.cancelQueries({ queryKey: ['whatsapp-conversations'] });
+
+      // Guarda o estado anterior para rollback
+      const previousData = queryClient.getQueriesData({ queryKey: ['whatsapp-conversations'] });
+
       // Atualiza o cache imediatamente (optimistic update)
       queryClient.setQueriesData(
         { queryKey: ['whatsapp-conversations'], exact: false },
@@ -538,11 +544,22 @@ export function usePinConversation() {
           };
         }
       );
+
+      return { previousData };
     },
-    onError: () => {
-      // Em caso de erro, re-busca do banco para garantir consistência
+    onError: (_error, _variables, context) => {
+      // Rollback: restaura o estado anterior em caso de erro
+      if (context?.previousData) {
+        context.previousData.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data);
+        });
+      }
+    },
+    onSettled: () => {
+      // Garante sincronização com o banco após sucesso ou erro
       queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'] });
     }
   });
 }
+
 
