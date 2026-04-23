@@ -38,7 +38,7 @@ export default function Atendimento() {
     status: 'active',
     search: '',
   });
-  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [conversationLimit, setConversationLimit] = useState(INITIAL_CONVERSATION_LIMIT);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedGroup, setSelectedGroup] = useState<GroupedConversation | null>(null);
@@ -99,9 +99,28 @@ export default function Atendimento() {
     enabled: canFilterByAttendant && allowedInstanceIds.length > 0,
   });
 
+  // Debounce: aplica o texto da busca 400ms após parar de digitar
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(filters.search);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [filters.search]);
+
+  // Filtros efetivos enviados ao hook (search usa versão debounced)
+  const effectiveFilters = useMemo(
+    () => ({ ...filters, search: debouncedSearch }),
+    [filters, debouncedSearch]
+  );
+
+  // Resetar o limite de conversões quando os filtros mudam
+  useEffect(() => {
+    setConversationLimit(INITIAL_CONVERSATION_LIMIT);
+  }, [effectiveFilters.assignment, effectiveFilters.status, effectiveFilters.search, effectiveFilters.instanceId, effectiveFilters.assignedUserId]);
+
   // Buscar conversas apenas das instâncias permitidas
   const { data: conversationsData, isLoading: loadingConversations } = useWhatsappConversations(
-    filters,
+    effectiveFilters,
     allowedInstanceIds,
     { limit: conversationLimit, searchLimit: 5000 },
     canFilterByAttendant,
@@ -109,22 +128,8 @@ export default function Atendimento() {
 
   const conversations = conversationsData?.data || [];
   const totalConversations = conversationsData?.totalCount || 0;
-
-  const isSearching = filters.search.trim().length > 0;
+  const isSearching = effectiveFilters.search.trim().length > 0;
   const hasMoreConversations = !isSearching && conversations.length < totalConversations;
-
-  useEffect(() => {
-    setConversationLimit(INITIAL_CONVERSATION_LIMIT);
-  }, [filters.assignment, filters.status, filters.search, filters.instanceId, filters.assignedUserId]);
-
-  // Debounce para a pesquisa
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setFilters(prev => ({ ...prev, search: searchTerm }));
-    }, 400);
-
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
 
   useEffect(() => {
     if (!canFilterByAttendant && (filters.assignment === 'all' || filters.assignedUserId)) {
@@ -567,22 +572,9 @@ export default function Atendimento() {
           loadingMore={loadingConversations && conversationLimit > INITIAL_CONVERSATION_LIMIT}
           hasMore={hasMoreConversations}
           onLoadMore={() => setConversationLimit((prev) => prev + CONVERSATION_LIMIT_STEP)}
-          filters={{ ...filters, search: searchTerm }}
-          onFiltersChange={(newFilters) => {
-            // Se mudou apenas a busca, atualiza o searchTerm (que tem debounce)
-            if (newFilters.search !== searchTerm) {
-              setSearchTerm(newFilters.search);
-            }
-            // Se mudou outros filtros, atualiza o estado de filtros imediatamente
-            if (
-              newFilters.assignment !== filters.assignment ||
-              newFilters.status !== filters.status ||
-              newFilters.instanceId !== filters.instanceId ||
-              newFilters.assignedUserId !== filters.assignedUserId
-            ) {
-              setFilters(newFilters);
-            }
-          }}
+          filters={filters}
+          onFiltersChange={setFilters}
+
           canFilterByAttendant={canFilterByAttendant}
           attendants={attendants}
           selectedGroupKey={selectedGroup?.groupKey}

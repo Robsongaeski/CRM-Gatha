@@ -152,7 +152,6 @@ export function useWhatsappConversations(
       options?.searchLimit ?? null,
       canViewAllConversations,
     ],
-    staleTime: 1000 * 10, // 10 segundos de cache para filtros repetidos
     queryFn: async (): Promise<WhatsappConversationsResult> => {
       const hasInstanceFilter = Array.isArray(allowedInstanceIds);
       const filteredInstanceIds = hasInstanceFilter
@@ -337,29 +336,34 @@ export function useWhatsappConversations(
           table: 'whatsapp_conversations'
         },
         (payload) => {
-          // Para UPDATE, atualiza diretamente no cache sem recarregar tudo
+          // Para UPDATE: atualiza apenas o cache local sem ir ao banco.
+          // Isso evita o ciclo vicioso: mensagem chega -> unread_count atualiza ->
+          // invalidate -> refetch pesado -> "Carregando..." -> repete.
           queryClient.setQueriesData(
             { queryKey: ['whatsapp-conversations'], exact: false },
             (old: WhatsappConversationsResult | undefined) => {
               if (!old || !old.data || !Array.isArray(old.data)) return old;
+              const updatedConv = payload.new as Partial<WhatsappConversation>;
+              const exists = old.data.some(conv => conv.id === updatedConv.id);
+              if (!exists) {
+                // Conversa não está na lista atual — força refetch para buscá-la
+                const now = Date.now();
+                if (now - lastInvalidateAtRef.current > 5000) {
+                  lastInvalidateAtRef.current = now;
+                  queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'], refetchType: 'active' });
+                }
+                return old;
+              }
               return {
                 ...old,
                 data: old.data.map(conv =>
-                  conv.id === payload.new.id
-                    ? { ...conv, ...(payload.new as Partial<WhatsappConversation>) }
+                  conv.id === updatedConv.id
+                    ? { ...conv, ...updatedConv }
                     : conv
                 )
               };
             }
           );
-
-          // Conversas fora do limite atual nao entram apenas com setQueriesData.
-          // Forca um refetch com throttle para trazer conversas antigas que ficaram ativas.
-          const now = Date.now();
-          if (now - lastInvalidateAtRef.current > 1500) {
-            lastInvalidateAtRef.current = now;
-            queryClient.invalidateQueries({ queryKey: ['whatsapp-conversations'], refetchType: 'active' });
-          }
         }
       )
       .subscribe();
