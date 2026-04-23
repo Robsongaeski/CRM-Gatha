@@ -198,7 +198,7 @@ export function useWhatsappConversations(
       } else if (filters.status === 'active') {
         query = query.neq('status', 'finished');
       } else if (filters.status === 'followup_pending') {
-        query = query.eq('needs_followup', true);
+        query = query.eq('needs_followup', true).neq('status', 'finished');
       }
       // status === 'all' não aplica filtro
 
@@ -469,7 +469,11 @@ export function useFinishConversation() {
           status: 'finished', 
           unread_count: 0,
           finished_by: user?.id,
-          assigned_to: null
+          assigned_to: null,
+          needs_followup: false,
+          followup_reason: null,
+          followup_color: null,
+          followup_flagged_at: null
         })
         .eq('id', conversationId);
 

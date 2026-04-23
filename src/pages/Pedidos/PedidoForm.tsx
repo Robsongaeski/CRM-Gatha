@@ -1775,12 +1775,20 @@ export default function PedidoForm() {
                                 disabled={camposDesabilitados}
                               />
                             </FormControl>
-                            {itemsAbaixoMinimo.includes(index) && faixasPreco[index] && (
-                              <div className="flex items-center gap-1 mt-1">
-                                <AlertTriangle className="h-3 w-3 text-warning" />
-                                <span className="text-xs text-warning">
-                                  Abaixo do mínimo ({formatCurrency(faixasPreco[index].preco_minimo)})
-                                </span>
+                            {faixasPreco[index] && (
+                              <div className="space-y-1 mt-1">
+                                <div className="text-[10px] text-muted-foreground flex gap-2">
+                                  <span>Mín: {formatCurrency(Number(faixasPreco[index].preco_minimo))}</span>
+                                  <span>Máx: {formatCurrency(Number(faixasPreco[index].preco_maximo))}</span>
+                                </div>
+                                {itemsAbaixoMinimo.includes(index) && (
+                                  <div className="flex items-center gap-1">
+                                    <AlertTriangle className="h-3 w-3 text-warning" />
+                                    <span className="text-xs text-warning">
+                                      Abaixo do mínimo
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                             )}
                             <FormMessage />

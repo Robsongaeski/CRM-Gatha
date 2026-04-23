@@ -35,7 +35,7 @@ import { CurrencyInput } from '@/components/ui/currency-input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
-import { CalendarIcon, Plus, Trash2, UserPlus, Palette, Upload, ImageIcon, X, Copy } from 'lucide-react';
+import { CalendarIcon, Plus, Trash2, UserPlus, Palette, Upload, ImageIcon, X, Copy, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { compressImage } from '@/lib/imageCompression';
@@ -801,7 +801,27 @@ export default function PropostaForm() {
                         <FormField control={form.control} name={`itens.${index}.valor_unitario`} render={({ field }) => (
                           <FormItem>
                             <FormLabel>Valor Unitário</FormLabel>
-                            <FormControl><Input type="number" step="0.01" {...field} onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
+                            <FormControl>
+                              <CurrencyInput 
+                                value={field.value} 
+                                onChange={field.onChange} 
+                                disabled={camposDesabilitados}
+                              />
+                            </FormControl>
+                            {faixasPreco[index] && (
+                              <div className="space-y-1 mt-1">
+                                <div className="text-[10px] text-muted-foreground flex gap-2">
+                                  <span>Mín: {formatCurrency(Number(faixasPreco[index].preco_minimo))}</span>
+                                  <span>Máx: {formatCurrency(Number(faixasPreco[index].preco_maximo))}</span>
+                                </div>
+                                {Number(field.value) < Number(faixasPreco[index].preco_minimo) && (
+                                  <div className="flex items-center gap-1">
+                                    <AlertTriangle className="h-3 w-3 text-amber-600" />
+                                    <span className="text-xs text-amber-600 font-medium">Abaixo do mínimo</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             <FormMessage />
                           </FormItem>
                         )} />

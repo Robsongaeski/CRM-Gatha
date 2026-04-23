@@ -155,6 +155,10 @@ export default function WhatsAppAtendimento() {
       totalUnread: conv.unread_count || 0,
       cliente: conv.cliente,
       assignedUser: conv.assigned_user,
+      hasFollowup: (conv.needs_followup && conv.status !== 'finished') || false,
+      followupColor: conv.followup_color || null,
+      followupReason: conv.followup_reason || null,
+      followupFlaggedAt: conv.followup_flagged_at || null,
       instances: conv.instance ? [{ id: conv.instance.id, nome: conv.instance.nome, status: conv.instance.status }] : [],
     };
   }, []);

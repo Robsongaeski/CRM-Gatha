@@ -1,4 +1,4 @@
-﻿import { useMemo } from 'react';
+import { useMemo } from 'react';
 import { WhatsappConversation } from './useWhatsappConversations';
 
 export interface GroupedConversation {
@@ -83,7 +83,7 @@ export function useGroupedConversations(conversations: WhatsappConversation[]): 
 
       const primary = convs[0];
       const followupConversation = convs
-        .filter(c => c.needs_followup)
+        .filter(c => c.needs_followup && c.status !== 'finished')
         .sort((a, b) => {
           const aTime = a.followup_flagged_at ? new Date(a.followup_flagged_at).getTime() : 0;
           const bTime = b.followup_flagged_at ? new Date(b.followup_flagged_at).getTime() : 0;
