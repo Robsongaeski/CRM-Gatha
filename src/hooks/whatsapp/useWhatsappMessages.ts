@@ -78,8 +78,9 @@ export function useWhatsappMessages(conversationId: string | null, limit = MESSA
   useEffect(() => {
     if (!conversationId) return;
 
+    // Canal único por conversa
     const channel = supabase
-      .channel(`whatsapp-messages-${conversationId}`)
+      .channel(`whatsapp-msg-sync-${conversationId}`)
       .on(
         'postgres_changes',
         {
@@ -89,13 +90,16 @@ export function useWhatsappMessages(conversationId: string | null, limit = MESSA
           filter: `conversation_id=eq.${conversationId}`
         },
         (payload) => {
-          // Atualiza todas as queries de mensagens desta conversa (independente do limite atual)
+          const newMessage = payload.new as WhatsappMessage;
+          
+          // Atualiza o cache do React Query para todas as queries desta conversa (diferentes limites)
           queryClient.setQueriesData(
             { queryKey: ['whatsapp-messages', conversationId], exact: false },
-            (old: WhatsappMessage[] = []) => {
-              const newMessage = payload.new as WhatsappMessage;
-              if (old.some((message) => message.id === newMessage.id)) return old;
-              return [...old, newMessage];
+            (old: WhatsappMessage[] | undefined) => {
+              const currentMessages = Array.isArray(old) ? old : [];
+              // Evita duplicatas se a query de fetch e o realtime dispararem quase juntos
+              if (currentMessages.some((msg) => msg.id === newMessage.id)) return currentMessages;
+              return [...currentMessages, newMessage];
             }
           );
         }
@@ -109,12 +113,14 @@ export function useWhatsappMessages(conversationId: string | null, limit = MESSA
           filter: `conversation_id=eq.${conversationId}`
         },
         (payload) => {
+          const updatedMessage = payload.new as WhatsappMessage;
+          
           queryClient.setQueriesData(
             { queryKey: ['whatsapp-messages', conversationId], exact: false },
-            (old: WhatsappMessage[] = []) => {
-              const oldArray = Array.isArray(old) ? old : [];
-              return oldArray.map((message) =>
-                message.id === payload.new.id ? (payload.new as WhatsappMessage) : message,
+            (old: WhatsappMessage[] | undefined) => {
+              const currentMessages = Array.isArray(old) ? old : [];
+              return currentMessages.map((msg) =>
+                msg.id === updatedMessage.id ? updatedMessage : msg
               );
             }
           );
